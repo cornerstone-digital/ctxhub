@@ -9,7 +9,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Context pack export and replay
 - [ ] Interactive workspace viewer
 - [ ] Rich Mermaid validation
-- [ ] Architecture drift detection
+- [x] Architecture drift detection
 - [ ] Agent handoff bundles
 - [ ] Config doctor fix mode
 - [ ] Search quality dashboard
@@ -170,6 +170,8 @@ Acceptance criteria:
 - Existing lightweight validation remains quick and dependency-light.
 
 ## 6. Architecture Drift Detection
+
+**Status:** Done
 
 **Command:** `ctxhub graph --drift`
 

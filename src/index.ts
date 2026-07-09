@@ -217,6 +217,8 @@ validate
 program
   .command('graph')
   .option('--json', 'Print JSON')
+  .option('--drift', 'Detect missing or unknown architecture graph references')
+  .option('--fail-on-drift', 'Exit non-zero when drift findings are present')
   .description('Summarize workspace components and relationships from architecture diagrams and package metadata')
   .action(graphCommand);
 

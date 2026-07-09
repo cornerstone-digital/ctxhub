@@ -168,7 +168,7 @@ privacy:
 - `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
 - `ctxhub note add <repo> "<title>" [--agent <name>]`: scaffold a dated, consistently-formatted note file under `<repo>/agent-notes/` for anything worth a teammate seeing in a PR (see [Two kinds of agent memory](#two-kinds-of-agent-memory)).
 - `ctxhub diagram add <repo> "<title>" [--agent <name>]`: scaffold a dated Mermaid `.mmd` architecture diagram under `<repo>/docs/architecture/` for reviewable team architecture context.
-- `ctxhub graph [--json]`: summarize workspace components and relationships from indexed diagrams plus package metadata.
+- `ctxhub graph [--json|--drift]`: summarize workspace components and relationships from indexed diagrams plus package metadata; `--drift` flags missing or unknown architecture references and `--fail-on-drift` makes those findings CI-failing.
 - `ctxhub validate docs [--json]`: check Markdown local links and Mermaid diagram declarations.
 - `ctxhub eval [--init|--file <path>]`: run golden query checks against the index.
 
