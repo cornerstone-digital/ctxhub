@@ -29,11 +29,14 @@ Before opening a PR:
 ```bash
 npm run build   # tsc must pass with no errors
 npm test        # all tests must pass
+npm run lint    # eslint must pass with no errors
 ```
+
+CI (`.github/workflows/ci.yml`) runs the same three, plus `npm audit --audit-level=high` and, on PRs, commitlint against every commit in the PR range — all against a Node 20/22 matrix.
 
 ## Code style
 
-- TypeScript strict mode. No `any` without a good reason.
+- TypeScript strict mode. No `any` without a good reason. ESLint (`typescript-eslint`'s recommended rules, flat config in `eslint.config.js`) enforces the mechanical parts of this; `eslint-config-prettier` is included so adding a formatter later won't fight it, though none is wired up yet.
 - No comments explaining *what* code does — names should make that obvious. Comments are for non-obvious *why* (a workaround, a subtle constraint, a decision that would otherwise look arbitrary).
 - Don't add abstractions, config options, or error handling for cases that can't happen. Match the existing level of directness in a given file rather than generalizing ahead of need.
 - Terminal output uses `chalk` (✓/✗/! prefixes) and `ora` spinners for long-running steps — match the existing style rather than introducing a new output convention.
@@ -60,6 +63,8 @@ The hook installs automatically via `npm install` (the `prepare` script runs `hu
 ## Releases
 
 Versioning and `CHANGELOG.md` are fully automated by [semantic-release](https://semantic-release.gitbook.io/), driven entirely by commit types since the last release — don't hand-edit `CHANGELOG.md` or bump `version` in `package.json` yourself. On every push to `main`, CI (`.github/workflows/release.yml`) determines the next version from the commits since the last release (`fix:` → patch, `feat:` → minor, a `BREAKING CHANGE:`/`!` → major), tags it, updates the changelog, and creates a GitHub release. Publishing to npm is currently disabled (`npmPublish: false` in `.releaserc.json`) until we're ready to ship publicly.
+
+Note the local `v0.1.0` git tag: semantic-release has no support for starting below `1.0.0` — with zero prior tags, its very first automated release always jumps straight to `1.0.0`, regardless of commit types (this is documented, deliberate behavior, not configurable). Since this project isn't committing to a stable API yet, `v0.1.0` was seeded as a baseline before the first CI run, so releases compute forward from there (`0.1.0` → `0.2.0` for a `feat:`, → `0.1.1` for a `fix:`, etc.) instead of skipping straight to `1.0.0`. Crossing into `1.0.0` should be a deliberate choice (a `BREAKING CHANGE:`/`!` commit, or a manual tag), not an artifact of "this happened to be the first release."
 
 ## Pull requests
 
