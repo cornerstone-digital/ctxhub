@@ -157,5 +157,6 @@ The memory API lives in `src/memory/MemoryAdapter.ts`. MemPalace is the default 
 Planned extension points:
 
 - Codex launch integration (see note above)
-- embeddings/vector DB provider
 - AI-generated documentation validation
+
+Not planned: a MemPalace provider for CLI write operations (writes should go through MemPalace's own CLI/MCP tools, not SSD's document indexer — see `MempalaceMemory` in `src/memory/LocalJsonMemory.ts`), or an embeddings/vector-DB index provider (lexical/FTS search already covers this project's typical doc+code corpus well, and a local embedding model would mean a second native binary dependency for modest benefit). Both were deliberately decided against rather than merely deferred.

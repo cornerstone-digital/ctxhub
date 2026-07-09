@@ -133,9 +133,10 @@ Status of the extension points named in the original brief:
 - [x] MCP server integration — `ssd mcp`, see above.
 - [x] Post-pull/post-commit hooks — `hooks.postPull`/`hooks.postIndex` config, plus `ssd repo hook <name>` for a real Git `post-commit` hook.
 - [x] Claude launch integration — `ssd agent claude`; Codex intentionally deferred (see above).
-- [ ] MemPalace provider for CLI *write* operations (currently read/status-only by design; writes go through MemPalace itself).
-- [ ] Embeddings/vector DB index provider (the `IndexProvider` interface and LanceDB's schema are structured to support this later).
+- [ ] Codex launch integration — needs its actual MCP config format (`~/.codex/config.toml`) verified first.
 - [ ] AI-generated documentation validation.
+
+Not planned: a MemPalace provider for CLI *write* operations, or an embeddings/vector-DB index provider. Both were deliberately decided against rather than merely deferred — see "Architecture: index vs. memory" and the note under "Agent launch integration" above.
 
 ## Acceptance criteria
 
