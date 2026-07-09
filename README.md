@@ -11,13 +11,19 @@
 
 ## Install
 
+Not published to npm yet (see [CONTRIBUTING.md](./CONTRIBUTING.md#releases) — `npmPublish` is intentionally off until this is ready to ship publicly). For now, install from a clone:
+
 ```bash
+git clone <this-repo>
+cd ctxhub
 npm install
 npm run build
-npm link
+npm link   # puts `ctxhub` on your PATH globally
 ```
 
-For local development:
+Once published, this section will be `npm install -g ctxhub` (or `npx ctxhub@latest <command>` to run it without installing anything).
+
+For local development, run against source without building:
 
 ```bash
 npm run ctxhub -- --help
