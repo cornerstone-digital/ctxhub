@@ -225,6 +225,7 @@ const validate = program.command('validate').description('Validate indexed docs 
 validate
   .command('docs')
   .option('--json', 'Print JSON')
+  .option('--strict-diagrams', 'Run stricter local Mermaid syntax checks')
   .description('Check docs for broken local links and malformed Mermaid files')
   .action(validateDocsCommand);
 

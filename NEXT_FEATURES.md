@@ -8,7 +8,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] CI workflow templates
 - [x] Context pack export and replay
 - [ ] Interactive workspace viewer
-- [ ] Rich Mermaid validation
+- [x] Rich Mermaid validation
 - [x] Architecture drift detection
 - [x] Agent handoff bundles
 - [ ] Config doctor fix mode
@@ -141,6 +141,8 @@ Acceptance criteria:
 - Does not expose a network listener by default unless explicitly requested.
 
 ## 5. Rich Mermaid Validation
+
+**Status:** Done
 
 **Command:** extend `ctxhub validate docs`
 
