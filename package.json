@@ -1,23 +1,23 @@
 {
-  "name": "ssd",
+  "name": "devctx",
   "version": "0.1.0",
-  "description": "Reusable SSD developer workspace CLI for multi-repo indexing and AI memory workflows.",
+  "description": "Reusable developer workspace CLI for multi-repo indexing and AI agent memory/MCP workflows.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "ssd": "dist/index.js"
+    "devctx": "dist/index.js"
   },
   "files": [
     "dist",
     "skills",
     "README.md",
-    "ssd.example.yaml"
+    "devctx.example.yaml"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc",
     "dev": "tsx src/index.ts",
-    "ssd": "tsx src/index.ts",
+    "devctx": "tsx src/index.ts",
     "test": "node --import tsx --test",
     "prepack": "npm run build"
   },

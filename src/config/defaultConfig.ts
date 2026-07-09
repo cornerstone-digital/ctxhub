@@ -1,9 +1,9 @@
-import type { SsdConfig } from './types.js';
+import type { DevctxConfig } from './types.js';
 
-export const defaultConfig: SsdConfig = {
+export const defaultConfig: DevctxConfig = {
   version: 1,
   workspace: {
-    name: 'ssd-workspace'
+    name: 'devctx-workspace'
   },
   repositories: [],
   knowledge: {
@@ -18,12 +18,12 @@ export const defaultConfig: SsdConfig = {
   },
   memory: {
     provider: 'mempalace',
-    path: '.ssd/memory/mempalace'
+    path: '.devctx/memory/mempalace'
   },
   index: {
     provider: 'lancedb',
-    path: '.ssd/index/lancedb',
-    table: 'ssd_chunks',
+    path: '.devctx/index/lancedb',
+    table: 'devctx_chunks',
     incremental: true,
     chunkSize: 1800
   },

@@ -9,9 +9,9 @@ export async function initCommand(opts: { name?: string; force?: boolean }) {
     throw new Error(`${existingConfig} already exists. Use --force to overwrite.`);
   }
 
-  const name = opts.name ?? await input({ message: 'Workspace name', default: 'ssd-workspace' });
+  const name = opts.name ?? await input({ message: 'Workspace name', default: 'devctx-workspace' });
   await initConfig(name);
   const preferredPath = (await pathExists(LOCAL_CONFIG_PATH)) ? LOCAL_CONFIG_PATH : CONFIG_PATH;
   console.log(chalk.green(`Created ${preferredPath}`));
-  console.log(chalk.gray('Created .ssd/index, .ssd/cache, and .ssd/memory'));
+  console.log(chalk.gray('Created .devctx/index, .devctx/cache, and .devctx/memory'));
 }

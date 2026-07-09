@@ -5,10 +5,10 @@ import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { runConfiguredHook } from './hooks.js';
 import { pathExists, readText } from './fs.js';
-import type { SsdConfig } from '../config/types.js';
+import type { DevctxConfig } from '../config/types.js';
 
 async function withTempDir(run: (dir: string) => Promise<void>) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'ssd-hooks-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'devctx-hooks-'));
   try {
     await run(dir);
   } finally {
@@ -16,14 +16,14 @@ async function withTempDir(run: (dir: string) => Promise<void>) {
   }
 }
 
-function makeConfig(hooks: SsdConfig['hooks']): SsdConfig {
+function makeConfig(hooks: DevctxConfig['hooks']): DevctxConfig {
   return {
     version: 1,
     workspace: { name: 'ws' },
     repositories: [],
     knowledge: { include: [], exclude: [] },
-    memory: { provider: 'local-json', path: '.ssd/memory' },
-    index: { provider: 'local-json', path: '.ssd/index', table: 't', incremental: true, chunkSize: 100 },
+    memory: { provider: 'local-json', path: '.devctx/memory' },
+    index: { provider: 'local-json', path: '.devctx/index', table: 't', incremental: true, chunkSize: 100 },
     hooks
   };
 }
@@ -37,7 +37,7 @@ test('runConfiguredHook does nothing when the hook is not configured', () => {
 test('runConfiguredHook runs the configured shell command with workspace env vars', () => {
   return withTempDir(async dir => {
     const markerPath = path.join(dir, 'ran.txt');
-    const config = makeConfig({ postIndex: `echo "$SSD_EVENT:$SSD_WORKSPACE" > "${markerPath}"` });
+    const config = makeConfig({ postIndex: `echo "$DEVCTX_EVENT:$DEVCTX_WORKSPACE" > "${markerPath}"` });
 
     await runConfiguredHook(config, 'postIndex', dir);
 

@@ -53,12 +53,12 @@ export async function repoDiscoverCommand(root = '.') {
   await saveConfig(config);
 }
 
-export function postCommitHookScript(workspaceRoot: string, ssdEntry: string, repoName: string): string {
+export function postCommitHookScript(workspaceRoot: string, cliEntryPath: string, repoName: string): string {
   return [
     '#!/bin/sh',
-    `# Installed by ssd (\`ssd repo hook ${repoName}\`) — re-indexes this SSD workspace after each commit.`,
+    `# Installed by devctx (\`devctx repo hook ${repoName}\`) — re-indexes this devctx workspace after each commit.`,
     `cd "${workspaceRoot}" || exit 0`,
-    `node "${ssdEntry}" index >/dev/null 2>&1 &`,
+    `node "${cliEntryPath}" index >/dev/null 2>&1 &`,
     'exit 0',
     ''
   ].join('\n');

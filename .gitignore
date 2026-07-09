@@ -1,5 +1,5 @@
 node_modules/
 dist/
-.ssd/
+.devctx/
 *.log
 .DS_Store

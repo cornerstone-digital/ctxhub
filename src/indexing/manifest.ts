@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { Manifest } from '../config/types.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 
-export const MANIFEST_PATH = path.join('.ssd', 'memory', 'manifest.json');
+export const MANIFEST_PATH = path.join('.devctx', 'memory', 'manifest.json');
 
 export async function loadManifest(workspace: string, cwd = process.cwd()): Promise<Manifest> {
   const fullPath = path.join(cwd, MANIFEST_PATH);

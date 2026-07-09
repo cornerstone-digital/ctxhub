@@ -7,7 +7,7 @@ import { LocalJsonMemory } from './LocalJsonMemory.js';
 import type { IndexedDocument } from '../config/types.js';
 
 async function withTempStore(run: (storePath: string) => Promise<void>) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'ssd-memory-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'devctx-memory-'));
   try {
     await run(path.join(dir, 'store.json'));
   } finally {

@@ -26,7 +26,7 @@ export async function memoryStatusCommand() {
 
 export async function memoryClearCommand(opts: { force?: boolean } = {}) {
   const config = await loadConfig();
-  const shouldClear = opts.force || await confirm({ message: 'Clear local SSD memory and index?', default: false });
+  const shouldClear = opts.force || await confirm({ message: 'Clear local devctx memory and index?', default: false });
   if (!shouldClear) {
     console.log(chalk.yellow('Memory clear cancelled.'));
     return;

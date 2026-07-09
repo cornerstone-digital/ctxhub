@@ -97,15 +97,15 @@ export class MempalaceMemory implements MemoryAdapter {
   constructor(private readonly palacePath: string) {}
 
   async indexDocument(): Promise<void> {
-    throw new Error('MemPalace writes should happen through its CLI/MCP tools, not the SSD document indexer.');
+    throw new Error('MemPalace writes should happen through its CLI/MCP tools, not the devctx document indexer.');
   }
 
   async indexDocuments(): Promise<void> {
-    throw new Error('MemPalace writes should happen through its CLI/MCP tools, not the SSD document indexer.');
+    throw new Error('MemPalace writes should happen through its CLI/MCP tools, not the devctx document indexer.');
   }
 
   async upsertChunks(): Promise<void> {
-    throw new Error('MemPalace writes should happen through its CLI/MCP tools, not the SSD document indexer.');
+    throw new Error('MemPalace writes should happen through its CLI/MCP tools, not the devctx document indexer.');
   }
 
   async removeDocument(): Promise<void> {
@@ -121,7 +121,7 @@ export class MempalaceMemory implements MemoryAdapter {
   }
 
   async search(): Promise<SearchResult[]> {
-    throw new Error('Use MemPalace MCP/CLI search for durable agent memory. Use `ssd search` for the LanceDB project index.');
+    throw new Error('Use MemPalace MCP/CLI search for durable agent memory. Use `devctx search` for the LanceDB project index.');
   }
 
   async stats(): Promise<{ chunks: number; lastIndexed?: string }> {
@@ -141,7 +141,7 @@ export class MempalaceMemory implements MemoryAdapter {
   }
 
   async clear(): Promise<void> {
-    // Keep SSD clear non-destructive for external MemPalace stores.
+    // Keep devctx clear non-destructive for external MemPalace stores.
   }
 }
 

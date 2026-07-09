@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { loadManifest, manifestKey, saveManifest } from './manifest.js';
 
 async function withTempCwd(run: (cwd: string) => Promise<void>) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'ssd-manifest-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'devctx-manifest-'));
   try {
     await run(dir);
   } finally {

@@ -6,7 +6,7 @@ export type RepoConfig = {
   git?: boolean;
 };
 
-export type SsdConfig = {
+export type DevctxConfig = {
   version: number;
   workspace: {
     name: string;

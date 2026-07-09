@@ -14,13 +14,13 @@ repositories:
       - "dist/**"
 memory:
   provider: mempalace
-  path: .ssd/memory/mempalace
+  path: .devctx/memory/mempalace
 index:
   provider: lancedb
-  path: .ssd/index/lancedb
-  table: ssd_chunks
+  path: .devctx/index/lancedb
+  table: devctx_chunks
   incremental: true
   chunkSize: 1800
 hooks:
   postPull: "npm --prefix ./app install"
-  postIndex: "echo indexed workspace $SSD_WORKSPACE"
+  postIndex: "echo indexed workspace $DEVCTX_WORKSPACE"
