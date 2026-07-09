@@ -80,6 +80,7 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
 
   const menuRows = useMemo(() => buildMenuRows(commands, filter), [commands, filter]);
   const field = selectedCommand?.fields[fieldIndex];
+  const selectedMenuCommand = menuRows[menuIndex]?.command;
 
   // menuRows always starts with a disabled category header, so index 0 is never a real
   // selection -- re-anchor to the first selectable row whenever filtering changes it.
@@ -194,11 +195,14 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
   if (screen === 'confirm') {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text bold>Run this command?</Text>
-        <Text color="cyan">ctxhub {confirmArgv.join(' ')}</Text>
-        <Box marginTop={1}>
-          <Text color="gray">{running ? 'running...' : 'enter run · esc edit'}</Text>
+        <Text bold color="cyan">ctxhub guided menu</Text>
+        <Text color="gray">Ready to run</Text>
+        <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
+          <Text bold>Run this command?</Text>
+          <Text color="cyan">ctxhub {confirmArgv.join(' ')}</Text>
+          {selectedCommand ? <Text color="gray">{selectedCommand.description}</Text> : null}
         </Box>
+        <Text color="gray">{running ? 'running...' : 'enter run · esc edit'}</Text>
       </Box>
     );
   }
@@ -206,56 +210,74 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
   if (screen === 'wizard' && selectedCommand && field) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text bold>
-          {selectedCommand.path} <Text color="gray">({fieldIndex + 1}/{selectedCommand.fields.length})</Text>
+        <Text bold color="cyan">ctxhub guided menu</Text>
+        <Text color="gray">
+          {selectedCommand.path} · step {fieldIndex + 1} of {selectedCommand.fields.length}
         </Text>
-        <Text>{field.label}{field.required ? ' (required)' : ''}</Text>
-        <Box marginTop={1}>
-          {field.kind === 'text' ? (
-            <Box>
-              <Text color="cyan">{'> '}</Text>
-              <TextInput value={textValue} onChange={setTextValue} onSubmit={value => advanceField(value)} />
-            </Box>
-          ) : field.kind === 'boolean' ? (
-            <SelectList items={[{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }]} selectedIndex={choiceIndex} />
-          ) : (
-            <SelectList
-              items={(field.choices ?? []).map(choice => ({ key: choice, label: choice }))}
-              selectedIndex={choiceIndex}
-              markerFor={
-                field.kind === 'multiselect'
-                  ? (_item, index) => (toggled.has(index) ? '[x] ' : '[ ] ')
-                  : undefined
-              }
-            />
-          )}
+        <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
+          <Text bold>{field.label}{field.required ? ' (required)' : ''}</Text>
+          <Text color="gray">{field.isOption ? `Option ${field.flag ?? field.key}` : 'Positional argument'}</Text>
+          {field.defaultValue !== undefined ? <Text color="gray">Default: {String(field.defaultValue)}</Text> : null}
+          <Box marginTop={1}>
+            {field.kind === 'text' ? (
+              <Box>
+                <Text color="cyan">{'> '}</Text>
+                <TextInput value={textValue} onChange={setTextValue} onSubmit={value => advanceField(value)} />
+              </Box>
+            ) : field.kind === 'boolean' ? (
+              <SelectList items={[{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }]} selectedIndex={choiceIndex} />
+            ) : (
+              <SelectList
+                items={(field.choices ?? []).map(choice => ({ key: choice, label: choice }))}
+                selectedIndex={choiceIndex}
+                markerFor={
+                  field.kind === 'multiselect'
+                    ? (_item, index) => (toggled.has(index) ? '[x] ' : '[ ] ')
+                    : undefined
+                }
+              />
+            )}
+          </Box>
+          {field.kind === 'multiselect' ? <Text color="gray">{toggled.size} selected</Text> : null}
         </Box>
-        <Box marginTop={1}>
-          <Text color="gray">
-            {field.kind === 'text'
-              ? 'enter confirm · esc back'
-              : field.kind === 'multiselect'
-                ? '↑/↓ move · space toggle · enter confirm · esc back'
-                : '↑/↓ move · enter confirm · esc back'}
-          </Text>
-        </Box>
+        <Text color="gray">
+          {field.kind === 'text'
+            ? 'enter confirm · esc back'
+            : field.kind === 'multiselect'
+              ? 'up/down move · space toggle · enter confirm · esc back'
+              : 'up/down move · enter confirm · esc back'}
+        </Text>
       </Box>
     );
   }
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold>ctxhub — guided menu</Text>
-      <Box>
-        <Text color="cyan">{'> '}</Text>
-        <TextInput value={filter} onChange={setFilter} placeholder="type to filter commands..." />
+      <Text bold color="cyan">ctxhub guided menu</Text>
+      <Text color="gray">{commands.length} commands · type to filter, enter to configure</Text>
+      <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
+        <Text bold>Commands</Text>
+        <Box>
+          <Text color="cyan">{'> '}</Text>
+          <TextInput value={filter} onChange={setFilter} placeholder="type to filter commands..." />
+        </Box>
+        <Box marginTop={1}>
+          <SelectList items={menuRows} selectedIndex={menuIndex} />
+        </Box>
       </Box>
-      <Box marginTop={1}>
-        <SelectList items={menuRows} selectedIndex={menuIndex} />
-      </Box>
-      <Box marginTop={1}>
-        <Text color="gray">↑/↓ move · enter select · esc quit</Text>
-      </Box>
+      {selectedMenuCommand ? (
+        <Box marginTop={1} borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+          <Text bold>{selectedMenuCommand.path}</Text>
+          <Text color="gray">{selectedMenuCommand.category}</Text>
+          <Text>{selectedMenuCommand.description}</Text>
+          <Text color="gray">
+            {selectedMenuCommand.fields.length
+              ? `${selectedMenuCommand.fields.length} field(s) to configure`
+              : 'Runs immediately after confirmation'}
+          </Text>
+        </Box>
+      ) : null}
+      <Text color="gray">up/down move · enter select · esc quit</Text>
     </Box>
   );
 }

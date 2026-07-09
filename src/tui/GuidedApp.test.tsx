@@ -90,7 +90,7 @@ test('GuidedApp walks a multi-field wizard, shows the confirm screen, and runs t
     let frame = lastFrame() ?? '';
     assert.match(frame, /repo hook/);
     assert.match(frame, /Repository name/);
-    assert.match(frame, /\(1\/2\)/);
+    assert.match(frame, /step 1 of 2/);
 
     stdin.write('my-repo');
     await wait();
@@ -98,7 +98,7 @@ test('GuidedApp walks a multi-field wizard, shows the confirm screen, and runs t
     await wait();
     frame = lastFrame() ?? '';
     assert.match(frame, /Overwrite/);
-    assert.match(frame, /\(2\/2\)/);
+    assert.match(frame, /step 2 of 2/);
     assert.match(frame, /> No/, 'boolean field with no default should highlight "No" first');
 
     stdin.write(ENTER); // confirm "No" -> advance to confirm screen
