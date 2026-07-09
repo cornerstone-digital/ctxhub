@@ -114,6 +114,7 @@ export async function runSyncWithProgress(
     })
   );
   await instance.waitUntilExit();
+  instance.clear();
 
   if (settledError) throw settledError;
 

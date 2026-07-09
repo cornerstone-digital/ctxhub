@@ -84,6 +84,7 @@ export async function runIndexWithProgress(cwd: string, force: boolean): Promise
     })
   );
   await instance.waitUntilExit();
+  instance.clear();
 
   if (settledError) throw settledError;
 

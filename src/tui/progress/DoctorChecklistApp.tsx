@@ -64,5 +64,6 @@ export async function runDoctorChecklist(checks: DoctorCheck[]): Promise<CheckLi
     })
   );
   await instance.waitUntilExit();
+  instance.clear();
   return settled;
 }
