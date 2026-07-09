@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
@@ -6,7 +7,7 @@ import { pathExists, readText, writeText } from '../utils/fs.js';
 
 export const MCP_CONFIG_FILE = '.mcp.json';
 export const CODEX_CONFIG_FILE = path.join('.codex', 'config.toml');
-export const SUPPORTED_AGENTS = ['claude', 'codex'] as const;
+export const SUPPORTED_AGENTS = ['claude', 'codex', 'copilot'] as const;
 export type SupportedAgent = (typeof SUPPORTED_AGENTS)[number];
 
 export type AgentConfigResult = { path: string; changed: boolean; note?: string };
@@ -53,9 +54,36 @@ export async function writeCodexMcpConfig(cwd = process.cwd()): Promise<AgentCon
   return { path: configPath, changed, note: CODEX_TRUST_NOTE };
 }
 
+const COPILOT_SCOPE_NOTE =
+  'This is a user-level config (~/.copilot/mcp-config.json, or $COPILOT_HOME) shared across all your projects — ' +
+  'GitHub found no supported project-scoped file for the Copilot CLI. The ssd server still uses whatever ' +
+  'directory `copilot` is launched from, so this works per-project in practice.';
+
+function copilotConfigPath(): string {
+  return path.join(process.env.COPILOT_HOME || path.join(os.homedir(), '.copilot'), 'mcp-config.json');
+}
+
+export async function writeCopilotMcpConfig(): Promise<AgentConfigResult> {
+  const configPath = copilotConfigPath();
+  const existing: McpConfigFile = (await pathExists(configPath)) ? JSON.parse(await readText(configPath)) : {};
+  const ssdEntry = { type: 'local', command: 'ssd', args: ['mcp'], tools: ['*'] };
+  const changed = JSON.stringify(existing.mcpServers?.ssd) !== JSON.stringify(ssdEntry);
+
+  if (changed) {
+    const merged: McpConfigFile = {
+      ...existing,
+      mcpServers: { ...existing.mcpServers, ssd: ssdEntry }
+    };
+    await writeText(configPath, `${JSON.stringify(merged, null, 2)}\n`);
+  }
+
+  return { path: configPath, changed, note: COPILOT_SCOPE_NOTE };
+}
+
 const CONFIG_WRITERS: Record<SupportedAgent, (cwd?: string) => Promise<AgentConfigResult>> = {
   claude: writeClaudeMcpConfig,
-  codex: writeCodexMcpConfig
+  codex: writeCodexMcpConfig,
+  copilot: writeCopilotMcpConfig
 };
 
 export function launchAgentBinary(command: string, args: string[] = [], cwd = process.cwd()): Promise<number> {

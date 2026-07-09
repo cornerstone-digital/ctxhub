@@ -10,6 +10,7 @@ import { memoryClearCommand, memoryStatusCommand } from './commands/memory.js';
 import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
 import { agentLaunchCommand, SUPPORTED_AGENTS } from './commands/agent.js';
+import { skillsInstallCommand, SUPPORTED_SKILL_AGENTS } from './commands/skills.js';
 
 const program = new Command();
 
@@ -97,9 +98,17 @@ program
 program
   .command('agent')
   .argument('<name>', `Agent to launch (${SUPPORTED_AGENTS.join(', ')})`)
-  .description('Write .mcp.json for this workspace and launch the agent, pre-wired with the ssd MCP server')
-  .option('--no-launch', 'Only write .mcp.json, do not launch the agent')
+  .description("Write the agent's MCP config for this workspace and launch it, pre-wired with the ssd MCP server")
+  .option('--no-launch', 'Only write the MCP config, do not launch the agent')
   .action(agentLaunchCommand);
+
+const skills = program.command('skills').description('Install chat-native ssd usage guidance for coding agents');
+
+skills
+  .command('install')
+  .argument('[agents...]', `Agents to install for (default: all — ${SUPPORTED_SKILL_AGENTS.join(', ')})`)
+  .description('Install an ssd skill/prompt file for one or more coding agents')
+  .action(skillsInstallCommand);
 
 program.exitOverride();
 

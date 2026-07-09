@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { parse, stringify } from 'smol-toml';
-import { agentLaunchCommand, launchAgentBinary, writeClaudeMcpConfig, writeCodexMcpConfig } from './agent.js';
+import { agentLaunchCommand, launchAgentBinary, writeClaudeMcpConfig, writeCodexMcpConfig, writeCopilotMcpConfig } from './agent.js';
 import { readText } from '../utils/fs.js';
 
 async function withTempDir(run: (dir: string) => Promise<void>) {
@@ -14,6 +14,19 @@ async function withTempDir(run: (dir: string) => Promise<void>) {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+async function withCopilotHome(run: (dir: string) => Promise<void>) {
+  return withTempDir(async dir => {
+    const original = process.env.COPILOT_HOME;
+    process.env.COPILOT_HOME = dir;
+    try {
+      await run(dir);
+    } finally {
+      if (original === undefined) delete process.env.COPILOT_HOME;
+      else process.env.COPILOT_HOME = original;
+    }
+  });
 }
 
 test('writeClaudeMcpConfig creates .mcp.json when none exists', () => {
@@ -90,6 +103,52 @@ test('writeCodexMcpConfig is idempotent once the ssd entry is already correct', 
 
     const second = await writeCodexMcpConfig(dir);
     assert.equal(second.changed, false);
+  });
+});
+
+test('writeCopilotMcpConfig creates ~/.copilot/mcp-config.json (COPILOT_HOME) when none exists', () => {
+  return withCopilotHome(async dir => {
+    const { path: configPath, changed, note } = await writeCopilotMcpConfig();
+    assert.equal(changed, true);
+    assert.match(note ?? '', /user-level config/);
+
+    const written = JSON.parse(await readText(configPath));
+    assert.deepEqual(written.mcpServers.ssd, { type: 'local', command: 'ssd', args: ['mcp'], tools: ['*'] });
+    assert.equal(configPath, path.join(dir, 'mcp-config.json'));
+  });
+});
+
+test('writeCopilotMcpConfig merges into an existing mcp-config.json without clobbering other servers', () => {
+  return withCopilotHome(async dir => {
+    const configPath = path.join(dir, 'mcp-config.json');
+    await writeFile(
+      configPath,
+      JSON.stringify({ mcpServers: { other: { type: 'local', command: 'other-tool', args: ['serve'] } } }, null, 2)
+    );
+
+    await writeCopilotMcpConfig();
+
+    const written = JSON.parse(await readText(configPath));
+    assert.deepEqual(written.mcpServers.other, { type: 'local', command: 'other-tool', args: ['serve'] });
+    assert.deepEqual(written.mcpServers.ssd, { type: 'local', command: 'ssd', args: ['mcp'], tools: ['*'] });
+  });
+});
+
+test('writeCopilotMcpConfig is idempotent once the ssd entry is already correct', () => {
+  return withCopilotHome(async () => {
+    const first = await writeCopilotMcpConfig();
+    assert.equal(first.changed, true);
+
+    const second = await writeCopilotMcpConfig();
+    assert.equal(second.changed, false);
+  });
+});
+
+test('agentLaunchCommand copilot with --no-launch writes COPILOT_HOME/mcp-config.json', () => {
+  return withCopilotHome(async dir => {
+    await agentLaunchCommand('copilot', { launch: false });
+    const written = JSON.parse(await readText(path.join(dir, 'mcp-config.json')));
+    assert.deepEqual(written.mcpServers.ssd, { type: 'local', command: 'ssd', args: ['mcp'], tools: ['*'] });
   });
 });
 
