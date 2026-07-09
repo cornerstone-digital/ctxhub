@@ -42,6 +42,14 @@ test('skillsInstallCommand with no args installs the ambient and search skills f
     const codexSearch = await readText(path.join(dir, '.agents', 'skills', 'ctxhub-search', 'SKILL.md'));
     assert.equal(codexSearch, claudeSearch);
 
+    const copilotSkill = await readText(path.join(dir, '.github', 'skills', 'ctxhub', 'SKILL.md'));
+    assert.equal(copilotSkill, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub', 'SKILL.md')));
+    assert.match(copilotSkill, /^---\nname: ctxhub\n/);
+
+    const copilotSearchSkill = await readText(path.join(dir, '.github', 'skills', 'ctxhub-search', 'SKILL.md'));
+    assert.equal(copilotSearchSkill, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub-search', 'SKILL.md')));
+    assert.match(copilotSearchSkill, /^---\nname: ctxhub-search\n/);
+
     const copilot = await readText(path.join(dir, '.github', 'prompts', 'ctxhub.prompt.md'));
     assert.equal(copilot, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub.prompt.md')));
     assert.match(copilot, /^---\ndescription: /);

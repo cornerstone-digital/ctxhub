@@ -17,6 +17,7 @@ export type SkillTemplate = {
   // Unique per agent, e.g. "ctxhub" (ambient, auto-invoked guidance) or
   // "ctxhub-search" (explicit, argument-driven on-demand search).
   id: string;
+  label?: string;
   source: string;
   target: (cwd: string) => string;
 };
@@ -49,12 +50,26 @@ export const SKILL_TEMPLATES: SkillTemplate[] = [
   {
     agent: 'copilot',
     id: 'ctxhub',
+    source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub', 'SKILL.md'),
+    target: cwd => path.join(cwd, '.github', 'skills', 'ctxhub', 'SKILL.md')
+  },
+  {
+    agent: 'copilot',
+    id: 'ctxhub-search',
+    source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub-search', 'SKILL.md'),
+    target: cwd => path.join(cwd, '.github', 'skills', 'ctxhub-search', 'SKILL.md')
+  },
+  {
+    agent: 'copilot',
+    id: 'ctxhub-prompt',
+    label: 'ctxhub',
     source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub.prompt.md'),
     target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub.prompt.md')
   },
   {
     agent: 'copilot',
-    id: 'ctxhub-search',
+    id: 'ctxhub-search-prompt',
+    label: 'ctxhub-search',
     source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub-search.prompt.md'),
     target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub-search.prompt.md')
   },
@@ -87,17 +102,17 @@ export async function skillsInstallCommand(agents: string[] = []) {
   const { config, workspaceRoot } = workspace;
 
   for (const agent of targets) {
-    for (const { id, source, target } of SKILL_TEMPLATES.filter(t => t.agent === agent)) {
+    for (const { id, label, source, target } of SKILL_TEMPLATES.filter(t => t.agent === agent)) {
       const destination = target(workspaceRoot);
       const content = await readText(source);
       await writeText(destination, content);
-      console.log(chalk.green(`Installed ctxhub skill '${id}' for ${agent}: ${destination}`));
+      console.log(chalk.green(`Installed ctxhub skill '${label ?? id}' for ${agent}: ${destination}`));
 
       for (const repoRoot of await configuredRepoRoots(config, workspaceRoot)) {
         const linkedDestination = target(repoRoot);
         if (path.resolve(linkedDestination) === path.resolve(destination)) continue;
         await linkOrCopySkill(destination, linkedDestination, content);
-        console.log(chalk.green(`Linked ctxhub skill '${id}' for ${agent}: ${linkedDestination}`));
+        console.log(chalk.green(`Linked ctxhub skill '${label ?? id}' for ${agent}: ${linkedDestination}`));
       }
     }
   }
