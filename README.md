@@ -9,6 +9,7 @@
 - [Config](#config)
 - [Commands](#commands)
 - [MCP server](#mcp-server)
+- [Source-aware context](#source-aware-context)
 - [Launching an agent](#launching-an-agent)
 - [Two kinds of agent memory](#two-kinds-of-agent-memory)
 - [Installable skills](#installable-skills)
@@ -161,10 +162,10 @@ privacy:
 - `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch.
 - `ctxhub handoff <topic> [--from-pr]`: create a Markdown handoff bundle under `.ctxhub/cache/handoffs/` for another agent or teammate.
 - `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development.
-- `ctxhub report [-o <path>]`: generate a small HTML report of workspace status, repos, and indexed architecture diagrams.
+- `ctxhub report [-o <path>]`: generate a self-contained, browsable HTML report of workspace status, repos, architecture diagrams, and the most recently indexed chunks, with a client-side search box and stale-result highlighting (no server, no external assets).
 - `ctxhub memory status`: show MemPalace memory status and LanceDB index status.
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
-- `ctxhub doctor`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version.
+- `ctxhub doctor [--fix] [--dry-run] [--fix-skills] [--fix-agent <name>]`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version. `--fix` applies safe, low-risk repairs (missing `.ctxhub` directories, default `privacy.redactPatterns`); `--dry-run` previews those changes without writing anything; `--fix-skills`/`--fix-agent <name>` are separate opt-in flags for the more invasive fixes (reinstalling stale skill files, refreshing an agent's MCP config), since those overwrite files you may have installed deliberately.
 - `ctxhub mcp`: start an MCP server (stdio) exposing read-only context tools for AI agents (`--allow-index` adds opt-in mutating index/sync tools).
 - `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config). Also wires up MemPalace's own MCP server alongside ctxhub's when configured and available.
 - `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
@@ -184,8 +185,8 @@ Tools exposed:
 
 - `search(query, limit?)` — same ranked results as `ctxhub search`.
 - `context_pack(query, limit?)` — same bundle as `ctxhub pack --json`.
-- `open_chunk(id)` — return a full indexed chunk from a search/context-pack result.
-- `get_file_context(repo, path, line?, before?, after?)` — return surrounding file lines when a snippet is not enough.
+- `open_chunk(id)` — return a full indexed chunk from a search/context-pack result. For TS/JS/JSX files, chunks are already whole top-level functions/classes rather than arbitrary paragraph slices (see [Source-aware context](#source-aware-context) below).
+- `get_file_context(repo, path, line?, before?, after?, mode?)` — return context around a line. For TS/JS/JSX files this defaults (`mode: "auto"`) to the full enclosing function/method/class; pass `mode: "lines"` to force the old before/after line window.
 - `memory_status()` — same output as `ctxhub memory status`.
 - `repo_list()` — same output as `ctxhub repo list`.
 - `architecture_search(query, limit?)` — search indexed Mermaid diagrams and Mermaid code blocks.
@@ -206,6 +207,12 @@ Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.js
   }
 }
 ```
+
+## Source-aware context
+
+Indexed TS/JS/JSX source is chunked by top-level function/method/class instead of blank-line paragraphs, so a search hit or `open_chunk` result on a code file is already a whole, syntactically complete symbol — not a slice cut off mid-function. This uses a lightweight, dependency-free brace-matching heuristic (`src/context/symbols.ts`), not a real TS parser, so it can miss unusual formatting; when it can't confidently find a symbol it falls back to plain paragraph chunking (indexing) or a before/after line window (`get_file_context`), never an error.
+
+`get_file_context(repo, path, line)` uses the same heuristic: given a line number, it returns the full enclosing function/method/class by default. Pass `mode: "lines"` if you specifically want the old fixed line window instead.
 
 ## Launching an agent
 
@@ -292,7 +299,7 @@ Installed skill files and agent MCP configs are snapshots written at install tim
 ✓ claude:ctxhub-search skill up to date
 ```
 
-It also flags a `config.yaml` schema version mismatch (`version: 1` today) the same way, in case a future ctxhub version changes the config shape. None of this is auto-fixed — `doctor` only diagnoses and tells you the exact command to run, consistent with the rest of its checks.
+It also flags a `config.yaml` schema version mismatch (`version: 1` today) the same way, in case a future ctxhub version changes the config shape. Plain `ctxhub doctor` only diagnoses and tells you the exact command to run. `ctxhub doctor --fix` will apply the safe, mechanical fixes itself — creating missing `.ctxhub` directories and filling in default `privacy.redactPatterns` if you've cleared them — but stops short of touching anything you installed on purpose. Reinstalling stale skill files or refreshing an agent's MCP config needs the explicit `--fix-skills` or `--fix-agent <name>` flag, and `--dry-run` shows what any of this would do before it does it.
 
 You don't have to remember to run `doctor` yourself, though: every command checks for this automatically the first time you run *any* `ctxhub` command after upgrading to a new version, and prints a one-line nudge to stderr if it finds drift —
 

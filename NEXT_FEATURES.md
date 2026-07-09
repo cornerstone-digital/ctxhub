@@ -7,13 +7,13 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Cited explain command
 - [x] CI workflow templates
 - [x] Context pack export and replay
-- [ ] Interactive workspace viewer
+- [x] Interactive workspace viewer
 - [x] Rich Mermaid validation
 - [x] Architecture drift detection
 - [x] Agent handoff bundles
-- [ ] Config doctor fix mode
+- [x] Config doctor fix mode
 - [x] Search quality dashboard
-- [ ] Source-aware context expansion
+- [x] Source-aware context expansion
 
 ## 1. Cited Explain Command
 
@@ -112,7 +112,9 @@ Acceptance criteria:
 
 ## 4. Interactive Workspace Viewer
 
-**Command:** `ctxhub ui`
+**Status:** Done (as a static report; no local server was needed — see notes)
+
+**Command:** `ctxhub report [-o <path>]`
 
 Launch a lightweight local viewer for browsing workspace status, repos, diagrams, context packs, search results, and stale index information.
 
@@ -138,9 +140,9 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Viewer shows repos, index status, architecture diagrams, recent chunks, and stale results.
-- Works without external services.
-- Does not expose a network listener by default unless explicitly requested.
+- Viewer shows repos, index status, architecture diagrams, recent chunks, and stale results. ✓ (`ctxhub report` now shows all of these; freshness/staleness reuses the same per-repo Git check as `pack`/`explain`/`handoff`.)
+- Works without external services. ✓ (single self-contained HTML file, vanilla JS, no CDN assets.)
+- Does not expose a network listener by default unless explicitly requested. ✓ (there is no server — `ctxhub ui` was not built since the static report plus client-side search/filter covers the acceptance criteria; add a local server later only if static output actually becomes limiting.)
 
 ## 5. Rich Mermaid Validation
 
@@ -236,6 +238,8 @@ Acceptance criteria:
 
 ## 8. Config Doctor Fix Mode
 
+**Status:** Done
+
 **Command:** `ctxhub doctor --fix`
 
 Let doctor repair safe, mechanical issues.
@@ -295,6 +299,8 @@ Acceptance criteria:
 
 ## 10. Source-Aware Context Expansion
 
+**Status:** Done
+
 **MCP/CLI:** extend `get_file_context` and `open_chunk`
 
 Make exact context expansion smarter for code files.
@@ -316,9 +322,10 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Given a line inside a function, context expansion returns the full function when possible.
-- Falls back to current before/after line behavior when parsing fails.
-- MCP schema stays backwards compatible.
+- Given a line inside a function, context expansion returns the full function when possible. ✓ (`src/context/symbols.ts` heuristically brace-matches function/method/class/arrow-function boundaries in TS/JS/JSX; `get_file_context` uses it by default.)
+- Falls back to current before/after line behavior when parsing fails. ✓ (no recognizable enclosing symbol, or a non-source file, both fall back to the original line-window logic unchanged.)
+- MCP schema stays backwards compatible. ✓ (`get_file_context` gained an optional `mode` input and an optional `symbol` output field only; existing callers passing the old params get the old-shaped fallback unless a symbol match applies.)
+- Bonus: indexing itself now chunks TS/JS/JSX source by top-level symbol (`chunkSourceCode` in `src/indexing/chunk.ts`) instead of blank-line paragraphs, so `search`/`open_chunk` results for code are already whole functions/classes with `symbol`/`symbolKind` metadata, not arbitrary slices.
 
 ## Suggested Order
 
