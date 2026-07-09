@@ -27,6 +27,7 @@ export type GuidedCommand = {
 // `menu` is this guided mode's own explicit entry point -- selecting it from within the
 // menu would just spawn a nested copy of itself, so it's omitted from its own listing.
 const EXCLUDED_COMMANDS = new Set(['mcp', 'menu']);
+const EXCLUDED_OPTIONS = new Set(['--plain', '--no-interactive']);
 
 // Keyed by top-level command name only (not full leaf paths) so this stays small and
 // doesn't need updating every time a subcommand is added under an existing group.
@@ -98,7 +99,7 @@ function buildFields(command: Command): GuidedField[] {
     };
   });
 
-  const optionFields: GuidedField[] = command.options.map(option => {
+  const optionFields: GuidedField[] = command.options.filter(option => !EXCLUDED_OPTIONS.has(option.long ?? '')).map(option => {
     const isBoolean = !option.required && !option.optional && !option.variadic;
     const hasChoices = Boolean(option.argChoices?.length);
     return {

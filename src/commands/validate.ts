@@ -3,15 +3,17 @@ import fg from 'fast-glob';
 import chalk from 'chalk';
 import { loadConfig } from '../config/config.js';
 import { pathExists, readText } from '../utils/fs.js';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
 export type ValidationIssue = { file: string; message: string; severity: 'error' | 'warning' };
 const markdownLinkPattern = /\[[^\]]+\]\(([^)]+)\)/g;
 const mermaidDeclarationPattern = /\b(flowchart|graph|sequenceDiagram|classDiagram|erDiagram|stateDiagram|stateDiagram-v2|C4Context|C4Container|C4Component)\b/;
 
-export async function validateDocsCommand(opts: { json?: boolean; strictDiagrams?: boolean } = {}) {
+export async function validateDocsCommand(opts: { json?: boolean; strictDiagrams?: boolean; plain?: boolean; interactive?: boolean } = {}) {
   const config = await loadConfig();
   const issues: ValidationIssue[] = [];
   const knownComponents = new Set(config.repositories.map(repo => repo.name.toLowerCase()));
+  let scanned = 0;
 
   for (const repo of config.repositories) {
     const repoPath = path.resolve(process.cwd(), repo.path);
@@ -21,6 +23,7 @@ export async function validateDocsCommand(opts: { json?: boolean; strictDiagrams
       ignore: repo.exclude ?? config.knowledge.exclude,
       onlyFiles: true
     });
+    scanned += files.length;
 
     for (const file of files) {
       const absolutePath = path.join(repoPath, file);
@@ -62,15 +65,24 @@ export async function validateDocsCommand(opts: { json?: boolean; strictDiagrams
   }
 
   if (!issues.length) {
+    if (shouldUseInteractive(opts)) printValidationSummary(scanned, issues);
     console.log(chalk.green('✓ docs validation passed'));
     return;
   }
 
+  if (shouldUseInteractive(opts)) printValidationSummary(scanned, issues);
   for (const issue of issues) {
     const marker = issue.severity === 'error' ? chalk.red('✗') : chalk.yellow('!');
     console.log(`${marker} ${issue.file}: ${issue.message}`);
   }
   if (issues.some(issue => issue.severity === 'error')) process.exitCode = 1;
+}
+
+function printValidationSummary(scanned: number, issues: ValidationIssue[]): void {
+  const errors = issues.filter(issue => issue.severity === 'error').length;
+  const warnings = issues.filter(issue => issue.severity === 'warning').length;
+  console.log(chalk.bold('ctxhub validate docs'));
+  console.log(chalk.gray(`${scanned} files scanned · ${errors} errors · ${warnings} warnings`));
 }
 
 export function validateMermaidSyntax(content: string): ValidationIssue[] {

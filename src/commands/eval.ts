@@ -4,6 +4,7 @@ import { CACHE_DIR, loadConfig } from '../config/config.js';
 import type { SearchResult } from '../config/types.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
 export type EvalExpected = { repo?: string; path?: string };
 export type EvalCase = { query: string; expected: EvalExpected[] };
@@ -32,7 +33,7 @@ type SearchFn = (query: string, limit: number) => Promise<SearchResult[]>;
 const DEFAULT_EVAL_PATH = path.join(CACHE_DIR, 'eval.json');
 const EVAL_RUNS_DIR = path.join(CACHE_DIR, 'evals');
 
-export async function evalCommand(opts: { file?: string; init?: boolean; json?: boolean; report?: boolean } = {}) {
+export async function evalCommand(opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean } = {}) {
   const filePath = path.resolve(process.cwd(), opts.file ?? DEFAULT_EVAL_PATH);
   if (opts.init || !(await pathExists(filePath))) {
     await writeText(filePath, JSON.stringify({ cases: [{ query: 'authentication flow', expected: [{ path: 'README.md' }] }] }, null, 2));
@@ -54,12 +55,22 @@ export async function evalCommand(opts: { file?: string; init?: boolean; json?: 
     return;
   }
 
-  if (opts.report && reportPath) {
+  if (shouldUseInteractive(opts)) {
+    printEvalSummary(run, historyPath, reportPath);
+  } else if (opts.report && reportPath) {
     console.log(chalk.green(`Wrote eval report: ${path.relative(process.cwd(), reportPath)}`));
   }
 
   printEvalRun(run);
   if (run.summary.failed) process.exitCode = 1;
+}
+
+function printEvalSummary(run: EvalRunResult, historyPath: string, reportPath?: string): void {
+  const color = run.summary.failed ? chalk.red : chalk.green;
+  console.log(chalk.bold('ctxhub eval'));
+  console.log(color(`${run.summary.passed}/${run.summary.total} passed · ${run.summary.failed} failed`));
+  console.log(chalk.gray(`History: ${path.relative(process.cwd(), historyPath)}`));
+  if (reportPath) console.log(chalk.gray(`Report: ${path.relative(process.cwd(), reportPath)}`));
 }
 
 export async function evaluateSuite(suite: EvalSuite, search: SearchFn, suitePath = DEFAULT_EVAL_PATH): Promise<EvalRunResult> {

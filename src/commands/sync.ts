@@ -6,6 +6,7 @@ import { pullRepo } from '../git/git.js';
 import { runConfiguredHook } from '../utils/hooks.js';
 import { runSyncWithProgress } from '../tui/progress/SyncProgressApp.js';
 import type { RepoStatus } from '../tui/progress/RepoStatusList.js';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
 function printRepoStatuses(label: string, repos: RepoStatus[]) {
   console.log(chalk.bold(label));
@@ -15,13 +16,13 @@ function printRepoStatuses(label: string, repos: RepoStatus[]) {
   }
 }
 
-export async function syncCommand(opts: { pull?: boolean }) {
+export async function syncCommand(opts: { pull?: boolean; interactive?: boolean; plain?: boolean }) {
   // Commander's `--no-pull` option surfaces as `opts.pull === false`, not `opts.noPull`
   // (there is no `noPull` property) -- `--no-pull` silently never worked before this fix.
   const noPull = opts.pull === false;
   const config = await loadConfig();
 
-  if (process.stdout.isTTY) {
+  if (shouldUseInteractive(opts)) {
     const { pullResults, indexResults, result } = await runSyncWithProgress(process.cwd(), noPull);
     if (!noPull) {
       printRepoStatuses('Pulled repositories', pullResults);

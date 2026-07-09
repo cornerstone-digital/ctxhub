@@ -7,6 +7,7 @@ import type { CtxhubConfig } from '../config/types.js';
 import { getRepoName, isGitRepo } from '../git/git.js';
 import { pathExists, writeText } from '../utils/fs.js';
 import { runRepoDiscoverReview } from '../tui/RepoDiscoverApp.js';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
 export type DiscoveredRepo = {
   name: string;
@@ -45,7 +46,7 @@ export async function repoListCommand() {
   }
 }
 
-export async function repoDiscoverCommand(root = '.') {
+export async function repoDiscoverCommand(root = '.', opts: { interactive?: boolean; plain?: boolean } = {}) {
   const config = await loadConfig();
   const discovered = await discoverRepositories(root, config);
   const newRepos = discovered.filter(repo => repo.state === 'new');
@@ -56,7 +57,7 @@ export async function repoDiscoverCommand(root = '.') {
     return;
   }
 
-  const selected = process.stdin.isTTY && process.stdout.isTTY && newRepos.length
+  const selected = shouldUseInteractive(opts) && newRepos.length
     ? await runRepoDiscoverReview(root, discovered)
     : newRepos;
 

@@ -9,7 +9,7 @@ import type { SearchResult } from '../config/types.js';
 
 const RECENT_LIMIT = 40;
 
-export async function reportCommand(opts: { output?: string; open?: boolean } = {}) {
+export async function reportCommand(opts: { output?: string; open?: boolean; plain?: boolean; interactive?: boolean } = {}) {
   const cwd = process.cwd();
   const config = await loadConfig(cwd);
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
@@ -144,7 +144,7 @@ export async function reportCommand(opts: { output?: string; open?: boolean } = 
   console.log(chalk.gray(`${status.chunkCount} chunks · ${architecture.length} architecture item(s) · ${stale.length} stale recent chunk(s)`));
   console.log(chalk.gray(`Open: ${output}`));
 
-  if (opts.open) {
+  if (opts.open && !opts.plain && opts.interactive !== false) {
     openReport(output);
     console.log(chalk.gray('Opening report in your browser...'));
   }

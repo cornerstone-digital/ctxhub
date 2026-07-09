@@ -78,9 +78,9 @@ test('SearchApp shows the full chunk on enter and returns to the list on escape'
     );
 
     try {
-      await wait(300);
+      await waitForFrame(lastFrame, /README\.md/);
       stdin.write(ENTER);
-      await wait(50);
+      await waitForFrame(lastFrame, /back to results/);
 
       const detailFrame = lastFrame() ?? '';
       assert.match(detailFrame, /Auth details live here\./);

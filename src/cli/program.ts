@@ -37,7 +37,9 @@ export function buildProgram(): Command {
   program
     .name('ctxhub')
     .description('ctxhub developer workspace CLI')
-    .version(getPackageVersion());
+    .version(getPackageVersion())
+    .option('--plain', 'Prefer script-friendly output over interactive terminal views')
+    .option('--no-interactive', 'Disable interactive terminal views');
 
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     await checkForDriftOnce(actionCommand.name());
@@ -77,6 +79,8 @@ export function buildProgram(): Command {
   repo
     .command('discover')
     .argument('[root]', 'Root folder to scan', '.')
+    .option('--plain', 'Add discovered repos without the interactive review screen')
+    .option('--no-interactive', 'Disable the interactive review screen')
     .description('Discover Git repositories under a folder')
     .action(repoDiscoverCommand);
 
@@ -101,19 +105,25 @@ export function buildProgram(): Command {
     .command('index')
     .description('Index changed workspace knowledge')
     .option('-f, --force', 'Force re-index all files')
+    .option('--plain', 'Use plain progress output')
+    .option('--no-interactive', 'Disable the live progress view')
     .action(indexCommand);
 
   program
     .command('sync')
     .description('Pull repos and re-index changed knowledge')
     .option('--no-pull', 'Skip git pull')
+    .option('--plain', 'Use plain progress output')
+    .option('--no-interactive', 'Disable the live progress view')
     .action(syncCommand);
 
   program
     .command('search')
-    .argument('[query]', 'Search query (omit when using --interactive)')
+    .argument('[query]', 'Search query (omit in a terminal to open live search)')
     .option('-l, --limit <limit>', 'Max results', '5')
     .option('-i, --interactive', 'Launch a live, filterable terminal search UI')
+    .option('--plain', 'Require a query and print one-shot search results')
+    .option('--no-interactive', 'Disable live search when query is omitted')
     .description('Search indexed workspace knowledge')
     .action(searchCommand);
 
@@ -172,6 +182,8 @@ export function buildProgram(): Command {
 
   memory
     .command('status')
+    .option('--plain', 'Print plain memory/index status')
+    .option('--no-interactive', 'Disable the status panel')
     .description('Show memory stats')
     .action(memoryStatusCommand);
 
@@ -187,6 +199,8 @@ export function buildProgram(): Command {
     .option('--fix', 'Apply safe, low-risk automatic fixes (missing dirs, default privacy config)')
     .option('--dry-run', 'With --fix, explain intended changes without applying them')
     .option('--fix-skills', 'With --fix, reinstall stale skill files (overwrites installed skill files)')
+    .option('--plain', 'Print plain health-check output')
+    .option('--no-interactive', 'Disable the live checklist')
     .addOption(
       new Option('--fix-agent <name>', "With --fix, refresh one agent's MCP config").choices(SUPPORTED_AGENTS)
     )
@@ -243,6 +257,8 @@ export function buildProgram(): Command {
     .option('--init', 'Create a starter eval suite')
     .option('--json', 'Print JSON')
     .option('--report', 'Write a Markdown eval report under .ctxhub/cache/evals/')
+    .option('--plain', 'Print plain eval output')
+    .option('--no-interactive', 'Disable interactive terminal summaries')
     .description('Run golden query checks against the workspace index')
     .action(evalCommand);
 
@@ -252,6 +268,8 @@ export function buildProgram(): Command {
     .command('docs')
     .option('--json', 'Print JSON')
     .option('--strict-diagrams', 'Run stricter local Mermaid syntax checks')
+    .option('--plain', 'Print plain validation output')
+    .option('--no-interactive', 'Disable interactive terminal summaries')
     .description('Check docs for broken local links and malformed Mermaid files')
     .action(validateDocsCommand);
 
@@ -260,6 +278,8 @@ export function buildProgram(): Command {
     .option('--json', 'Print JSON')
     .option('--drift', 'Detect missing or unknown architecture graph references')
     .option('--fail-on-drift', 'Exit non-zero when drift findings are present')
+    .option('--plain', 'Print plain graph output')
+    .option('--no-interactive', 'Disable interactive terminal summaries')
     .description('Summarize workspace components and relationships from architecture diagrams and package metadata')
     .action(graphCommand);
 
@@ -273,6 +293,8 @@ export function buildProgram(): Command {
     .command('report')
     .option('-o, --output <path>', 'Output HTML path')
     .option('--open', 'Open the generated report in your browser')
+    .option('--plain', 'Do not open the report automatically')
+    .option('--no-interactive', 'Disable interactive terminal behavior')
     .description('Generate a browsable HTML workspace report')
     .action(reportCommand);
 

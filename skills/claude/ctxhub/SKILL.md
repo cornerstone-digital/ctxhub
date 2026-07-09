@@ -23,9 +23,9 @@ Also treat the index as possibly stale after the user mentions pulling new chang
 
 - If the `ctxhub` MCP server is connected, prefer its tools: `context_pack`, `search`, `open_chunk`, `get_file_context`, `architecture_search`, `architecture_map`, `memory_status`, `repo_list`.
 - For broad questions, use `context_pack` first; it bundles search, architecture, freshness, repo list, and suggested reading order.
-- Otherwise, run the CLI directly: `ctxhub search "<query>"`, `ctxhub memory status`, `ctxhub repo list`.
-- Run `ctxhub sync` (or ask the user to) if search results look stale — it pulls configured repos and re-indexes changed files.
-- Don't run `ctxhub index`, `ctxhub sync`, or `ctxhub memory clear` without the user's intent; these mutate the workspace's index/repos.
+- Otherwise, run the CLI directly: `ctxhub search --plain "<query>"`, `ctxhub memory status --plain`, `ctxhub repo list`.
+- Run `ctxhub sync --plain` (or ask the user to) if search results look stale — it pulls configured repos and re-indexes changed files.
+- Don't run mutating commands like `ctxhub index`, `ctxhub sync` (even with `--plain`), or `ctxhub memory clear` without the user's intent; these mutate the workspace's index/repos.
 
 ## Remembering things long-term
 

@@ -5,6 +5,7 @@ import { indexWorkspace, type IndexResult } from '../indexing/indexer.js';
 import { runConfiguredHook } from '../utils/hooks.js';
 import { runIndexWithProgress } from '../tui/progress/IndexProgressApp.js';
 import type { RepoStatus } from '../tui/progress/RepoStatusList.js';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
 function printSummary(result: IndexResult) {
   console.log(`${chalk.green('✓')} scanned: ${result.scanned}`);
@@ -20,8 +21,8 @@ function printRepoStatuses(repos: RepoStatus[]) {
   }
 }
 
-export async function indexCommand(opts: { force?: boolean }) {
-  if (process.stdout.isTTY) {
+export async function indexCommand(opts: { force?: boolean; interactive?: boolean; plain?: boolean }) {
+  if (shouldUseInteractive(opts)) {
     const { result, repos } = await runIndexWithProgress(process.cwd(), Boolean(opts.force));
     printRepoStatuses(repos);
     printSummary(result);

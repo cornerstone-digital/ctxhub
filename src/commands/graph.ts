@@ -3,6 +3,8 @@ import { loadConfig } from '../config/config.js';
 import type { RepoConfig } from '../config/types.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { pathExists, readText } from '../utils/fs.js';
+import chalk from 'chalk';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
 export type GraphPackage = {
   repo: string;
@@ -19,7 +21,7 @@ export type DriftFinding = {
   relationship?: string;
 };
 
-export async function graphCommand(opts: { json?: boolean; drift?: boolean; failOnDrift?: boolean } = {}) {
+export async function graphCommand(opts: { json?: boolean; drift?: boolean; failOnDrift?: boolean; plain?: boolean; interactive?: boolean } = {}) {
   const config = await loadConfig();
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table);
   const diagrams = (await index.search('architecture diagram mermaid', 100)).filter(result => result.kind === 'architecture-diagram');
@@ -56,6 +58,10 @@ export async function graphCommand(opts: { json?: boolean; drift?: boolean; fail
     return;
   }
 
+  if (shouldUseInteractive(opts)) {
+    printGraphSummary(graph, drift);
+  }
+
   console.log(`# ${graph.workspace}`);
   console.log('\n## Components');
   for (const component of graph.components) console.log(`- ${component}`);
@@ -77,6 +83,27 @@ export async function graphCommand(opts: { json?: boolean; drift?: boolean; fail
       }
     }
     if (opts.failOnDrift && drift.length) process.exitCode = 1;
+  }
+}
+
+function printGraphSummary(
+  graph: {
+    components: string[];
+    relationships: string[];
+    diagrams: Array<{ repo: string; path: string; type?: string }>;
+    packages: GraphPackage[];
+  },
+  drift?: DriftFinding[]
+): void {
+  console.log(chalk.bold('ctxhub graph'));
+  console.log(chalk.gray(`${graph.components.length} components · ${graph.relationships.length} relationships · ${graph.diagrams.length} diagrams · ${graph.packages.length} packages`));
+  if (!graph.diagrams.length) {
+    console.log(chalk.yellow('No indexed architecture diagrams yet. Run ctxhub diagram add <repo> "<title>", edit it, then ctxhub index.'));
+  }
+  if (drift) {
+    const warnings = drift.filter(finding => finding.severity === 'warning').length;
+    const errors = drift.filter(finding => finding.severity === 'error').length;
+    console.log(chalk.gray(`Drift: ${errors} errors · ${warnings} warnings`));
   }
 }
 

@@ -92,6 +92,7 @@ test('extractGuidedCommands against the real ctxhub program: every top-level com
   const commands = extractGuidedCommands(buildProgram());
   assert.ok(commands.length > 10);
   assert.ok(!commands.some(c => c.path === 'mcp' || c.path.startsWith('mcp ')));
+  assert.ok(!commands.some(c => c.fields.some(field => field.flag === '--plain' || field.flag === '--no-interactive')));
 
   const uncategorized = commands.filter(c => c.category === 'Other');
   assert.deepEqual(uncategorized, [], `expected no uncategorized commands, got: ${uncategorized.map(c => c.path).join(', ')}`);

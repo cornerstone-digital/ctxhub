@@ -8,12 +8,15 @@ import { skillsInstallCommand } from './skills.js';
 import { CONFIG_WRITERS, SUPPORTED_AGENTS, type SupportedAgent } from './agent.js';
 import { buildDoctorChecks, printCheckLine, runDoctorChecks } from './doctorChecks.js';
 import { runDoctorChecklist } from '../tui/progress/DoctorChecklistApp.js';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
 export type DoctorFixOptions = {
   fix?: boolean;
   dryRun?: boolean;
   fixSkills?: boolean;
   fixAgent?: string;
+  interactive?: boolean;
+  plain?: boolean;
 };
 
 type FixAction = { description: string; apply: () => Promise<void> };
@@ -28,7 +31,7 @@ export async function doctorCommand(opts: DoctorFixOptions = {}) {
   const config = await loadConfig();
   const checks = buildDoctorChecks(config, configPath);
 
-  if (process.stdout.isTTY) {
+  if (shouldUseInteractive(opts)) {
     const lines = await runDoctorChecklist(checks);
     for (const line of lines) printCheckLine(line);
   } else {

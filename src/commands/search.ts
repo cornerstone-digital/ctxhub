@@ -3,11 +3,12 @@ import { loadConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { attachFreshness } from '../context/freshness.js';
 import { runInteractiveSearch } from '../tui/SearchApp.js';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
-export async function searchCommand(query: string | undefined, opts: { limit?: string; interactive?: boolean }) {
+export async function searchCommand(query: string | undefined, opts: { limit?: string; interactive?: boolean; plain?: boolean }) {
   const config = await loadConfig();
 
-  if (opts.interactive) {
+  if ((opts.interactive && !opts.plain) || (!query && shouldUseInteractive(opts))) {
     if (!process.stdin.isTTY) {
       throw new Error('--interactive needs a real terminal (stdin is not a TTY). Run ctxhub search "<query>" instead.');
     }

@@ -4,13 +4,20 @@ import { loadConfig } from '../config/config.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { saveManifest } from '../indexing/manifest.js';
+import { runMemoryStatusApp } from '../tui/MemoryStatusApp.js';
+import { shouldUseInteractive } from '../utils/interactive.js';
 
-export async function memoryStatusCommand() {
+export async function memoryStatusCommand(opts: { interactive?: boolean; plain?: boolean } = {}) {
   const config = await loadConfig();
   const memory = createMemoryAdapter(config.memory.provider, config.memory.path);
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table);
   const status = await memory.status();
   const indexStatus = await index.status();
+
+  if (shouldUseInteractive(opts)) {
+    await runMemoryStatusApp(status, indexStatus);
+    return;
+  }
 
   console.log(chalk.bold('Memory'));
   console.log(`${chalk.bold('Provider:')} ${status.provider}`);

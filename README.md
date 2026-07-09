@@ -8,6 +8,7 @@
 - [Quick Start](#quick-start) — manual step-by-step equivalent of `onboard`
 - [Config](#config)
 - [Guided mode](#guided-mode)
+- [Interactive defaults and automation](#interactive-defaults-and-automation)
 - [Commands](#commands)
 - [MCP server](#mcp-server)
 - [Source-aware context](#source-aware-context)
@@ -148,7 +149,26 @@ privacy:
 
 Running `ctxhub` with no arguments (in a real terminal) launches an interactive, menu-driven mode: type to filter the full command list (grouped by category), arrow keys + enter to pick one, then a short step-by-step wizard collects its arguments/options (text input, yes/no toggles, single/multi-select lists as appropriate) before showing you the exact command it's about to run and asking for confirmation. It then runs that command for real — same code path, same output, same confirmations (e.g. `memory clear`'s prompt) as typing it yourself — and drops you back at the menu afterward. `ctxhub menu` is the same thing as an explicit, discoverable command if you'd rather not rely on the no-args shortcut.
 
-This is purely additive: every `ctxhub <command> ...` invocation works exactly as documented below, unchanged, for scripting and everyday power-user use. Guided mode is generated directly from that same command tree (so it can't drift out of sync with it), with one exception — `ctxhub mcp` is left out of the menu, since it starts a long-running server meant to be launched by an agent's MCP config, not picked from a menu.
+Guided mode is generated directly from that same command tree (so it can't drift out of sync with it), with one exception — `ctxhub mcp` is left out of the menu, since it starts a long-running server meant to be launched by an agent's MCP config, not picked from a menu.
+
+## Interactive defaults and automation
+
+ctxhub prefers rich terminal views for humans and plain output for automation. If stdin/stdout are real TTYs and `CI`/`GITHUB_ACTIONS` are not set, commands with a useful terminal UI use it by default: `index`, `sync`, `doctor`, `repo discover`, `memory status`, and query-less `search`. When output is piped, JSON is requested, or a common CI environment is detected, ctxhub automatically falls back to script-friendly output.
+
+Use these flags when you need to force the mode:
+
+- `--plain`: prefer script-friendly text output and skip review/progress panels.
+- `--no-interactive`: disable interactive terminal views.
+- `--json`: for commands that support it, always emit machine-readable JSON.
+
+Examples:
+
+```bash
+ctxhub search                 # live search UI in a terminal
+ctxhub search --plain "auth"  # one-shot output for agents/scripts
+ctxhub --plain doctor         # plain health-check output
+ctxhub eval --json            # CI-friendly eval payload
+```
 
 ## Commands
 
@@ -157,12 +177,12 @@ This is purely additive: every `ctxhub <command> ...` invocation works exactly a
 - `ctxhub onboard`: live terminal setup wizard — init, repo discovery, hooks, memory provider, agents, skills, and an initial index, in one guided flow. Requires a real terminal; use the [Quick Start](#quick-start) commands for non-interactive scripts.
 - `ctxhub repo add <name> <path>`: add a repo, validate the path, and detect Git.
 - `ctxhub repo list`: print configured repos.
-- `ctxhub repo discover [path]`: find Git repositories below a folder and add them.
+- `ctxhub repo discover [path]`: find Git repositories below a folder. In a real terminal it opens a review screen so you can choose which new repos to add; use `--plain` to auto-add new repos.
 - `ctxhub repo hook <name>`: install a `post-commit` Git hook in that repo which re-indexes the workspace in the background after each commit (`-f/--force` to overwrite an existing hook).
 - `ctxhub ci init [--with-eval]`: create a GitHub Actions workflow that runs build, `ctxhub validate docs`, and optionally `ctxhub eval` on pull requests.
-- `ctxhub index`: index changed workspace files. In a real terminal it shows per-repo progress, then prints the durable summary.
-- `ctxhub sync [--no-pull]`: pull configured repos and re-index changed files. In a real terminal it shows separate pull and index progress; `--no-pull` skips the Git pull phase.
-- `ctxhub search <query>`: search the LanceDB project index. Add `-i`/`--interactive` (query becomes optional) for a live terminal UI — type to search-as-you-type, arrow keys to move, enter to view the full chunk, esc to go back/quit.
+- `ctxhub index`: index changed workspace files. In a real terminal it shows per-repo progress, then prints the durable summary; use `--plain` to force plain progress output.
+- `ctxhub sync [--no-pull]`: pull configured repos and re-index changed files. In a real terminal it shows separate pull and index progress; `--no-pull` skips the Git pull phase and `--plain` forces plain progress output.
+- `ctxhub search [query]`: search the LanceDB project index. With no query in a real terminal it opens live search by default — type to search-as-you-type, arrow keys to move, enter to view the full chunk, esc to go back/quit. Use `ctxhub search --plain "<query>"` for one-shot output.
 - `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order. Add `--out <file>` to save a portable replay artifact.
 - `ctxhub explain <query>`: create a citation-first explanation scaffold from indexed context without inventing uncited claims.
 - `ctxhub replay <file>`: replay an exported context pack artifact and compare recorded repo HEADs against the current workspace.
@@ -170,10 +190,10 @@ This is purely additive: every `ctxhub <command> ...` invocation works exactly a
 - `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch.
 - `ctxhub handoff <topic> [--from-pr]`: create a Markdown handoff bundle under `.ctxhub/cache/handoffs/` for another agent or teammate.
 - `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development, with a live per-repo progress view in a real terminal.
-- `ctxhub report [-o <path>]`: generate a self-contained, browsable HTML report of workspace status, repos, architecture diagrams, and the most recently indexed chunks, with a client-side search box and stale-result highlighting (no server, no external assets).
-- `ctxhub memory status`: show MemPalace memory status and LanceDB index status.
+- `ctxhub report [-o <path>] [--open]`: generate a self-contained, browsable HTML report of workspace status, repos, architecture diagrams, and the most recently indexed chunks, with a client-side search box and stale-result highlighting (no server, no external assets). `--open` launches the generated file in your browser.
+- `ctxhub memory status`: show MemPalace memory status and LanceDB index status. In a real terminal it renders a compact status panel; use `--plain` for script-friendly output.
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
-- `ctxhub doctor [--fix] [--dry-run] [--fix-skills] [--fix-agent <name>]`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version. In a real terminal it renders a live checklist before printing the final lines. `--fix` applies safe, low-risk repairs (missing `.ctxhub` directories, default `privacy.redactPatterns`); `--dry-run` previews those changes without writing anything; `--fix-skills`/`--fix-agent <name>` are separate opt-in flags for the more invasive fixes (reinstalling stale skill files, refreshing an agent's MCP config), since those overwrite files you may have installed deliberately.
+- `ctxhub doctor [--fix] [--dry-run] [--fix-skills] [--fix-agent <name>]`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version. In a real terminal it renders a live checklist before printing the final lines; use `--plain` for script-friendly output. `--fix` applies safe, low-risk repairs (missing `.ctxhub` directories, default `privacy.redactPatterns`); `--dry-run` previews those changes without writing anything; `--fix-skills`/`--fix-agent <name>` are separate opt-in flags for the more invasive fixes (reinstalling stale skill files, refreshing an agent's MCP config), since those overwrite files you may have installed deliberately.
 - `ctxhub mcp`: start an MCP server (stdio) exposing read-only context tools for AI agents (`--allow-index` adds opt-in mutating index/sync tools).
 - `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config). Also wires up MemPalace's own MCP server alongside ctxhub's when configured and available.
 - `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
@@ -181,7 +201,7 @@ This is purely additive: every `ctxhub <command> ...` invocation works exactly a
 - `ctxhub diagram add <repo> "<title>" [--agent <name>]`: scaffold a dated Mermaid `.mmd` architecture diagram under `<repo>/docs/architecture/` for reviewable team architecture context.
 - `ctxhub graph [--json|--drift]`: summarize workspace components and relationships from indexed diagrams plus package metadata; `--drift` flags missing or unknown architecture references and `--fail-on-drift` makes those findings CI-failing.
 - `ctxhub validate docs [--json|--strict-diagrams]`: check Markdown local links and Mermaid diagram declarations; strict mode adds dependency-light Mermaid delimiter and relationship syntax checks.
-- `ctxhub eval [--init|--file <path>|--report|--json]`: run golden query checks against the index, write run history under `.ctxhub/cache/evals/`, and optionally generate a Markdown quality report.
+- `ctxhub eval [--init|--file <path>|--report|--json]`: run golden query checks against the index, write run history under `.ctxhub/cache/evals/`, and optionally generate a Markdown quality report. Use `--json` in CI.
 
 The default config excludes `.env` files and redacts common secret-looking values before content is written to the index. `privacy.redactPatterns` accepts JavaScript regular expression source strings; matches are replaced with `[REDACTED]`.
 
