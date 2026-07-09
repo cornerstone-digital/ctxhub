@@ -71,3 +71,23 @@ test('reportCommand flags stale chunks when the repo has drifted from the indexe
     assert.match(html, /Stale results found: [1-9]/);
   });
 });
+
+test('reportCommand does not create or migrate a missing LanceDB table', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.index.provider = 'lancedb';
+    config.index.path = '.ctxhub/index/lancedb';
+    config.index.table = 'ctxhub_chunks';
+    await saveConfig(config, cwd);
+
+    const output = path.join(cwd, 'report.html');
+    await reportCommand({ output });
+
+    const html = await readText(output);
+    assert.match(html, /Chunks: 0/);
+
+    const lancedb = await import('@lancedb/lancedb');
+    const db = await lancedb.connect(path.join(cwd, '.ctxhub/index/lancedb'));
+    assert.deepEqual(await db.tableNames(), []);
+  });
+});

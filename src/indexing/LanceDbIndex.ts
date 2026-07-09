@@ -6,6 +6,7 @@ import { lexicalSearch, searchBoost } from './LocalJsonIndex.js';
 
 type LanceDbModule = typeof import('@lancedb/lancedb');
 type LanceTable = import('@lancedb/lancedb').Table;
+const RETRYABLE_LANCE_WRITE_DELAYS_MS = [50, 100, 200, 400, 800];
 
 export class LanceDbIndex implements IndexProvider {
   readonly name = 'lancedb';
@@ -27,24 +28,32 @@ export class LanceDbIndex implements IndexProvider {
 
     if (tableNames.includes(this.tableName)) {
       const existing = await db.openTable(this.tableName);
-      await this.ensureMetadataColumns(existing);
+      await retryLanceWrite(() => this.ensureMetadataColumns(existing));
       return existing;
     }
 
     const seed = documents?.length ? documents.map(toRow) : [emptyRow()];
-    const table = await db.createTable(this.tableName, seed, { mode: 'overwrite' });
+    const table = await retryLanceWrite(() => db.createTable(this.tableName, seed, { mode: 'overwrite' }));
     if (!documents?.length) {
-      await table.delete("id = '__empty__'");
+      await retryLanceWrite(() => table.delete("id = '__empty__'"));
     }
     await this.createFullTextIndex(table);
     return table;
+  }
+
+  private async existingTable(): Promise<LanceTable | undefined> {
+    await ensureDir(this.dbPath);
+    const lancedb = await this.lancedb();
+    const db = await lancedb.connect(this.dbPath);
+    const tableNames = await db.tableNames();
+    return tableNames.includes(this.tableName) ? db.openTable(this.tableName) : undefined;
   }
 
   async indexDocuments(documents: IndexedDocument[]): Promise<void> {
     if (!documents.length) return;
     const table = await this.table(documents);
     await this.removeDocuments(documents.map(document => document.id));
-    await table.add(documents.map(toRow));
+    await retryLanceWrite(() => table.add(documents.map(toRow)));
     await this.createFullTextIndex(table);
   }
 
@@ -52,18 +61,20 @@ export class LanceDbIndex implements IndexProvider {
     if (!documentIds.length) return;
     const table = await this.table();
     const predicates = documentIds.map(id => `id = '${escapeSqlString(id)}'`).join(' OR ');
-    await table.delete(predicates);
+    await retryLanceWrite(() => table.delete(predicates));
   }
 
   async getDocument(documentId: string): Promise<IndexedDocument | undefined> {
-    const table = await this.table();
+    const table = await this.existingTable();
+    if (!table) return undefined;
     const rows = await table.query().where(`id = '${escapeSqlString(documentId)}'`).limit(1).toArray();
     const [row] = rows;
     return row ? rowToDocument(row) : undefined;
   }
 
   async search(query: string, limit = 5): Promise<SearchResult[]> {
-    const table = await this.table();
+    const table = await this.existingTable();
+    if (!table) return [];
     try {
       const rows = await table.search(query, 'fts', 'content').limit(limit).toArray();
       return rows.map(rowToSearchResult).sort((a, b) => b.score - a.score);
@@ -74,7 +85,8 @@ export class LanceDbIndex implements IndexProvider {
   }
 
   async recent(limit = 20): Promise<IndexedDocument[]> {
-    const table = await this.table();
+    const table = await this.existingTable();
+    if (!table) return [];
     const rows = await table.query().limit(10000).toArray();
     return rows
       .map(rowToDocument)
@@ -88,7 +100,7 @@ export class LanceDbIndex implements IndexProvider {
     const db = await lancedb.connect(this.dbPath);
     const tableNames = await db.tableNames();
     if (tableNames.includes(this.tableName)) {
-      await db.dropTable(this.tableName);
+      await retryLanceWrite(() => db.dropTable(this.tableName));
     }
   }
 
@@ -120,9 +132,9 @@ export class LanceDbIndex implements IndexProvider {
   private async createFullTextIndex(table: LanceTable): Promise<void> {
     try {
       const lancedb = await this.lancedb();
-      await table.createIndex('content', {
+      await retryLanceWrite(() => table.createIndex('content', {
         config: lancedb.Index.fts({ baseTokenizer: 'simple', lowercase: true })
-      });
+      }));
     } catch {
       // The lexical fallback keeps search usable on small or partially indexed tables.
     }
@@ -140,6 +152,29 @@ export class LanceDbIndex implements IndexProvider {
       await table.addColumns(missing);
     }
   }
+}
+
+async function retryLanceWrite<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      const delayMs = RETRYABLE_LANCE_WRITE_DELAYS_MS[attempt];
+      if (delayMs === undefined || !isRetryableLanceWriteConflict(error)) {
+        throw error;
+      }
+      await delay(delayMs);
+    }
+  }
+}
+
+function isRetryableLanceWriteConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Retryable commit conflict|preempted by concurrent transaction/i.test(message);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function toRow(document: IndexedDocument): Record<string, unknown> {
