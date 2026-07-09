@@ -9,6 +9,7 @@ import { syncCommand } from './commands/sync.js';
 import { memoryClearCommand, memoryStatusCommand } from './commands/memory.js';
 import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
+import { agentLaunchCommand, SUPPORTED_AGENTS } from './commands/agent.js';
 
 const program = new Command();
 
@@ -92,6 +93,13 @@ program
   .command('mcp')
   .description('Start the SSD MCP server (stdio) for AI agent tool use')
   .action(mcpCommand);
+
+program
+  .command('agent')
+  .argument('<name>', `Agent to launch (${SUPPORTED_AGENTS.join(', ')})`)
+  .description('Write .mcp.json for this workspace and launch the agent, pre-wired with the ssd MCP server')
+  .option('--no-launch', 'Only write .mcp.json, do not launch the agent')
+  .action(agentLaunchCommand);
 
 program.exitOverride();
 

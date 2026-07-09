@@ -36,6 +36,7 @@ ssd sync
 ssd memory status
 ssd doctor
 ssd mcp
+ssd agent claude
 ```
 
 `ssd init` creates:
@@ -96,6 +97,7 @@ hooks:
 - `ssd memory clear`: clear the SSD index after confirmation; external MemPalace stores are left to MemPalace.
 - `ssd doctor`: check Node, Git, config, repo paths, index directory, and memory provider.
 - `ssd mcp`: start an MCP server (stdio) exposing `search`, `memory_status`, and `repo_list` as tools for AI agents.
+- `ssd agent <name>`: write/merge `.mcp.json` for this workspace and launch the agent (currently `claude`; `--no-launch` to only write the config).
 
 ## MCP server
 
@@ -123,6 +125,22 @@ Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.js
 }
 ```
 
+## Launching an agent
+
+`ssd agent claude` writes (or merges into) a `.mcp.json` in the workspace root registering the `ssd` MCP server, then launches `claude` in the current directory so it picks the server up immediately:
+
+```json
+{
+  "mcpServers": {
+    "ssd": { "command": "ssd", "args": ["mcp"] }
+  }
+}
+```
+
+The merge preserves any other keys or MCP servers already in `.mcp.json` and is idempotent (running it again with no changes needed is a no-op). Pass `--no-launch` to only write the config without starting `claude` — useful in CI, or if you'd rather launch it yourself.
+
+Only `claude` is supported today. Codex's MCP configuration lives outside a per-project file (in `~/.codex/config.toml`), so wiring it up automatically needs a different approach than the `.mcp.json` merge above — left as a follow-up rather than guessing at the format.
+
 ## Hooks
 
 Two kinds of hooks keep the index fresh automatically:
@@ -138,6 +156,6 @@ The memory API lives in `src/memory/MemoryAdapter.ts`. MemPalace is the default 
 
 Planned extension points:
 
-- Claude/Codex launch integration
+- Codex launch integration (see note above)
 - embeddings/vector DB provider
 - AI-generated documentation validation

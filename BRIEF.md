@@ -81,6 +81,7 @@ index:
 | `ssd memory clear` | Clears the local index after confirmation (`--force` to skip). External MemPalace stores are left untouched — MemPalace manages its own memory lifecycle. |
 | `ssd doctor` | Checks Node version, Git installed, config present, repo paths valid, index directory writable, and memory/index provider availability. |
 | `ssd mcp` | Starts an MCP server (stdio transport) exposing `search`, `memory_status`, and `repo_list` as tools, so MCP-native agents (Claude Desktop, Cursor, etc.) can query the workspace index without shelling out to the CLI. |
+| `ssd agent <name>` | Writes/merges `.mcp.json` in the workspace root registering the `ssd` MCP server, then launches the named agent (`claude`) in the current directory. `--no-launch` writes the config only. |
 
 ## Architecture: index vs. memory
 
@@ -105,6 +106,12 @@ Two mechanisms keep the index current without manual `ssd index` runs:
 - **Config-level lifecycle hooks** (`src/utils/hooks.ts`) — `hooks.postPull`/`hooks.postIndex` in config are arbitrary shell commands, run with `SSD_EVENT`/`SSD_WORKSPACE` env vars via `child_process.spawn({ shell: true, stdio: 'inherit' })`. Wired into `ssd sync` (postPull after pulling, postIndex after re-indexing) and `ssd index` (postIndex). A failing hook warns rather than failing the command.
 - **Git `post-commit` hook** (`ssd repo hook <name>`, in `src/commands/repo.ts`) — writes an executable `.git/hooks/post-commit` script into the target repo that backgrounds `ssd index` (via an absolute path to the running CLI entrypoint) after every commit. Explicit opt-in per repo, refuses to clobber an existing hook without `--force`.
 
+## Agent launch integration
+
+`ssd agent claude` (`src/commands/agent.ts`) writes/merges a `.mcp.json` in the workspace root — preserving any other keys or MCP servers already present, and skipping the write entirely if the `ssd` entry is already correct — then spawns `claude` with `stdio: 'inherit'` so it launches interactively in the current terminal. `--no-launch` writes the config without launching.
+
+Only `claude` is currently supported (`SUPPORTED_AGENTS`). Codex was intentionally left out: its MCP config lives in `~/.codex/config.toml` rather than a per-project file, which is a different integration shape than the `.mcp.json` merge above, and it wasn't worth guessing at the exact format without verifying it first.
+
 ## Git utilities
 
 `src/git/git.ts` implements `isGitRepo`, `getCurrentCommit`, `pullRepo`, `getRepoName`, and `isGitInstalled`, all via `src/utils/execa-lite.ts` — a small `child_process.spawn` wrapper with `shell: false` and argument arrays throughout, so repo paths/names can never reach a shell.
@@ -116,7 +123,7 @@ Terminal output uses `chalk` for ticks/crosses/warnings and `ora` spinners for l
 ## Quality
 
 - TypeScript strict mode; `npm run build` type-checks with `tsc` and excludes `*.test.ts` from the published `dist/`.
-- `npm test` runs the Node test suite (config loading/merging, git helpers against real temp repos, Markdown chunking, the manifest, `LocalJsonMemory`, the MCP server via an in-memory client/transport pair, hook execution, and the `repo hook` git-hook installer).
+- `npm test` runs the Node test suite (config loading/merging, git helpers against real temp repos, Markdown chunking, the manifest, `LocalJsonMemory`, the MCP server via an in-memory client/transport pair, hook execution, the `repo hook` git-hook installer, and the `.mcp.json` merge logic for `ssd agent`).
 - Errors are actionable (e.g. "No SSD config found... Run: ssd init") rather than raw stack traces.
 
 ## Extension points
@@ -125,8 +132,8 @@ Status of the extension points named in the original brief:
 
 - [x] MCP server integration — `ssd mcp`, see above.
 - [x] Post-pull/post-commit hooks — `hooks.postPull`/`hooks.postIndex` config, plus `ssd repo hook <name>` for a real Git `post-commit` hook.
+- [x] Claude launch integration — `ssd agent claude`; Codex intentionally deferred (see above).
 - [ ] MemPalace provider for CLI *write* operations (currently read/status-only by design; writes go through MemPalace itself).
-- [ ] Claude/Codex launch integration.
 - [ ] Embeddings/vector DB index provider (the `IndexProvider` interface and LanceDB's schema are structured to support this later).
 - [ ] AI-generated documentation validation.
 
