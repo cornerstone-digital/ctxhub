@@ -171,7 +171,7 @@ privacy:
 - `ctxhub diagram add <repo> "<title>" [--agent <name>]`: scaffold a dated Mermaid `.mmd` architecture diagram under `<repo>/docs/architecture/` for reviewable team architecture context.
 - `ctxhub graph [--json|--drift]`: summarize workspace components and relationships from indexed diagrams plus package metadata; `--drift` flags missing or unknown architecture references and `--fail-on-drift` makes those findings CI-failing.
 - `ctxhub validate docs [--json]`: check Markdown local links and Mermaid diagram declarations.
-- `ctxhub eval [--init|--file <path>]`: run golden query checks against the index.
+- `ctxhub eval [--init|--file <path>|--report|--json]`: run golden query checks against the index, write run history under `.ctxhub/cache/evals/`, and optionally generate a Markdown quality report.
 
 The default config excludes `.env` files and redacts common secret-looking values before content is written to the index. `privacy.redactPatterns` accepts JavaScript regular expression source strings; matches are replaced with `[REDACTED]`.
 

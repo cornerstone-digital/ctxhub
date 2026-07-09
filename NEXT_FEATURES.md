@@ -12,7 +12,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Architecture drift detection
 - [x] Agent handoff bundles
 - [ ] Config doctor fix mode
-- [ ] Search quality dashboard
+- [x] Search quality dashboard
 - [ ] Source-aware context expansion
 
 ## 1. Cited Explain Command
@@ -261,6 +261,8 @@ Acceptance criteria:
 - Any potentially invasive fix requires an explicit flag.
 
 ## 9. Search Quality Dashboard
+
+**Status:** Done
 
 **Command:** extend `ctxhub eval`
 

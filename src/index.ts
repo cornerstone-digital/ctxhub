@@ -215,6 +215,8 @@ program
   .command('eval')
   .option('--file <path>', 'Eval suite JSON path')
   .option('--init', 'Create a starter eval suite')
+  .option('--json', 'Print JSON')
+  .option('--report', 'Write a Markdown eval report under .ctxhub/cache/evals/')
   .description('Run golden query checks against the workspace index')
   .action(evalCommand);
 
