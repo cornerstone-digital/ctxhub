@@ -12,9 +12,9 @@ export const defaultConfig: CtxhubConfig = {
       'docs/**/*.md',
       'adr/**/*.md',
       '**/*.md',
-      '**/*.{ts,tsx,js,jsx,mjs,cjs,json,yaml,yml}'
+      '**/*.{ts,tsx,js,jsx,mjs,cjs,json}'
     ],
-    exclude: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**', 'coverage/**']
+    exclude: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**', 'coverage/**', 'cicd/**']
   },
   memory: {
     provider: 'mempalace',

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import yaml from 'js-yaml';
 import { findConfigPath, initConfig, loadConfig, LOCAL_CONFIG_PATH, PROJECT_CONFIG_PATH, saveConfig } from './config.js';
+import { defaultConfig } from './defaultConfig.js';
 
 async function withTempCwd(run: (cwd: string) => Promise<void>) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-config-'));
@@ -52,6 +53,16 @@ test('loadConfig merges partial hooks over the (empty) defaults', () => {
     assert.equal(config.hooks.postPull, 'echo pulled');
     assert.equal(config.hooks.postIndex, undefined);
   });
+});
+
+test('default knowledge globs do not treat YAML as indexable knowledge, and exclude cicd dirs', () => {
+  // Regression guard: YAML in real repos is overwhelmingly CI/infra config (build
+  // pipelines, k8s manifests) rather than narrative docs or app source, and CI
+  // pipeline templates are frequently duplicated verbatim across repos in a
+  // multi-repo workspace, which pollutes search results with identically-scored
+  // boilerplate. See the cicd/cicd.yaml case observed indexing a real workspace.
+  assert.ok(!defaultConfig.knowledge.include.some(pattern => pattern.includes('yaml') || pattern.includes('yml')));
+  assert.ok(defaultConfig.knowledge.exclude.includes('cicd/**'));
 });
 
 test('loadConfig throws a helpful error when no config exists', () => {

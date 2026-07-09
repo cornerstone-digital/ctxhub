@@ -3,6 +3,7 @@ import { confirm } from '@inquirer/prompts';
 import { loadConfig } from '../config/config.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { createIndexProvider } from '../indexing/providers.js';
+import { saveManifest } from '../indexing/manifest.js';
 
 export async function memoryStatusCommand() {
   const config = await loadConfig();
@@ -36,5 +37,8 @@ export async function memoryClearCommand(opts: { force?: boolean } = {}) {
   await memory.clear();
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table);
   await index.clear();
+  // The manifest tracks per-file hashes independently of the index; without resetting it too,
+  // `ctxhub index` would see every file as "unchanged" and skip re-indexing them into the now-empty index.
+  await saveManifest({ version: 1, workspace: config.workspace.name, files: {} });
   console.log(chalk.green('Memory cleared.'));
 }
