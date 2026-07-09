@@ -15,6 +15,7 @@ import { onboardCommand } from './commands/onboard.js';
 import { noteAddCommand } from './commands/note.js';
 import { diagramAddCommand } from './commands/diagram.js';
 import { packCommand } from './commands/pack.js';
+import { replayCommand } from './commands/replay.js';
 import { evalCommand } from './commands/eval.js';
 import { validateDocsCommand } from './commands/validate.js';
 import { graphCommand } from './commands/graph.js';
@@ -110,8 +111,17 @@ program
   .argument('<query>', 'Question or topic to assemble context for')
   .option('-l, --limit <limit>', 'Max results', '8')
   .option('--json', 'Print JSON')
+  .option('--out <path>', 'Write a portable context pack artifact')
+  .option('--include-absolute-paths', 'Include absolute local paths in exported artifacts')
   .description('Assemble an agent-ready context pack from search, architecture, freshness, and workspace status')
   .action(packCommand);
+
+program
+  .command('replay')
+  .argument('<file>', 'Context pack artifact JSON file')
+  .option('--json', 'Print JSON')
+  .description('Replay a previously exported context pack artifact')
+  .action(replayCommand);
 
 program
   .command('open')

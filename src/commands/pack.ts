@@ -1,8 +1,21 @@
 import chalk from 'chalk';
 import { createContextPack } from '../context/pack.js';
+import { createContextPackArtifact } from '../context/export.js';
+import { writeText } from '../utils/fs.js';
 
-export async function packCommand(query: string, opts: { limit?: string; json?: boolean } = {}) {
+export async function packCommand(query: string, opts: { limit?: string; json?: boolean; out?: string; includeAbsolutePaths?: boolean } = {}) {
   const pack = await createContextPack(query, Number(opts.limit ?? 8));
+  if (opts.out) {
+    const artifact = await createContextPackArtifact(pack, { includeAbsolutePaths: opts.includeAbsolutePaths });
+    await writeText(opts.out, `${JSON.stringify(artifact, null, 2)}\n`);
+    if (opts.json) {
+      console.log(JSON.stringify(artifact, null, 2));
+      return;
+    }
+    console.log(chalk.green(`Wrote context pack artifact: ${opts.out}`));
+    return;
+  }
+
   if (opts.json) {
     console.log(JSON.stringify(pack, null, 2));
     return;

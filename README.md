@@ -154,7 +154,8 @@ privacy:
 - `ctxhub index`: index changed workspace files.
 - `ctxhub sync`: pull configured repos and re-index changed files.
 - `ctxhub search <query>`: search the LanceDB project index.
-- `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order.
+- `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order. Add `--out <file>` to save a portable replay artifact.
+- `ctxhub replay <file>`: replay an exported context pack artifact and compare recorded repo HEADs against the current workspace.
 - `ctxhub open <id>`: print a full indexed chunk returned by search or a context pack.
 - `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch.
 - `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development.

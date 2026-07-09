@@ -6,7 +6,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 
 - [ ] Cited explain command
 - [x] CI workflow templates
-- [ ] Context pack export and replay
+- [x] Context pack export and replay
 - [ ] Interactive workspace viewer
 - [ ] Rich Mermaid validation
 - [ ] Architecture drift detection
@@ -78,6 +78,8 @@ Acceptance criteria:
 - Existing user workflows are not overwritten unless `--force` is used.
 
 ## 3. Context Pack Export And Replay
+
+**Status:** Done
 
 **Commands:** `ctxhub pack --out <file>`, `ctxhub replay <file>`
 
