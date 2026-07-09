@@ -119,7 +119,7 @@ const skills = program.command('skills').description('Install chat-native ctxhub
 skills
   .command('install')
   .argument('[agents...]', `Agents to install for (default: all — ${SUPPORTED_SKILL_AGENTS.join(', ')})`)
-  .description('Install a ctxhub skill/prompt file for one or more coding agents')
+  .description('Install ctxhub skill/prompt files (ambient guidance + explicit search) for one or more coding agents')
   .action(skillsInstallCommand);
 
 program.exitOverride();

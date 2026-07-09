@@ -48,14 +48,18 @@ test('doctorCommand flags an outdated installed skill and stays quiet about ones
     await skillsInstallCommand(['claude']);
 
     const lines = await captureDoctorOutput();
-    assert.ok(lines.some(line => line.includes('claude skill up to date')));
-    assert.ok(!lines.some(line => line.includes('cursor skill')), 'should not mention a skill that was never installed');
+    assert.ok(lines.some(line => line.includes('claude:ctxhub skill up to date')));
+    assert.ok(lines.some(line => line.includes('claude:ctxhub-search skill up to date')));
+    assert.ok(!lines.some(line => line.includes('cursor:')), 'should not mention an agent that was never installed');
 
     const skillPath = path.join(cwd, '.claude', 'skills', 'ctxhub', 'SKILL.md');
     await writeText(skillPath, `${await readText(skillPath)}\nstale edit\n`);
 
     const linesAfterEdit = await captureDoctorOutput();
-    assert.ok(linesAfterEdit.some(line => line.includes('claude skill is outdated. Run: ctxhub skills install claude')));
+    assert.ok(
+      linesAfterEdit.some(line => line.includes('claude:ctxhub skill is outdated. Run: ctxhub skills install claude'))
+    );
+    assert.ok(linesAfterEdit.some(line => line.includes('claude:ctxhub-search skill up to date')));
   });
 });
 

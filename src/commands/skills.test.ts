@@ -21,27 +21,41 @@ async function withTempCwd(run: (dir: string) => Promise<void>) {
   }
 }
 
-test('skillsInstallCommand with no args installs for all supported agents by copying the repo templates verbatim', () => {
+test('skillsInstallCommand with no args installs the ambient and search skills for all supported agents', () => {
   return withTempCwd(async dir => {
     await skillsInstallCommand();
 
     const claude = await readText(path.join(dir, '.claude', 'skills', 'ctxhub', 'SKILL.md'));
-    assert.equal(claude, await readText(path.join(REPO_ROOT, 'skills', 'claude', 'SKILL.md')));
+    assert.equal(claude, await readText(path.join(REPO_ROOT, 'skills', 'claude', 'ctxhub', 'SKILL.md')));
     assert.match(claude, /^---\nname: ctxhub\ndescription: /);
 
+    const claudeSearch = await readText(path.join(dir, '.claude', 'skills', 'ctxhub-search', 'SKILL.md'));
+    assert.equal(claudeSearch, await readText(path.join(REPO_ROOT, 'skills', 'claude', 'ctxhub-search', 'SKILL.md')));
+    assert.match(claudeSearch, /^---\nname: ctxhub-search\ndescription: /);
+    assert.match(claudeSearch, /\$ARGUMENTS/);
+
     const codex = await readText(path.join(dir, '.agents', 'skills', 'ctxhub', 'SKILL.md'));
-    assert.equal(codex, await readText(path.join(REPO_ROOT, 'skills', 'codex', 'SKILL.md')));
+    assert.equal(codex, await readText(path.join(REPO_ROOT, 'skills', 'codex', 'ctxhub', 'SKILL.md')));
     assert.equal(codex, claude);
+
+    const codexSearch = await readText(path.join(dir, '.agents', 'skills', 'ctxhub-search', 'SKILL.md'));
+    assert.equal(codexSearch, claudeSearch);
 
     const copilot = await readText(path.join(dir, '.github', 'prompts', 'ctxhub.prompt.md'));
     assert.equal(copilot, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub.prompt.md')));
     assert.match(copilot, /^---\ndescription: /);
     assert.doesNotMatch(copilot, /^---\nname:/);
 
+    const copilotSearch = await readText(path.join(dir, '.github', 'prompts', 'ctxhub-search.prompt.md'));
+    assert.equal(copilotSearch, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub-search.prompt.md')));
+
     const cursor = await readText(path.join(dir, '.cursor', 'commands', 'ctxhub.md'));
     assert.equal(cursor, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ctxhub.md')));
     assert.match(cursor, /^# Using ctxhub/);
     assert.doesNotMatch(cursor, /^---/);
+
+    const cursorSearch = await readText(path.join(dir, '.cursor', 'commands', 'ctxhub-search.md'));
+    assert.equal(cursorSearch, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ctxhub-search.md')));
   });
 });
 

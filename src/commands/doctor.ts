@@ -68,10 +68,11 @@ export async function doctorCommand() {
 
   const drift = await detectDrift(config);
 
-  for (const agent of drift.installedSkills) {
-    console.log(drift.staleSkills.includes(agent)
-      ? `${chalk.yellow('!')} ${agent} skill is outdated. Run: ctxhub skills install ${agent}`
-      : `${chalk.green('✓')} ${agent} skill up to date`);
+  for (const key of drift.installedSkills) {
+    const [agent] = key.split(':');
+    console.log(drift.staleSkills.includes(key)
+      ? `${chalk.yellow('!')} ${key} skill is outdated. Run: ctxhub skills install ${agent}`
+      : `${chalk.green('✓')} ${key} skill up to date`);
   }
   for (const agent of drift.installedAgentConfigs) {
     console.log(drift.staleAgentConfigs.includes(agent)

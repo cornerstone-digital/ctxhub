@@ -182,27 +182,32 @@ All merges preserve any other keys or servers already in the file and are idempo
 
 ## Installable skills
 
-`ctxhub skills install [agents...]` copies a small "how to use ctxhub in this workspace" skill/prompt file into one or more coding agents' own conventions, so the agent knows to check the index *before* answering questions about this codebase — this complements the MCP server (which grants tool access) with usage guidance (which nudges *when* to use it), and still helps agents that don't have the MCP server wired up, since it also documents the plain CLI commands. Run with no arguments to install for all four; name specific agents (e.g. `ctxhub skills install claude cursor`) to limit it.
+`ctxhub skills install [agents...]` installs two files per agent, mirroring the pattern [spec-kit](https://github.com/github/spec-kit) uses — one focused skill per action rather than one skill trying to do everything:
+
+- **`ctxhub`** — ambient guidance, auto-invoked when the agent's own judgment matches the description (e.g. "the answer might be in a different repo"). No arguments; this is the "don't forget the index exists" nudge.
+- **`ctxhub-search`** — explicit, on-demand search. In Claude Code and Codex this is invoked directly as `/ctxhub-search <query>`, with `$ARGUMENTS` handling in the skill body so the typed query is unambiguous rather than left to the model's interpretation — the same pattern spec-kit's own commands use. Codex may show this via a `/skills` picker or `$ctxhub-search` rather than an identical `/name` syntax; worth checking your Codex version.
+
+This complements the MCP server (which grants tool access) with usage guidance (which nudges *when* and *how* to use it), and still helps agents that don't have the MCP server wired up, since it also documents the plain CLI commands. Run with no arguments to install both skills for all four agents; name specific agents (e.g. `ctxhub skills install claude cursor`) to limit it.
 
 The templates themselves live in this repo under [`skills/`](./skills/) and are plain, static files — copy them in by hand instead of running the command if you'd rather not install the CLI at all:
 
-| Agent | Template | Installs to |
+| Agent | Templates | Installs to |
 | --- | --- | --- |
-| `claude` | [`skills/claude/SKILL.md`](./skills/claude/SKILL.md) | `.claude/skills/ctxhub/SKILL.md` |
-| `codex` | [`skills/codex/SKILL.md`](./skills/codex/SKILL.md) | `.agents/skills/ctxhub/SKILL.md` (identical content to Claude's — Codex's skills format is compatible) |
-| `copilot` | [`skills/copilot/ctxhub.prompt.md`](./skills/copilot/ctxhub.prompt.md) | `.github/prompts/ctxhub.prompt.md` |
-| `cursor` | [`skills/cursor/ctxhub.md`](./skills/cursor/ctxhub.md) | `.cursor/commands/ctxhub.md` |
+| `claude` | [`skills/claude/ctxhub/SKILL.md`](./skills/claude/ctxhub/SKILL.md), [`skills/claude/ctxhub-search/SKILL.md`](./skills/claude/ctxhub-search/SKILL.md) | `.claude/skills/ctxhub/SKILL.md`, `.claude/skills/ctxhub-search/SKILL.md` |
+| `codex` | [`skills/codex/ctxhub/SKILL.md`](./skills/codex/ctxhub/SKILL.md), [`skills/codex/ctxhub-search/SKILL.md`](./skills/codex/ctxhub-search/SKILL.md) | `.agents/skills/ctxhub/SKILL.md`, `.agents/skills/ctxhub-search/SKILL.md` (identical content to Claude's — Codex's skills format is compatible) |
+| `copilot` | [`skills/copilot/ctxhub.prompt.md`](./skills/copilot/ctxhub.prompt.md), [`skills/copilot/ctxhub-search.prompt.md`](./skills/copilot/ctxhub-search.prompt.md) | `.github/prompts/ctxhub.prompt.md`, `.github/prompts/ctxhub-search.prompt.md` |
+| `cursor` | [`skills/cursor/ctxhub.md`](./skills/cursor/ctxhub.md), [`skills/cursor/ctxhub-search.md`](./skills/cursor/ctxhub-search.md) | `.cursor/commands/ctxhub.md`, `.cursor/commands/ctxhub-search.md` |
 
-Each destination is a dedicated file ctxhub owns (namespaced by the `ctxhub` skill/command name), so there's no merge concern the way there is for the shared MCP config files above — the command just copies the template in verbatim, overwriting whatever was there.
+Each destination is a dedicated file ctxhub owns (namespaced by skill name), so there's no merge concern the way there is for the shared MCP config files above — the command just copies each template in verbatim, overwriting whatever was there.
 
 ## Detecting stale skills and agent configs
 
 Installed skill files and agent MCP configs are snapshots written at install time — if you upgrade ctxhub later (a revised skill description, a changed MCP entry shape), anything already installed in a workspace stays exactly as it was until you re-run the install command. `ctxhub doctor` catches this drift for anything it finds installed (it stays silent about agents/skills you never set up in the first place):
 
 ```text
-! claude skill is outdated. Run: ctxhub skills install claude
+! claude:ctxhub skill is outdated. Run: ctxhub skills install claude
 ! codex MCP config is outdated. Run: ctxhub agent codex --no-launch
-✓ copilot skill up to date
+✓ claude:ctxhub-search skill up to date
 ```
 
 It also flags a `config.yaml` schema version mismatch (`version: 1` today) the same way, in case a future ctxhub version changes the config shape. None of this is auto-fixed — `doctor` only diagnoses and tells you the exact command to run, consistent with the rest of its checks.

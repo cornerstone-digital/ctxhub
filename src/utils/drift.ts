@@ -1,12 +1,14 @@
 import { pathExists, readText } from './fs.js';
-import { SUPPORTED_SKILL_AGENTS, SKILL_TEMPLATES, type SkillAgent } from '../commands/skills.js';
+import { SKILL_TEMPLATES } from '../commands/skills.js';
 import { SUPPORTED_AGENTS, expectedMcpEntry, readInstalledMcpEntry, type SupportedAgent } from '../commands/agent.js';
 import { defaultConfig } from '../config/defaultConfig.js';
 import type { CtxhubConfig } from '../config/types.js';
 
+// Keyed "agent:id", e.g. "claude:ctxhub-search" -- one entry per installed skill file,
+// since an agent can have more than one (an ambient skill plus an explicit on-demand one).
 export type DriftReport = {
-  installedSkills: SkillAgent[];
-  staleSkills: SkillAgent[];
+  installedSkills: string[];
+  staleSkills: string[];
   installedAgentConfigs: SupportedAgent[];
   staleAgentConfigs: SupportedAgent[];
   configVersionMismatch: boolean;
@@ -16,16 +18,16 @@ export type DriftReport = {
 // version would produce. Agents/skills never installed here are omitted from both the
 // installed* and stale* lists -- this reports drift, not incompleteness.
 export async function detectDrift(config: CtxhubConfig, cwd = process.cwd()): Promise<DriftReport> {
-  const installedSkills: SkillAgent[] = [];
-  const staleSkills: SkillAgent[] = [];
-  for (const agent of SUPPORTED_SKILL_AGENTS) {
-    const { source, target } = SKILL_TEMPLATES[agent];
+  const installedSkills: string[] = [];
+  const staleSkills: string[] = [];
+  for (const { agent, id, source, target } of SKILL_TEMPLATES) {
     const destination = target(cwd);
     if (!(await pathExists(destination))) continue;
 
-    installedSkills.push(agent);
+    const key = `${agent}:${id}`;
+    installedSkills.push(key);
     const [installed, current] = await Promise.all([readText(destination), readText(source)]);
-    if (installed !== current) staleSkills.push(agent);
+    if (installed !== current) staleSkills.push(key);
   }
 
   const installedAgentConfigs: SupportedAgent[] = [];

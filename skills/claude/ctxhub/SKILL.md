@@ -1,6 +1,8 @@
 ---
 name: ctxhub
 description: Search across every repo in this multi-repo workspace — including ones not currently open — before answering questions about how existing code or services work, which repo owns what, or why a past decision was made. Provides search, memory_status, and repo_list.
+user-invocable: true
+disable-model-invocation: false
 ---
 
 This workspace uses `ctxhub` (see `ctxhub.yaml` / `.ctxhub/config.yaml`) to index documentation and source across *all* of its configured repos, not just the one you happen to have open.

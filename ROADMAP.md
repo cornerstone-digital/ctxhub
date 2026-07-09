@@ -8,7 +8,7 @@
 - MCP server (`ctxhub mcp`) exposing `search`, `memory_status`, and `repo_list` as read-only tools
 - Config-level lifecycle hooks (`hooks.postPull`, `hooks.postIndex`) and a real Git `post-commit` hook (`ctxhub repo hook`)
 - Agent launch integration for Claude, Codex, and Copilot (`ctxhub agent <name>`)
-- Installable skills/prompt files for Claude, Codex, Copilot, and Cursor (`ctxhub skills install`)
+- Installable skills/prompt files for Claude, Codex, Copilot, and Cursor (`ctxhub skills install`) — an ambient auto-invoked skill plus a dedicated `ctxhub-search` skill for explicit, argument-driven on-demand search (`/ctxhub-search <query>` in Claude Code/Codex), mirroring spec-kit's one-skill-per-action pattern
 - Interactive onboarding wizard (`ctxhub onboard`) that composes init, repo discovery, hooks, memory, agents, and skills into one guided flow
 - Standard OSS project scaffolding: LICENSE, CONTRIBUTING.md, CODE_OF_CONDUCT.md, issue/PR templates
 - Fully automated semantic versioning and changelog via semantic-release + Conventional Commits (npm publishing intentionally disabled until ready to ship)
