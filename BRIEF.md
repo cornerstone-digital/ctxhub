@@ -12,6 +12,7 @@ It is intentionally generic — nothing in the codebase is specific to any one p
 - [LanceDB](https://lancedb.github.io/lancedb/) as the default document index (local-first, embedded, with full-text search)
 - [MemPalace](https://github.com) as the default durable agent-memory provider (external CLI/MCP tool)
 - [`@modelcontextprotocol/sdk`](https://modelcontextprotocol.io/) for the MCP server
+- [`smol-toml`](https://github.com/squirrelchat/smol-toml) for Codex's `.codex/config.toml` (pure JS, no native binary)
 - A pluggable index provider interface and memory provider interface, so either can be swapped without touching CLI commands
 
 ## Package structure
@@ -108,9 +109,12 @@ Two mechanisms keep the index current without manual `ssd index` runs:
 
 ## Agent launch integration
 
-`ssd agent claude` (`src/commands/agent.ts`) writes/merges a `.mcp.json` in the workspace root — preserving any other keys or MCP servers already present, and skipping the write entirely if the `ssd` entry is already correct — then spawns `claude` with `stdio: 'inherit'` so it launches interactively in the current terminal. `--no-launch` writes the config without launching.
+`ssd agent <claude|codex>` (`src/commands/agent.ts`) writes/merges that agent's project-level MCP config to register the `ssd` MCP server, then launches the agent with `stdio: 'inherit'` so it runs interactively in the current terminal. `--no-launch` writes the config without launching. Both writers preserve any other keys/servers already present and skip the write entirely if the `ssd` entry is already correct (`AgentConfigResult.changed`).
 
-Only `claude` is currently supported (`SUPPORTED_AGENTS`). Codex was intentionally left out: its MCP config lives in `~/.codex/config.toml` rather than a per-project file, which is a different integration shape than the `.mcp.json` merge above, and it wasn't worth guessing at the exact format without verifying it first.
+- **`claude`** merges `{ mcpServers: { ssd: { command: 'ssd', args: ['mcp'] } } }` into `.mcp.json` (JSON, via `JSON.parse`/`JSON.stringify`).
+- **`codex`** merges `[mcp_servers.ssd]` into `.codex/config.toml` (TOML, via the `smol-toml` package — pure JS, no native binary, chosen after the `@lancedb/lancedb` install-fragility episode). Verified against OpenAI's own docs before building: Codex only loads project-scoped `.codex/config.toml` for projects it *trusts* (untrusted projects skip it entirely — there's an open upstream issue, [openai/codex#13025](https://github.com/openai/codex/issues/13025), about this not always working even when expected), and the built-in `codex mcp add` subcommand only writes the user-level `~/.codex/config.toml`, not project scope — hence `ssd agent codex` filling that gap. It prints a reminder about the trust requirement after writing, since SSD can't grant that trust itself.
+
+Neither writer preserves comments/formatting on rewrite — the same tradeoff already accepted for `ssd.yaml` via `js-yaml`.
 
 ## Git utilities
 
@@ -123,7 +127,7 @@ Terminal output uses `chalk` for ticks/crosses/warnings and `ora` spinners for l
 ## Quality
 
 - TypeScript strict mode; `npm run build` type-checks with `tsc` and excludes `*.test.ts` from the published `dist/`.
-- `npm test` runs the Node test suite (config loading/merging, git helpers against real temp repos, Markdown chunking, the manifest, `LocalJsonMemory`, the MCP server via an in-memory client/transport pair, hook execution, the `repo hook` git-hook installer, and the `.mcp.json` merge logic for `ssd agent`).
+- `npm test` runs the Node test suite (config loading/merging, git helpers against real temp repos, Markdown chunking, the manifest, `LocalJsonMemory`, the MCP server via an in-memory client/transport pair, hook execution, the `repo hook` git-hook installer, and the `.mcp.json`/`.codex/config.toml` merge logic for `ssd agent`).
 - Errors are actionable (e.g. "No SSD config found... Run: ssd init") rather than raw stack traces.
 
 ## Extension points
@@ -132,8 +136,8 @@ Status of the extension points named in the original brief:
 
 - [x] MCP server integration — `ssd mcp`, see above.
 - [x] Post-pull/post-commit hooks — `hooks.postPull`/`hooks.postIndex` config, plus `ssd repo hook <name>` for a real Git `post-commit` hook.
-- [x] Claude launch integration — `ssd agent claude`; Codex intentionally deferred (see above).
-- [ ] Codex launch integration — needs its actual MCP config format (`~/.codex/config.toml`) verified first.
+- [x] Claude launch integration — `ssd agent claude`.
+- [x] Codex launch integration — `ssd agent codex`, see above.
 - [ ] AI-generated documentation validation.
 
 Not planned: a MemPalace provider for CLI *write* operations, or an embeddings/vector-DB index provider. Both were deliberately decided against rather than merely deferred — see "Architecture: index vs. memory" and the note under "Agent launch integration" above.

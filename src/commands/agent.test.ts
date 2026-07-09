@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { agentLaunchCommand, launchAgentBinary, writeSsdMcpConfig } from './agent.js';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { parse, stringify } from 'smol-toml';
+import { agentLaunchCommand, launchAgentBinary, writeClaudeMcpConfig, writeCodexMcpConfig } from './agent.js';
 import { readText } from '../utils/fs.js';
 
 async function withTempDir(run: (dir: string) => Promise<void>) {
@@ -15,9 +16,9 @@ async function withTempDir(run: (dir: string) => Promise<void>) {
   }
 }
 
-test('writeSsdMcpConfig creates .mcp.json when none exists', () => {
+test('writeClaudeMcpConfig creates .mcp.json when none exists', () => {
   return withTempDir(async dir => {
-    const { path: configPath, changed } = await writeSsdMcpConfig(dir);
+    const { path: configPath, changed } = await writeClaudeMcpConfig(dir);
     assert.equal(changed, true);
 
     const written = JSON.parse(await readText(configPath));
@@ -25,7 +26,7 @@ test('writeSsdMcpConfig creates .mcp.json when none exists', () => {
   });
 });
 
-test('writeSsdMcpConfig merges into an existing .mcp.json without clobbering other servers', () => {
+test('writeClaudeMcpConfig merges into an existing .mcp.json without clobbering other servers', () => {
   return withTempDir(async dir => {
     const configPath = path.join(dir, '.mcp.json');
     await writeFile(
@@ -33,7 +34,7 @@ test('writeSsdMcpConfig merges into an existing .mcp.json without clobbering oth
       JSON.stringify({ mcpServers: { other: { command: 'other-tool', args: ['serve'] } }, somethingElse: true }, null, 2)
     );
 
-    await writeSsdMcpConfig(dir);
+    await writeClaudeMcpConfig(dir);
 
     const written = JSON.parse(await readText(configPath));
     assert.deepEqual(written.mcpServers.other, { command: 'other-tool', args: ['serve'] });
@@ -42,12 +43,52 @@ test('writeSsdMcpConfig merges into an existing .mcp.json without clobbering oth
   });
 });
 
-test('writeSsdMcpConfig is idempotent once the ssd entry is already correct', () => {
+test('writeClaudeMcpConfig is idempotent once the ssd entry is already correct', () => {
   return withTempDir(async dir => {
-    const first = await writeSsdMcpConfig(dir);
+    const first = await writeClaudeMcpConfig(dir);
     assert.equal(first.changed, true);
 
-    const second = await writeSsdMcpConfig(dir);
+    const second = await writeClaudeMcpConfig(dir);
+    assert.equal(second.changed, false);
+  });
+});
+
+test('writeCodexMcpConfig creates .codex/config.toml when none exists', () => {
+  return withTempDir(async dir => {
+    const { path: configPath, changed, note } = await writeCodexMcpConfig(dir);
+    assert.equal(changed, true);
+    assert.match(note ?? '', /trusts/);
+
+    const written = parse(await readText(configPath)) as { mcp_servers: Record<string, unknown> };
+    assert.deepEqual(written.mcp_servers.ssd, { command: 'ssd', args: ['mcp'] });
+  });
+});
+
+test('writeCodexMcpConfig merges into an existing .codex/config.toml without clobbering other servers', () => {
+  return withTempDir(async dir => {
+    const configDir = path.join(dir, '.codex');
+    const configPath = path.join(configDir, 'config.toml');
+    await mkdir(configDir, { recursive: true });
+    await writeFile(
+      configPath,
+      stringify({ mcp_servers: { other: { command: 'other-tool', args: ['serve'] } }, model: 'gpt-5-codex' })
+    );
+
+    await writeCodexMcpConfig(dir);
+
+    const written = parse(await readText(configPath)) as Record<string, unknown> & { mcp_servers: Record<string, unknown> };
+    assert.deepEqual(written.mcp_servers.other, { command: 'other-tool', args: ['serve'] });
+    assert.deepEqual(written.mcp_servers.ssd, { command: 'ssd', args: ['mcp'] });
+    assert.equal(written.model, 'gpt-5-codex');
+  });
+});
+
+test('writeCodexMcpConfig is idempotent once the ssd entry is already correct', () => {
+  return withTempDir(async dir => {
+    const first = await writeCodexMcpConfig(dir);
+    assert.equal(first.changed, true);
+
+    const second = await writeCodexMcpConfig(dir);
     assert.equal(second.changed, false);
   });
 });
@@ -72,6 +113,20 @@ test('agentLaunchCommand with --no-launch only writes the MCP config', () => {
       await agentLaunchCommand('claude', { launch: false });
       const written = JSON.parse(await readText(path.join(dir, '.mcp.json')));
       assert.deepEqual(written.mcpServers.ssd, { command: 'ssd', args: ['mcp'] });
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+});
+
+test('agentLaunchCommand codex with --no-launch writes .codex/config.toml and prints the trust note', () => {
+  return withTempDir(async dir => {
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      await agentLaunchCommand('codex', { launch: false });
+      const written = parse(await readText(path.join(dir, '.codex', 'config.toml'))) as { mcp_servers: Record<string, unknown> };
+      assert.deepEqual(written.mcp_servers.ssd, { command: 'ssd', args: ['mcp'] });
     } finally {
       process.chdir(originalCwd);
     }

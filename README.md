@@ -97,7 +97,7 @@ hooks:
 - `ssd memory clear`: clear the SSD index after confirmation; external MemPalace stores are left to MemPalace.
 - `ssd doctor`: check Node, Git, config, repo paths, index directory, and memory provider.
 - `ssd mcp`: start an MCP server (stdio) exposing `search`, `memory_status`, and `repo_list` as tools for AI agents.
-- `ssd agent <name>`: write/merge `.mcp.json` for this workspace and launch the agent (currently `claude`; `--no-launch` to only write the config).
+- `ssd agent <name>`: write/merge this workspace's MCP config for `claude` (`.mcp.json`) or `codex` (`.codex/config.toml`) and launch it (`--no-launch` to only write the config).
 
 ## MCP server
 
@@ -127,7 +127,9 @@ Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.js
 
 ## Launching an agent
 
-`ssd agent claude` writes (or merges into) a `.mcp.json` in the workspace root registering the `ssd` MCP server, then launches `claude` in the current directory so it picks the server up immediately:
+`ssd agent <claude|codex>` writes (or merges into) that agent's project-level MCP config to register the `ssd` MCP server, then launches the agent in the current directory so it picks the server up immediately. Pass `--no-launch` to only write the config without starting the agent — useful in CI, or if you'd rather launch it yourself.
+
+**Claude** — merges into `.mcp.json`:
 
 ```json
 {
@@ -137,9 +139,17 @@ Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.js
 }
 ```
 
-The merge preserves any other keys or MCP servers already in `.mcp.json` and is idempotent (running it again with no changes needed is a no-op). Pass `--no-launch` to only write the config without starting `claude` — useful in CI, or if you'd rather launch it yourself.
+**Codex** — merges into `.codex/config.toml`:
 
-Only `claude` is supported today. Codex's MCP configuration lives outside a per-project file (in `~/.codex/config.toml`), so wiring it up automatically needs a different approach than the `.mcp.json` merge above — left as a follow-up rather than guessing at the format.
+```toml
+[mcp_servers.ssd]
+command = "ssd"
+args = ["mcp"]
+```
+
+Codex only loads project-scoped `.codex/config.toml` for projects it trusts (untrusted projects skip it entirely — see [openai/codex#13025](https://github.com/openai/codex/issues/13025)); `ssd agent codex` prints a reminder of this after writing the config, since there's no way for SSD to grant that trust on Codex's behalf.
+
+Both merges preserve any other keys or servers already in the file and are idempotent — running the command again when nothing needs to change is a no-op, and TOML/JSON values round-trip correctly, though comments and formatting in a hand-edited file are not preserved on rewrite (the same tradeoff this project already accepts for its own `ssd.yaml` via `js-yaml`).
 
 ## Hooks
 
@@ -156,7 +166,6 @@ The memory API lives in `src/memory/MemoryAdapter.ts`. MemPalace is the default 
 
 Planned extension points:
 
-- Codex launch integration (see note above)
 - AI-generated documentation validation
 
 Not planned: a MemPalace provider for CLI write operations (writes should go through MemPalace's own CLI/MCP tools, not SSD's document indexer — see `MempalaceMemory` in `src/memory/LocalJsonMemory.ts`), or an embeddings/vector-DB index provider (lexical/FTS search already covers this project's typical doc+code corpus well, and a local embedding model would mean a second native binary dependency for modest benefit). Both were deliberately decided against rather than merely deferred.
