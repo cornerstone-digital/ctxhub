@@ -10,6 +10,7 @@ import { getFileContext } from '../context/fileContext.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { pullRepo } from '../git/git.js';
 import { getPackageVersion } from '../utils/version.js';
+import { SEARCH_FACETS, classifyResult, filterResults, localRgHints, normalizeSearchFacet } from '../context/searchFacets.js';
 
 function textResult(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
@@ -30,18 +31,34 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
         'Search docs/source across EVERY repo in this multi-repo workspace, including repos other than ' +
         'the one currently open. Use this before answering questions about how another service works, ' +
         'which repo owns a capability, cross-repo integration behavior, or past decisions — anywhere the ' +
-        'answer might live outside the current repo. Returns ranked chunks with repo, path, heading, ' +
-        'snippet, and commit.',
+        'answer might live outside the current repo. Use type="code" for exact implementation/symbol lookup, ' +
+        'type="docs" for README/decision docs, type="architecture" for Mermaid diagrams, and type="notes" for team notes. ' +
+        'Returns ranked chunks with repo, path, type, heading, snippet, commit, and local rg follow-up hints.',
       inputSchema: {
         query: z.string().describe('Search query'),
-        limit: z.number().int().positive().max(50).optional().describe('Max results (default 5)')
+        limit: z.number().int().positive().max(50).optional().describe('Max results (default 5)'),
+        type: z.enum(SEARCH_FACETS).optional().describe('Optional result type filter: all, docs, code, architecture, notes')
       }
     },
-    async ({ query, limit }) => {
+    async ({ query, limit, type }) => {
       const { config, workspaceRoot } = await workspace(cwd);
       const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
-      const results = await index.search(query, limit ?? 5);
-      return textResult(results);
+      const facet = normalizeSearchFacet(type);
+      const maxResults = limit ?? 5;
+      const candidates = await index.search(query, facet === 'all' ? maxResults : Math.max(maxResults * 5, 25));
+      const results = filterResults(candidates, facet).slice(0, maxResults);
+      return textResult({
+        query,
+        type: facet,
+        resultTypes: countResultTypes(results),
+        results: results.map(result => ({ ...result, type: classifyResult(result) })),
+        localFollowUpCommands: localRgHints(query, results),
+        guidance: [
+          'Use ctxhub to orient across repos and identify likely files.',
+          'For exact method bodies or edits, follow up with get_file_context or local rg in the target repo.',
+          'For architecture/topology questions, prefer type="architecture" or architecture_search.'
+        ]
+      });
     }
   );
 
@@ -226,6 +243,15 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
   );
 
   return server;
+}
+
+function countResultTypes(results: Array<Parameters<typeof classifyResult>[0]>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const result of results) {
+    const type = classifyResult(result);
+    counts[type] = (counts[type] ?? 0) + 1;
+  }
+  return counts;
 }
 
 export async function startMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean } = {}): Promise<void> {

@@ -182,8 +182,8 @@ ctxhub eval --json            # CI-friendly eval payload
 - `ctxhub ci init [--with-eval]`: create a GitHub Actions workflow that runs build, `ctxhub validate docs`, and optionally `ctxhub eval` on pull requests.
 - `ctxhub index`: index changed workspace files. In a real terminal it shows per-repo progress, then prints the durable summary; use `--plain` to force plain progress output.
 - `ctxhub sync [--no-pull]`: pull configured repos and re-index changed files. In a real terminal it shows separate pull and index progress; `--no-pull` skips the Git pull phase and `--plain` forces plain progress output.
-- `ctxhub search [query]`: search the LanceDB project index. In a real terminal it opens live search by default, seeded with the query when provided — type to search-as-you-type, arrow keys to move, enter to view the full chunk, esc to go back/quit. Use `ctxhub search --plain "<query>"` for one-shot output.
-- `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order. Add `--out <file>` to save a portable replay artifact.
+- `ctxhub search [query]`: search the LanceDB project index. Use `--type all|docs|code|architecture|notes`, or shortcuts like `--code` and `--docs`, when you know what kind of evidence you want. In a real terminal it opens live search by default, seeded with the query when provided — type to search-as-you-type, tab cycles result-type facets, arrow keys move, enter views the full chunk, esc goes back/quits. Use `ctxhub search --plain "<query>"` for one-shot output.
+- `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, result-type counts, local `rg` follow-up suggestions, and suggested reading order. Add `--out <file>` to save a portable replay artifact.
 - `ctxhub explain <query>`: create a citation-first explanation scaffold from indexed context without inventing uncited claims.
 - `ctxhub replay <file>`: replay an exported context pack artifact and compare recorded repo HEADs against the current workspace.
 - `ctxhub open <id>`: print a full indexed chunk returned by search or a context pack.
@@ -213,7 +213,7 @@ The server uses the same upward config discovery as the CLI. If an agent launche
 
 Tools exposed:
 
-- `search(query, limit?)` — same ranked results as `ctxhub search`.
+- `search(query, limit?, type?)` — ranked results plus result-type labels and local `rg` follow-up hints. `type` can be `all`, `docs`, `code`, `architecture`, or `notes`; use `code` when an agent needs exact implementation/symbol starting points before local file reads.
 - `context_pack(query, limit?)` — same bundle as `ctxhub pack --json`.
 - `open_chunk(id)` — return a full indexed chunk from a search/context-pack result. For TS/JS/JSX files, chunks are already whole top-level functions/classes rather than arbitrary paragraph slices (see [Source-aware context](#source-aware-context) below).
 - `get_file_context(repo, path, line?, before?, after?, mode?)` — return context around a line. For TS/JS/JSX files this defaults (`mode: "auto"`) to the full enclosing function/method/class; pass `mode: "lines"` to force the old before/after line window.
@@ -306,7 +306,7 @@ Architecture diagrams use the same team-shared path. `ctxhub diagram add <repo> 
 `ctxhub skills install [agents...]` installs focused skills per agent, mirroring the skills-mode pattern [spec-kit](https://github.com/github/spec-kit) uses — one focused skill per action rather than one skill trying to do everything:
 
 - **`ctxhub`** — ambient guidance, auto-invoked when the agent's own judgment matches the description (e.g. "the answer might be in a different repo"). No arguments; this is the "don't forget the index exists" nudge.
-- **`ctxhub-search`** — explicit, on-demand search. In Claude Code and Codex this is invoked directly as `/ctxhub-search <query>`, with `$ARGUMENTS` handling in the skill body so the typed query is unambiguous rather than left to the model's interpretation — the same pattern spec-kit's own commands use. Codex may show this via a `/skills` picker or `$ctxhub-search` rather than an identical `/name` syntax; worth checking your Codex version.
+- **`ctxhub-search`** — explicit, on-demand search. In Claude Code and Codex this is invoked directly as `/ctxhub-search <query>`, with `$ARGUMENTS` handling in the skill body so the typed query is unambiguous rather than left to the model's interpretation — the same pattern spec-kit's own commands use. It teaches agents to use typed search (`code`, `docs`, `architecture`, `notes`) and then switch to local `rg`/file context for exact implementation work. Codex may show this via a `/skills` picker or `$ctxhub-search` rather than an identical `/name` syntax; worth checking your Codex version.
 - **`ctxhub-context`** — explicit context-pack gathering for broad cross-repo questions where the agent should read a suggested path and architecture/freshness evidence before answering.
 - **`ctxhub-note`** — explicit team-note capture for durable findings that should live in a repo under `agent-notes/` and be reviewed/indexed with the codebase.
 - **`ctxhub-diagram`** — explicit Mermaid architecture capture for system relationships, request/event flows, ownership boundaries, integrations, or runtime topology.

@@ -17,6 +17,10 @@ async function withWorkspace(run: (cwd: string) => Promise<void>) {
     const repoPath = path.join(cwd, 'app');
     await mkdir(repoPath, { recursive: true });
     await writeFile(path.join(repoPath, 'README.md'), '# App\n\n## Authentication flow\n\nAuth details live here.\n');
+    await writeFile(
+      path.join(repoPath, 'auth.ts'),
+      ['export function authenticateRequest(token: string) {', '  return token.length > 0;', '}'].join('\n')
+    );
 
     const config = await loadConfig(cwd);
     config.repositories.push({ name: 'app', path: './app', git: false });
@@ -52,8 +56,30 @@ test('searchCommand prints ranked results for a one-shot query', () => {
     const lines = await captureLog(() => searchCommand('authentication', {}));
     assert.ok(lines.some(line => line.includes('app')));
     assert.ok(lines.some(line => line.includes('README.md')));
+    assert.ok(lines.some(line => line.includes('[docs]')));
     assert.ok(lines.some(line => /id [a-f0-9]{12}/.test(line)));
     assert.ok(lines.some(line => /open: ctxhub open [a-f0-9]{12}/.test(line)));
+  });
+});
+
+test('searchCommand can filter to source code results and prints local rg follow-ups', () => {
+  return withWorkspace(async () => {
+    const lines = await captureLog(() => searchCommand('authenticateRequest', { code: true }));
+    assert.ok(lines.some(line => line.includes('auth.ts')));
+    assert.ok(lines.some(line => line.includes('[code]')));
+    assert.ok(lines.some(line => line.includes('function authenticateRequest')));
+    assert.ok(lines.some(line => line.includes('Local follow-up')));
+    assert.ok(lines.some(line => line.includes('rg "authenticateRequest" app')));
+    assert.ok(!lines.some(line => line.includes('README.md')));
+  });
+});
+
+test('searchCommand rejects conflicting result type shortcuts', () => {
+  return withWorkspace(async () => {
+    await assert.rejects(
+      () => searchCommand('authentication', { code: true, docs: true }),
+      /Choose only one search type flag/
+    );
   });
 });
 

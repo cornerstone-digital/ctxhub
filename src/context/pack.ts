@@ -1,6 +1,8 @@
 import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { attachFreshness } from './freshness.js';
+import { classifyResult, localRgHints } from './searchFacets.js';
+import type { SearchResult } from '../config/types.js';
 
 export async function createContextPack(query: string, limit = 8, cwd = process.cwd()) {
   const { loadWorkspaceConfig } = await import('../config/config.js');
@@ -26,13 +28,25 @@ export async function createContextPack(query: string, limit = 8, cwd = process.
     status: { memory: memoryStatus, index: indexStatus },
     search,
     architecture,
+    resultTypes: countResultTypes(search),
     suggestedReadingOrder: suggestedReadingOrder(search, architecture),
+    localFollowUpCommands: localRgHints(query, search),
     guidance: [
       'Use search results for grounded citations.',
       'Use architecture results first for topology, component, and relationship questions.',
+      'For exact method bodies or implementation edits, use the suggested local rg commands inside the target repo after ctxhub identifies where to look.',
       'Treat results with freshness.stale=true as suspect until ctxhub sync/index runs.'
     ]
   };
+}
+
+function countResultTypes(search: SearchResult[]) {
+  const counts: Record<string, number> = {};
+  for (const result of search) {
+    const type = classifyResult(result);
+    counts[type] = (counts[type] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function suggestedReadingOrder(search: Array<{ repo: string; filePath: string; title?: string }>, architecture: Array<{ repo: string; filePath: string; title?: string }>) {

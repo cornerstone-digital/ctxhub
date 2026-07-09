@@ -4,6 +4,7 @@ import TextInput from 'ink-text-input';
 import type { CtxhubConfig, IndexedDocument, SearchResult } from '../config/types.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { attachFreshness } from '../context/freshness.js';
+import { SEARCH_FACETS, classifyResult, filterResults, localRgHints, type SearchFacet } from '../context/searchFacets.js';
 
 type Mode = 'list' | 'detail';
 type Status = 'idle' | 'searching' | 'error';
@@ -13,13 +14,14 @@ type Props = {
   cwd: string;
   initialQuery: string;
   limit: number;
+  initialFacet?: SearchFacet;
 };
 
 const SEARCH_DEBOUNCE_MS = 150;
 const SNIPPET_LIMIT = 900;
 const CONTENT_PREVIEW_LIMIT = 5000;
 
-export function SearchApp({ config, cwd, initialQuery, limit }: Props) {
+export function SearchApp({ config, cwd, initialQuery, limit, initialFacet = 'all' }: Props) {
   const { exit } = useApp();
   const index = useMemo(
     () => createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd),
@@ -33,6 +35,7 @@ export function SearchApp({ config, cwd, initialQuery, limit }: Props) {
   const [errorMessage, setErrorMessage] = useState<string>();
   const [mode, setMode] = useState<Mode>('list');
   const [detail, setDetail] = useState<IndexedDocument>();
+  const [facet, setFacet] = useState<SearchFacet>(initialFacet);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -47,11 +50,11 @@ export function SearchApp({ config, cwd, initialQuery, limit }: Props) {
 
     const timer = setTimeout(() => {
       index
-        .search(query, limit)
+        .search(query, searchLimit(limit, facet))
         .then(raw => attachFreshness(config, raw, cwd))
         .then(withFreshness => {
           if (cancelled) return;
-          setResults(withFreshness);
+          setResults(filterResults(withFreshness, facet).slice(0, limit));
           setSelected(0);
           setStatus('idle');
         })
@@ -66,7 +69,7 @@ export function SearchApp({ config, cwd, initialQuery, limit }: Props) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, index, config, cwd, limit]);
+  }, [query, index, config, cwd, limit, facet]);
 
   useInput((input, key) => {
     if (mode === 'detail') {
@@ -76,6 +79,10 @@ export function SearchApp({ config, cwd, initialQuery, limit }: Props) {
 
     if (key.escape) {
       exit();
+      return;
+    }
+    if (key.tab) {
+      setFacet(current => SEARCH_FACETS[(SEARCH_FACETS.indexOf(current) + 1) % SEARCH_FACETS.length]);
       return;
     }
     if (key.upArrow) setSelected(current => Math.max(0, current - 1));
@@ -119,6 +126,7 @@ export function SearchApp({ config, cwd, initialQuery, limit }: Props) {
         <Text color="cyan">{'> '}</Text>
         <TextInput value={query} onChange={setQuery} placeholder="type to search..." />
       </Box>
+      <FacetTabs value={facet} />
       <Box marginTop={1} flexDirection="row">
         <Box width="48%" borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
           <Text bold>Results</Text>
@@ -127,11 +135,12 @@ export function SearchApp({ config, cwd, initialQuery, limit }: Props) {
           {status === 'idle' && query.trim() && !results.length ? <Text color="yellow">no results</Text> : null}
           {results.map((result, i) => {
             const active = i === selected;
+            const label = classifyResult(result);
             return (
               <Box key={result.id} flexDirection="column">
                 <Text color={active ? 'black' : undefined} backgroundColor={active ? 'cyan' : undefined}>
                   {active ? '> ' : '  '}
-                  {i + 1}. {result.repo} {result.filePath}
+                  {i + 1}. [{label}] {result.repo} {result.filePath}
                   {result.freshness?.stale ? ' [stale]' : ''}
                 </Text>
                 {active && result.title ? <Text color="gray">{'  '}{result.title}</Text> : null}
@@ -144,7 +153,7 @@ export function SearchApp({ config, cwd, initialQuery, limit }: Props) {
         </Box>
       </Box>
       <Box marginTop={1}>
-        <Text color="gray">↑/↓ move · enter full chunk · esc quit</Text>
+        <Text color="gray">↑/↓ move · enter full chunk · tab result type · esc quit</Text>
       </Box>
     </Box>
   );
@@ -181,7 +190,7 @@ function ResultPreview({ result, status, query }: { result?: SearchResult; statu
   return (
     <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
       <Text bold>Preview</Text>
-      <Text color="green">{result.repo} <Text color="gray">{result.filePath}</Text></Text>
+      <Text color="green">{result.repo} <Text color="gray">{result.filePath}</Text> <Text color="cyan">[{classifyResult(result)}]</Text></Text>
       {result.title ? <Text bold>{result.title}</Text> : null}
       <Text color="gray">id {shortId(result.id)} · score {formatScore(result.score)}</Text>
       {result.kind ? <Text color="gray">kind {result.kind}</Text> : null}
@@ -196,6 +205,24 @@ function ResultPreview({ result, status, query }: { result?: SearchResult; statu
       <Box marginTop={1}>
         <Text color="gray">open later: ctxhub open {shortId(result.id)}</Text>
       </Box>
+      {localRgHints(query, [result]).length ? (
+        <Box flexDirection="column">
+          <Text color="gray">local follow-up: {localRgHints(query, [result])[0]}</Text>
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
+
+function FacetTabs({ value }: { value: SearchFacet }) {
+  return (
+    <Box marginTop={1}>
+      {SEARCH_FACETS.map(facet => (
+        <Text key={facet} color={facet === value ? 'black' : 'gray'} backgroundColor={facet === value ? 'cyan' : undefined}>
+          {facet}
+          {' '}
+        </Text>
+      ))}
     </Box>
   );
 }
@@ -217,10 +244,15 @@ export async function runInteractiveSearch(
   config: CtxhubConfig,
   cwd: string,
   initialQuery = '',
-  limit = 8
+  limit = 8,
+  initialFacet: SearchFacet = 'all'
 ): Promise<void> {
   const instance = render(
-    <SearchApp config={config} cwd={cwd} initialQuery={initialQuery} limit={limit} />
+    <SearchApp config={config} cwd={cwd} initialQuery={initialQuery} limit={limit} initialFacet={initialFacet} />
   );
   await instance.waitUntilExit();
+}
+
+function searchLimit(limit: number, facet: SearchFacet): number {
+  return facet === 'all' ? limit : Math.max(limit * 5, 25);
 }

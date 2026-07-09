@@ -91,7 +91,7 @@ export function lexicalSearch(documents: IndexedDocument[], query: string, limit
         document.content
       ].filter(Boolean).join(' ').toLowerCase();
       const termScore = terms.reduce((acc, term) => acc + (haystack.includes(term) ? 1 : 0), 0);
-      const score = termScore ? termScore + searchBoost(document) : 0;
+      const score = termScore ? termScore + searchBoost(document) + exactMatchBoost(document, terms) : 0;
       return { ...document, score, snippet: createSnippet(document.content, terms) };
     })
     .filter(document => document.score > 0)
@@ -105,6 +105,22 @@ export function searchBoost(document: IndexedDocument): number {
   if (/README\.md$/i.test(document.filePath)) boost += 1.5;
   if (/(^|\/)(adr|docs)\//i.test(document.filePath)) boost += 1;
   if (/agent-notes\//i.test(document.filePath)) boost += 0.5;
+  return boost;
+}
+
+export function exactMatchBoost(document: IndexedDocument, terms: string[]): number {
+  let boost = 0;
+  const symbol = document.symbol?.toLowerCase();
+  const filePath = document.filePath.toLowerCase();
+  const basename = path.basename(filePath);
+
+  for (const term of terms) {
+    if (symbol && symbol === term) boost += 4;
+    if (symbol && symbol.includes(term)) boost += 1.5;
+    if (basename.includes(term)) boost += 2;
+    if (filePath.includes(term)) boost += 1;
+  }
+
   return boost;
 }
 

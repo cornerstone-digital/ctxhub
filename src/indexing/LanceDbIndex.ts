@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { IndexedDocument, IndexProviderName, IndexStatus, SearchResult } from '../config/types.js';
 import { ensureDir } from '../utils/fs.js';
 import type { IndexProvider } from './IndexProvider.js';
-import { lexicalSearch, searchBoost } from './LocalJsonIndex.js';
+import { exactMatchBoost, lexicalSearch, searchBoost } from './LocalJsonIndex.js';
 
 type LanceDbModule = typeof import('@lancedb/lancedb');
 type LanceTable = import('@lancedb/lancedb').Table;
@@ -77,7 +77,8 @@ export class LanceDbIndex implements IndexProvider {
     if (!table) return [];
     try {
       const rows = await table.search(query, 'fts', 'content').limit(limit).toArray();
-      return rows.map(rowToSearchResult).sort((a, b) => b.score - a.score);
+      const terms = searchTerms(query);
+      return rows.map(row => rowToSearchResult(row, terms)).sort((a, b) => b.score - a.score);
     } catch {
       const rows = await table.query().limit(10000).toArray();
       return lexicalSearch(rows.map(rowToDocument), query, limit);
@@ -248,14 +249,18 @@ function splitList(value: unknown): string[] | undefined {
   return items.length ? items : undefined;
 }
 
-function rowToSearchResult(row: Record<string, unknown>): SearchResult {
+function rowToSearchResult(row: Record<string, unknown>, terms: string[] = []): SearchResult {
   const document = rowToDocument(row);
   const score = Number(row._score ?? row.score ?? 0);
   return {
     ...document,
-    score: score + searchBoost(document),
+    score: score + searchBoost(document) + exactMatchBoost(document, terms),
     snippet: document.content.replace(/\s+/g, ' ').slice(0, 360)
   };
+}
+
+function searchTerms(query: string): string[] {
+  return query.toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 function escapeSqlString(input: string): string {

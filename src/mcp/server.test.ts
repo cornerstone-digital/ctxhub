@@ -7,6 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createCtxhubMcpServer } from './server.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
+import { indexWorkspace } from '../indexing/indexer.js';
 
 async function withConnectedClient(cwd: string, run: (client: Client) => Promise<void>, opts: { allowIndex?: boolean } = {}) {
   const server = createCtxhubMcpServer(cwd, opts);
@@ -28,9 +29,15 @@ async function withWorkspace(run: (cwd: string) => Promise<void>) {
     await initConfig('mcp-test-ws', dir);
     await mkdir(path.join(dir, 'app'), { recursive: true });
     await writeFile(path.join(dir, 'app', 'README.md'), '# App\n\n## Authentication flow\n\nAuth details for testing.\n');
+    await writeFile(
+      path.join(dir, 'app', 'auth.ts'),
+      ['export function authenticateRequest(token: string) {', '  return token.length > 0;', '}'].join('\n')
+    );
 
     const config = await loadConfig(dir);
     config.repositories.push({ name: 'app', path: './app', git: false });
+    config.index.provider = 'local-json';
+    config.index.path = '.ctxhub/index/local.json';
     await saveConfig(config, dir);
 
     await run(dir);
@@ -86,6 +93,27 @@ test('mcp repo_list tool returns configured repositories', () => {
   );
 });
 
+test('mcp search supports result type filters and returns agent follow-up hints', () => {
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    await withConnectedClient(cwd, async client => {
+      const result = await client.callTool({
+        name: 'search',
+        arguments: { query: 'authenticateRequest', type: 'code', limit: 5 }
+      });
+      const payload = firstTextPayload(result as never) as {
+        type: string;
+        results: Array<{ path?: string; filePath: string; type: string }>;
+        localFollowUpCommands: string[];
+      };
+
+      assert.equal(payload.type, 'code');
+      assert.ok(payload.results.some(item => item.filePath === 'auth.ts' && item.type === 'code'));
+      assert.ok(payload.localFollowUpCommands.some(command => command.includes('rg "authenticateRequest" app')));
+    });
+  });
+});
+
 test('mcp server discovers the parent workspace when launched from inside a configured repo', () => {
   return withWorkspace(cwd =>
     withConnectedClient(path.join(cwd, 'app'), async client => {
@@ -110,7 +138,7 @@ test('mcp memory_status tool reports provider and index status', () => {
       const result = await client.callTool({ name: 'memory_status', arguments: {} });
       const status = firstTextPayload(result as never) as { memory: { provider: string }; index: { provider: string } };
       assert.equal(status.memory.provider, 'mempalace');
-      assert.equal(status.index.provider, 'lancedb');
+      assert.equal(status.index.provider, 'local-json');
     })
   );
 });

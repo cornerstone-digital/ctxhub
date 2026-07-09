@@ -34,6 +34,10 @@ async function withIndexedWorkspace(run: (cwd: string) => Promise<void>) {
     const repoPath = path.join(cwd, 'app');
     await mkdir(repoPath, { recursive: true });
     await writeFile(path.join(repoPath, 'README.md'), '# App\n\n## Authentication flow\n\nAuth details live here.\n');
+    await writeFile(
+      path.join(repoPath, 'auth.ts'),
+      ['export function authenticateRequest(token: string) {', '  return token.length > 0;', '}'].join('\n')
+    );
 
     const config = await loadConfig(cwd);
     config.repositories.push({ name: 'app', path: './app', git: false });
@@ -63,7 +67,26 @@ test('SearchApp renders live search results as the query is typed', () => {
       assert.match(frame, /README\.md/);
       assert.match(frame, /Preview/);
       assert.match(frame, /Snippet/);
+      assert.match(frame, /\[docs\]/);
       assert.match(frame, /ctxhub open/);
+    } finally {
+      unmount();
+    }
+  });
+});
+
+test('SearchApp facets filter results to code', () => {
+  return withIndexedWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    const { lastFrame, unmount } = render(
+      React.createElement(SearchApp, { config, cwd, initialQuery: 'authenticateRequest', limit: 5, initialFacet: 'code' })
+    );
+
+    try {
+      const frame = await waitForFrame(lastFrame, /auth\.ts/);
+      assert.match(frame, /\[code\]/);
+      assert.match(frame, /local follow-up: rg "authenticateRequest" app/);
+      assert.doesNotMatch(frame, /README\.md/);
     } finally {
       unmount();
     }
@@ -74,7 +97,7 @@ test('SearchApp shows the full chunk on enter and returns to the list on escape'
   return withIndexedWorkspace(async cwd => {
     const config = await loadConfig(cwd);
     const { stdin, lastFrame, unmount } = render(
-      React.createElement(SearchApp, { config, cwd, initialQuery: 'auth', limit: 5 })
+      React.createElement(SearchApp, { config, cwd, initialQuery: 'auth', limit: 5, initialFacet: 'docs' })
     );
 
     try {
@@ -90,7 +113,7 @@ test('SearchApp shows the full chunk on enter and returns to the list on escape'
       await wait(50);
 
       const listFrame = lastFrame() ?? '';
-      assert.match(listFrame, /move · enter full chunk · esc quit/);
+      assert.match(listFrame, /move · enter full chunk · tab result type · esc quit/);
     } finally {
       unmount();
     }
