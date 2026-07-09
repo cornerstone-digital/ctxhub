@@ -7,6 +7,7 @@
 - [Way of working](#way-of-working) — start here for the actual day-to-day workflow
 - [Quick Start](#quick-start) — manual step-by-step equivalent of `onboard`
 - [Config](#config)
+- [Guided mode](#guided-mode)
 - [Commands](#commands)
 - [MCP server](#mcp-server)
 - [Source-aware context](#source-aware-context)
@@ -143,8 +144,15 @@ privacy:
     - "AKIA[0-9A-Z]{16}"
 ```
 
+## Guided mode
+
+Running `ctxhub` with no arguments (in a real terminal) launches an interactive, menu-driven mode: type to filter the full command list (grouped by category), arrow keys + enter to pick one, then a short step-by-step wizard collects its arguments/options (text input, yes/no toggles, single/multi-select lists as appropriate) before showing you the exact command it's about to run and asking for confirmation. It then runs that command for real — same code path, same output, same confirmations (e.g. `memory clear`'s prompt) as typing it yourself — and drops you back at the menu afterward. `ctxhub menu` is the same thing as an explicit, discoverable command if you'd rather not rely on the no-args shortcut.
+
+This is purely additive: every `ctxhub <command> ...` invocation works exactly as documented below, unchanged, for scripting and everyday power-user use. Guided mode is generated directly from that same command tree (so it can't drift out of sync with it), with one exception — `ctxhub mcp` is left out of the menu, since it starts a long-running server meant to be launched by an agent's MCP config, not picked from a menu.
+
 ## Commands
 
+- `ctxhub menu`: launch the interactive guided menu (see [Guided mode](#guided-mode) above) — also the default when you run bare `ctxhub` with no arguments in a terminal.
 - `ctxhub init`: create workspace config and local ctxhub directories.
 - `ctxhub onboard`: interactive setup wizard — init, repo discovery, hooks, memory provider, agents, skills, and an initial index, in one guided flow.
 - `ctxhub repo add <name> <path>`: add a repo, validate the path, and detect Git.
