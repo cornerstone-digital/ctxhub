@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { skillsInstallCommand } from './skills.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
-import { pathExists, readText } from '../utils/fs.js';
+import { pathExists, readText, writeText } from '../utils/fs.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -24,6 +24,9 @@ async function withTempCwd(run: (dir: string) => Promise<void>) {
 
 test('skillsInstallCommand with no args installs the ambient and search skills for all supported agents', () => {
   return withTempCwd(async dir => {
+    await writeText(path.join(dir, '.github', 'prompts', 'ctxhub.prompt.md'), 'legacy copilot prompt');
+    await writeText(path.join(dir, '.cursor', 'commands', 'ctxhub.md'), 'legacy cursor command');
+
     await skillsInstallCommand();
 
     const claude = await readText(path.join(dir, '.claude', 'skills', 'ctxhub', 'SKILL.md'));
@@ -49,22 +52,16 @@ test('skillsInstallCommand with no args installs the ambient and search skills f
     const copilotSearchSkill = await readText(path.join(dir, '.github', 'skills', 'ctxhub-search', 'SKILL.md'));
     assert.equal(copilotSearchSkill, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub-search', 'SKILL.md')));
     assert.match(copilotSearchSkill, /^---\nname: ctxhub-search\n/);
+    assert.equal(await pathExists(path.join(dir, '.github', 'prompts', 'ctxhub.prompt.md')), false);
 
-    const copilot = await readText(path.join(dir, '.github', 'prompts', 'ctxhub.prompt.md'));
-    assert.equal(copilot, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub.prompt.md')));
-    assert.match(copilot, /^---\ndescription: /);
-    assert.doesNotMatch(copilot, /^---\nname:/);
+    const cursor = await readText(path.join(dir, '.cursor', 'skills', 'ctxhub', 'SKILL.md'));
+    assert.equal(cursor, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ctxhub', 'SKILL.md')));
+    assert.match(cursor, /^---\nname: ctxhub\n/);
 
-    const copilotSearch = await readText(path.join(dir, '.github', 'prompts', 'ctxhub-search.prompt.md'));
-    assert.equal(copilotSearch, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub-search.prompt.md')));
-
-    const cursor = await readText(path.join(dir, '.cursor', 'commands', 'ctxhub.md'));
-    assert.equal(cursor, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ctxhub.md')));
-    assert.match(cursor, /^# Using ctxhub/);
-    assert.doesNotMatch(cursor, /^---/);
-
-    const cursorSearch = await readText(path.join(dir, '.cursor', 'commands', 'ctxhub-search.md'));
-    assert.equal(cursorSearch, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ctxhub-search.md')));
+    const cursorSearch = await readText(path.join(dir, '.cursor', 'skills', 'ctxhub-search', 'SKILL.md'));
+    assert.equal(cursorSearch, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ctxhub-search', 'SKILL.md')));
+    assert.match(cursorSearch, /^---\nname: ctxhub-search\n/);
+    assert.equal(await pathExists(path.join(dir, '.cursor', 'commands', 'ctxhub.md')), false);
   });
 });
 
@@ -73,7 +70,7 @@ test('skillsInstallCommand with specific agents only installs those', () => {
     await skillsInstallCommand(['claude']);
 
     await assert.doesNotReject(() => readText(path.join(dir, '.claude', 'skills', 'ctxhub', 'SKILL.md')));
-    await assert.rejects(() => readText(path.join(dir, '.cursor', 'commands', 'ctxhub.md')));
+    await assert.rejects(() => readText(path.join(dir, '.cursor', 'skills', 'ctxhub', 'SKILL.md')));
   });
 });
 

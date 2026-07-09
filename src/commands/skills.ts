@@ -60,31 +60,24 @@ export const SKILL_TEMPLATES: SkillTemplate[] = [
     target: cwd => path.join(cwd, '.github', 'skills', 'ctxhub-search', 'SKILL.md')
   },
   {
-    agent: 'copilot',
-    id: 'ctxhub-prompt',
-    label: 'ctxhub',
-    source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub.prompt.md'),
-    target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub.prompt.md')
-  },
-  {
-    agent: 'copilot',
-    id: 'ctxhub-search-prompt',
-    label: 'ctxhub-search',
-    source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub-search.prompt.md'),
-    target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub-search.prompt.md')
-  },
-  {
     agent: 'cursor',
     id: 'ctxhub',
-    source: path.join(PACKAGE_ROOT, 'skills', 'cursor', 'ctxhub.md'),
-    target: cwd => path.join(cwd, '.cursor', 'commands', 'ctxhub.md')
+    source: path.join(PACKAGE_ROOT, 'skills', 'cursor', 'ctxhub', 'SKILL.md'),
+    target: cwd => path.join(cwd, '.cursor', 'skills', 'ctxhub', 'SKILL.md')
   },
   {
     agent: 'cursor',
     id: 'ctxhub-search',
-    source: path.join(PACKAGE_ROOT, 'skills', 'cursor', 'ctxhub-search.md'),
-    target: cwd => path.join(cwd, '.cursor', 'commands', 'ctxhub-search.md')
+    source: path.join(PACKAGE_ROOT, 'skills', 'cursor', 'ctxhub-search', 'SKILL.md'),
+    target: cwd => path.join(cwd, '.cursor', 'skills', 'ctxhub-search', 'SKILL.md')
   }
+];
+
+const LEGACY_SKILL_TARGETS: Array<{ agent: SkillAgent; target: (cwd: string) => string }> = [
+  { agent: 'copilot', target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub.prompt.md') },
+  { agent: 'copilot', target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub-search.prompt.md') },
+  { agent: 'cursor', target: cwd => path.join(cwd, '.cursor', 'commands', 'ctxhub.md') },
+  { agent: 'cursor', target: cwd => path.join(cwd, '.cursor', 'commands', 'ctxhub-search.md') }
 ];
 
 export async function skillsInstallCommand(agents: string[] = []) {
@@ -100,6 +93,7 @@ export async function skillsInstallCommand(agents: string[] = []) {
     .then(({ config, workspaceRoot }) => ({ config, workspaceRoot }))
     .catch(() => ({ config: undefined, workspaceRoot: process.cwd() }));
   const { config, workspaceRoot } = workspace;
+  const repoRoots = await configuredRepoRoots(config, workspaceRoot);
 
   for (const agent of targets) {
     for (const { id, label, source, target } of SKILL_TEMPLATES.filter(t => t.agent === agent)) {
@@ -108,11 +102,17 @@ export async function skillsInstallCommand(agents: string[] = []) {
       await writeText(destination, content);
       console.log(chalk.green(`Installed ctxhub skill '${label ?? id}' for ${agent}: ${destination}`));
 
-      for (const repoRoot of await configuredRepoRoots(config, workspaceRoot)) {
+      for (const repoRoot of repoRoots) {
         const linkedDestination = target(repoRoot);
         if (path.resolve(linkedDestination) === path.resolve(destination)) continue;
         await linkOrCopySkill(destination, linkedDestination, content);
         console.log(chalk.green(`Linked ctxhub skill '${label ?? id}' for ${agent}: ${linkedDestination}`));
+      }
+    }
+
+    for (const { target } of LEGACY_SKILL_TARGETS.filter(t => t.agent === agent)) {
+      for (const root of [workspaceRoot, ...repoRoots]) {
+        await rm(target(root), { force: true });
       }
     }
   }
