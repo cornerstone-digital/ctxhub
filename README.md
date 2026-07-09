@@ -207,6 +207,14 @@ Installed skill files and agent MCP configs are snapshots written at install tim
 
 It also flags a `config.yaml` schema version mismatch (`version: 1` today) the same way, in case a future ctxhub version changes the config shape. None of this is auto-fixed — `doctor` only diagnoses and tells you the exact command to run, consistent with the rest of its checks.
 
+You don't have to remember to run `doctor` yourself, though: every command checks for this automatically the first time you run *any* `ctxhub` command after upgrading to a new version, and prints a one-line nudge to stderr if it finds drift —
+
+```text
+! ctxhub was upgraded to 0.2.0 — 2 installed skill/config item(s) may be outdated. Run `ctxhub doctor` for details.
+```
+
+— then goes quiet again for the rest of that version's lifetime (tracked in `.ctxhub/cache/last-checked-version`), so it nudges you once per upgrade rather than nagging on every single command. This check is skipped for `init`, `onboard`, and `doctor` (nothing to be stale yet, or already handled in full detail) and for `mcp` (never risk writing to stdout mid-JSON-RPC-handshake).
+
 ## Hooks
 
 Two kinds of hooks keep the index fresh automatically:

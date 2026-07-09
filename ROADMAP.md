@@ -13,6 +13,7 @@
 - Standard OSS project scaffolding: LICENSE, CONTRIBUTING.md, CODE_OF_CONDUCT.md, issue/PR templates
 - Fully automated semantic versioning and changelog via semantic-release + Conventional Commits (npm publishing intentionally disabled until ready to ship)
 - `ctxhub doctor` detects drift: outdated installed skills, outdated agent MCP configs, and config schema version mismatches, each with the exact command to fix it
+- Automatic drift nudge on any command after a ctxhub upgrade (once per version, not on every command), via a Commander `preAction` hook
 
 ## Planned
 

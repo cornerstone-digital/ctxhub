@@ -2,12 +2,11 @@ import chalk from 'chalk';
 import path from 'node:path';
 import { loadConfig, findConfigPath, INDEX_DIR, relativeConfigPath } from '../config/config.js';
 import { defaultConfig } from '../config/defaultConfig.js';
-import { ensureDir, pathExists, readText } from '../utils/fs.js';
+import { ensureDir, pathExists } from '../utils/fs.js';
 import { getCurrentCommit, isGitInstalled, isGitRepo } from '../git/git.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
-import { SUPPORTED_SKILL_AGENTS, SKILL_TEMPLATES } from './skills.js';
-import { SUPPORTED_AGENTS, expectedMcpEntry, readInstalledMcpEntry } from './agent.js';
+import { detectDrift } from '../utils/drift.js';
 
 export async function doctorCommand() {
   const configPath = await findConfigPath();
@@ -67,23 +66,16 @@ export async function doctorCommand() {
       : `${chalk.yellow('!')} ${repo.name}: path exists, not a git repo`);
   }
 
-  for (const agent of SUPPORTED_SKILL_AGENTS) {
-    const { source, target } = SKILL_TEMPLATES[agent];
-    const destination = target(process.cwd());
-    if (!(await pathExists(destination))) continue;
+  const drift = await detectDrift(config);
 
-    const [installed, current] = await Promise.all([readText(destination), readText(source)]);
-    console.log(installed === current
-      ? `${chalk.green('✓')} ${agent} skill up to date`
-      : `${chalk.yellow('!')} ${agent} skill is outdated. Run: ctxhub skills install ${agent}`);
+  for (const agent of drift.installedSkills) {
+    console.log(drift.staleSkills.includes(agent)
+      ? `${chalk.yellow('!')} ${agent} skill is outdated. Run: ctxhub skills install ${agent}`
+      : `${chalk.green('✓')} ${agent} skill up to date`);
   }
-
-  for (const agent of SUPPORTED_AGENTS) {
-    const installed = await readInstalledMcpEntry(agent, process.cwd());
-    if (installed === undefined) continue;
-
-    console.log(JSON.stringify(installed) === JSON.stringify(expectedMcpEntry(agent))
-      ? `${chalk.green('✓')} ${agent} MCP config up to date`
-      : `${chalk.yellow('!')} ${agent} MCP config is outdated. Run: ctxhub agent ${agent} --no-launch`);
+  for (const agent of drift.installedAgentConfigs) {
+    console.log(drift.staleAgentConfigs.includes(agent)
+      ? `${chalk.yellow('!')} ${agent} MCP config is outdated. Run: ctxhub agent ${agent} --no-launch`
+      : `${chalk.green('✓')} ${agent} MCP config up to date`);
   }
 }

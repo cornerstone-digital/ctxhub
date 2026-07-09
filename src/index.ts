@@ -12,13 +12,19 @@ import { mcpCommand } from './commands/mcp.js';
 import { agentLaunchCommand, SUPPORTED_AGENTS } from './commands/agent.js';
 import { skillsInstallCommand, SUPPORTED_SKILL_AGENTS } from './commands/skills.js';
 import { onboardCommand } from './commands/onboard.js';
+import { checkForDriftOnce } from './utils/driftCheck.js';
+import { getPackageVersion } from './utils/version.js';
 
 const program = new Command();
 
 program
   .name('ctxhub')
   .description('ctxhub developer workspace CLI')
-  .version('0.1.0');
+  .version(getPackageVersion());
+
+program.hook('preAction', async (_thisCommand, actionCommand) => {
+  await checkForDriftOnce(actionCommand.name());
+});
 
 program
   .command('init')
