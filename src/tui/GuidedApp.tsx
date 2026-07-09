@@ -81,6 +81,7 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
   const menuRows = useMemo(() => buildMenuRows(commands, filter), [commands, filter]);
   const field = selectedCommand?.fields[fieldIndex];
   const selectedMenuCommand = menuRows[menuIndex]?.command;
+  const draftArgv = selectedCommand ? buildArgv(selectedCommand, values) : [];
 
   // menuRows always starts with a disabled category header, so index 0 is never a real
   // selection -- re-anchor to the first selectable row whenever filtering changes it.
@@ -214,31 +215,36 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
         <Text color="gray">
           {selectedCommand.path} · step {fieldIndex + 1} of {selectedCommand.fields.length}
         </Text>
-        <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
-          <Text bold>{field.label}{field.required ? ' (required)' : ''}</Text>
-          <Text color="gray">{field.isOption ? `Option ${field.flag ?? field.key}` : 'Positional argument'}</Text>
-          {field.defaultValue !== undefined ? <Text color="gray">Default: {String(field.defaultValue)}</Text> : null}
-          <Box marginTop={1}>
-            {field.kind === 'text' ? (
-              <Box>
-                <Text color="cyan">{'> '}</Text>
-                <TextInput value={textValue} onChange={setTextValue} onSubmit={value => advanceField(value)} />
-              </Box>
-            ) : field.kind === 'boolean' ? (
-              <SelectList items={[{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }]} selectedIndex={choiceIndex} />
-            ) : (
-              <SelectList
-                items={(field.choices ?? []).map(choice => ({ key: choice, label: choice }))}
-                selectedIndex={choiceIndex}
-                markerFor={
-                  field.kind === 'multiselect'
-                    ? (_item, index) => (toggled.has(index) ? '[x] ' : '[ ] ')
-                    : undefined
-                }
-              />
-            )}
+        <Box marginTop={1} flexDirection="row">
+          <Box width="60%" borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
+            <Text bold>{field.label}{field.required ? ' (required)' : ''}</Text>
+            <Text color="gray">{field.isOption ? `Option ${field.flag ?? field.key}` : 'Positional argument'}</Text>
+            {field.defaultValue !== undefined ? <Text color="gray">Default: {String(field.defaultValue)}</Text> : null}
+            <Box marginTop={1}>
+              {field.kind === 'text' ? (
+                <Box>
+                  <Text color="cyan">{'> '}</Text>
+                  <TextInput value={textValue} onChange={setTextValue} onSubmit={value => advanceField(value)} />
+                </Box>
+              ) : field.kind === 'boolean' ? (
+                <SelectList items={[{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }]} selectedIndex={choiceIndex} />
+              ) : (
+                <SelectList
+                  items={(field.choices ?? []).map(choice => ({ key: choice, label: choice }))}
+                  selectedIndex={choiceIndex}
+                  markerFor={
+                    field.kind === 'multiselect'
+                      ? (_item, index) => (toggled.has(index) ? '[x] ' : '[ ] ')
+                      : undefined
+                  }
+                />
+              )}
+            </Box>
+            {field.kind === 'multiselect' ? <Text color="gray">{toggled.size} selected</Text> : null}
           </Box>
-          {field.kind === 'multiselect' ? <Text color="gray">{toggled.size} selected</Text> : null}
+          <Box marginLeft={1} width="40%">
+            <CommandPreview command={selectedCommand} argv={draftArgv} values={values} />
+          </Box>
         </Box>
         <Text color="gray">
           {field.kind === 'text'
@@ -255,31 +261,71 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
     <Box flexDirection="column" paddingX={1}>
       <Text bold color="cyan">ctxhub guided menu</Text>
       <Text color="gray">{commands.length} commands · type to filter, enter to configure</Text>
-      <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
-        <Text bold>Commands</Text>
-        <Box>
-          <Text color="cyan">{'> '}</Text>
-          <TextInput value={filter} onChange={setFilter} placeholder="type to filter commands..." />
+      <Box marginTop={1} flexDirection="row">
+        <Box width="62%" borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
+          <Text bold>Commands</Text>
+          <Box>
+            <Text color="cyan">{'> '}</Text>
+            <TextInput value={filter} onChange={setFilter} placeholder="type to filter commands..." />
+          </Box>
+          <Box marginTop={1}>
+            <SelectList items={menuRows} selectedIndex={menuIndex} />
+          </Box>
         </Box>
-        <Box marginTop={1}>
-          <SelectList items={menuRows} selectedIndex={menuIndex} />
+        <Box marginLeft={1} width="38%">
+          <CommandPreview command={selectedMenuCommand} argv={selectedMenuCommand ? buildArgv(selectedMenuCommand, {}) : []} />
         </Box>
       </Box>
-      {selectedMenuCommand ? (
-        <Box marginTop={1} borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
-          <Text bold>{selectedMenuCommand.path}</Text>
-          <Text color="gray">{selectedMenuCommand.category}</Text>
-          <Text>{selectedMenuCommand.description}</Text>
-          <Text color="gray">
-            {selectedMenuCommand.fields.length
-              ? `${selectedMenuCommand.fields.length} field(s) to configure`
-              : 'Runs immediately after confirmation'}
-          </Text>
-        </Box>
-      ) : null}
       <Text color="gray">up/down move · enter select · esc quit</Text>
     </Box>
   );
+}
+
+function CommandPreview({ command, argv, values = {} }: { command?: GuidedCommand; argv: string[]; values?: Record<string, unknown> }) {
+  if (!command) {
+    return (
+      <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+        <Text bold>Preview</Text>
+        <Text color="gray">No matching command</Text>
+      </Box>
+    );
+  }
+
+  const answeredFields = command.fields.filter(field => hasValue(values[field.key]));
+
+  return (
+    <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+      <Text bold>Preview</Text>
+      <Text color="cyan">{command.path}</Text>
+      <Text color="gray">{command.category}</Text>
+      <Box marginTop={1}>
+        <Text>{command.description}</Text>
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text bold>Command</Text>
+        <Text color="cyan">ctxhub {argv.join(' ')}</Text>
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text bold>Fields</Text>
+        {command.fields.length ? (
+          command.fields.map(field => (
+            <Text key={field.key} color={answeredFields.includes(field) ? 'green' : 'gray'}>
+              {answeredFields.includes(field) ? '✓' : '·'} {field.label}
+            </Text>
+          ))
+        ) : (
+          <Text color="gray">No fields</Text>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+function hasValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== undefined && value !== null;
 }
 
 function choiceRows(field: GuidedField): SelectListItem[] {

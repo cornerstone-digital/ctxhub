@@ -68,12 +68,15 @@ test('GuidedApp menu shows category headers and commands, and filters as you typ
     assert.match(frame, /Agents & Skills/);
     assert.match(frame, /repo hook/);
     assert.match(frame, /skills install/);
+    assert.match(frame, /Preview/);
+    assert.match(frame, /ctxhub repo hook/);
 
     stdin.write('skills');
     await wait();
     frame = lastFrame() ?? '';
     assert.match(frame, /skills install/);
     assert.doesNotMatch(frame, /repo hook/);
+    assert.match(frame, /ctxhub skills install/);
   } finally {
     unmount();
   }
@@ -100,6 +103,8 @@ test('GuidedApp walks a multi-field wizard, shows the confirm screen, and runs t
     assert.match(frame, /Overwrite/);
     assert.match(frame, /step 2 of 2/);
     assert.match(frame, /> No/, 'boolean field with no default should highlight "No" first');
+    assert.match(frame, /ctxhub repo hook my-repo/);
+    assert.match(frame, /✓ Repository name/);
 
     stdin.write(ENTER); // confirm "No" -> advance to confirm screen
     await wait();
