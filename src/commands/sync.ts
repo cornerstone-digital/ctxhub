@@ -7,6 +7,7 @@ import { pullRepo } from '../git/git.js';
 import { runConfiguredHook } from '../utils/hooks.js';
 import { runSyncWithProgress } from '../tui/progress/SyncProgressApp.js';
 import type { RepoStatus } from '../tui/progress/RepoStatusList.js';
+import { updateSpinnerOnProgress } from '../tui/progress/spinnerProgress.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 
 function printRepoStatuses(label: string, repos: RepoStatus[]) {
@@ -47,7 +48,7 @@ export async function syncCommand(opts: { pull?: boolean; interactive?: boolean;
     }
 
     const spinner = ora('Re-indexing changed knowledge').start();
-    const result = await indexWorkspace(workspaceRoot);
+    const result = await indexWorkspace(workspaceRoot, false, updateSpinnerOnProgress(spinner, 'Re-indexing changed knowledge'));
     spinner.succeed('Workspace synced');
     console.log(`${chalk.green('✓')} indexed ${result.indexed} changed file(s), skipped ${result.skipped}`);
   }

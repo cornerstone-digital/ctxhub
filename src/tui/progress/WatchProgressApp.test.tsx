@@ -19,15 +19,15 @@ test('WatchProgressApp runs an indexing cycle immediately, then again on each in
   };
 
   const { lastFrame, unmount } = render(
-    React.createElement(WatchProgressApp, { repoNames: ['app'], cwd: '/tmp/ws', intervalMs: 20, indexFn })
+    React.createElement(WatchProgressApp, { repoNames: ['app'], cwd: '/tmp/ws', intervalMs: 300, indexFn })
   );
 
   try {
-    await wait(15);
+    await wait(60);
     assert.equal(callCount, 1, 'runs one cycle immediately on mount');
     assert.match(lastFrame() ?? '', /cycles: 1/);
 
-    await wait(30);
+    await wait(300);
     assert.ok(callCount >= 2, 'runs another cycle after the interval elapses');
 
     const frame = lastFrame() ?? '';

@@ -19,8 +19,15 @@ export type IndexResult = {
 
 export type IndexProgressEvent =
   | { type: 'repo-start'; repo: string }
+  | { type: 'repo-progress'; repo: string; scanned: number; total: number }
   | { type: 'repo-missing'; repo: string }
   | { type: 'repo-done'; repo: string; scanned: number; indexed: number; skipped: number };
+
+// How often (ms) to emit a repo-progress event while scanning a repo's files. Time-based
+// rather than count-based so it scales correctly regardless of repo size or how slow
+// individual files are to hash/chunk/index -- a huge repo of tiny files and a smaller
+// repo of a few huge files both get an update roughly this often, not too chatty either way.
+const PROGRESS_THROTTLE_MS = 100;
 
 function repoInclude(repo: RepoConfig, globalInclude: string[]): string[] {
   return repo.include?.length ? repo.include : globalInclude;
@@ -61,9 +68,19 @@ export async function indexWorkspace(
 
     const commit = await getCurrentCommit(repoPath);
 
+    onProgress?.({ type: 'repo-progress', repo: repo.name, scanned: 0, total: files.length });
+    let lastProgressAt = Date.now();
+
     for (const filePath of files) {
       result.scanned++;
       repoCounts.scanned++;
+
+      const now = Date.now();
+      if (now - lastProgressAt >= PROGRESS_THROTTLE_MS) {
+        onProgress?.({ type: 'repo-progress', repo: repo.name, scanned: repoCounts.scanned, total: files.length });
+        lastProgressAt = now;
+      }
+
       const absolutePath = path.join(repoPath, filePath);
       const raw = await readText(absolutePath);
       const hash = sha256(raw);

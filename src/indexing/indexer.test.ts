@@ -34,7 +34,7 @@ async function withWorkspace(run: (cwd: string) => Promise<void>) {
   }
 }
 
-test('indexWorkspace reports repo-start/repo-done/repo-missing progress events in order', () => {
+test('indexWorkspace reports repo-start/repo-progress/repo-done/repo-missing progress events in order', () => {
   return withWorkspace(async cwd => {
     const config = await loadConfig(cwd);
     config.repositories.push({ name: 'gone', path: './does-not-exist', git: false });
@@ -44,8 +44,28 @@ test('indexWorkspace reports repo-start/repo-done/repo-missing progress events i
     await indexWorkspace(cwd, false, event => events.push(event));
 
     assert.deepEqual(events[0], { type: 'repo-start', repo: 'app' });
-    assert.deepEqual(events[1], { type: 'repo-done', repo: 'app', scanned: 1, indexed: 1, skipped: 0 });
-    assert.deepEqual(events[2], { type: 'repo-missing', repo: 'gone' });
+    assert.deepEqual(events[1], { type: 'repo-progress', repo: 'app', scanned: 0, total: 1 });
+    assert.deepEqual(events[2], { type: 'repo-done', repo: 'app', scanned: 1, indexed: 1, skipped: 0 });
+    assert.deepEqual(events[3], { type: 'repo-missing', repo: 'gone' });
+  });
+});
+
+test('indexWorkspace emits repo-progress events with the correct file counts, throttled by time', () => {
+  return withWorkspace(async cwd => {
+    for (let i = 0; i < 5; i++) {
+      await writeFile(path.join(cwd, 'app', `extra-${i}.md`), `# Extra ${i}\n`);
+    }
+
+    const events: IndexProgressEvent[] = [];
+    await indexWorkspace(cwd, false, event => events.push(event));
+
+    const progressEvents = events.filter((event): event is Extract<IndexProgressEvent, { type: 'repo-progress' }> => event.type === 'repo-progress');
+    assert.ok(progressEvents.length >= 1, 'expects at least the initial repo-progress event');
+    assert.deepEqual(progressEvents[0], { type: 'repo-progress', repo: 'app', scanned: 0, total: 6 });
+    for (const event of progressEvents) {
+      assert.equal(event.total, 6);
+      assert.ok(event.scanned >= 0 && event.scanned <= 6);
+    }
   });
 });
 

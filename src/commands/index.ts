@@ -5,6 +5,7 @@ import { indexWorkspace, type IndexResult } from '../indexing/indexer.js';
 import { runConfiguredHook } from '../utils/hooks.js';
 import { runIndexWithProgress } from '../tui/progress/IndexProgressApp.js';
 import type { RepoStatus } from '../tui/progress/RepoStatusList.js';
+import { updateSpinnerOnProgress } from '../tui/progress/spinnerProgress.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 
 function printSummary(result: IndexResult) {
@@ -28,7 +29,7 @@ export async function indexCommand(opts: { force?: boolean; interactive?: boolea
     printSummary(result);
   } else {
     const spinner = ora('Indexing workspace knowledge').start();
-    const result = await indexWorkspace(process.cwd(), Boolean(opts.force));
+    const result = await indexWorkspace(process.cwd(), Boolean(opts.force), updateSpinnerOnProgress(spinner, 'Indexing workspace knowledge'));
     spinner.succeed('Index complete');
     printSummary(result);
   }
