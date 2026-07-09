@@ -19,7 +19,7 @@
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - Git (only required if you want repo detection/`ctxhub sync` to do anything — ctxhub itself works without it)
 - Optional: [MemPalace](https://github.com) CLI, if you use the default `memory.provider: mempalace`. Install with `uv tool install mempalace` (requires [uv](https://docs.astral.sh/uv/)). Without it, `ctxhub memory status`/`ctxhub doctor` will report it as unavailable but the rest of the CLI (indexing, search) still works — or set `memory.provider: local-json` in config to avoid the dependency entirely.
 - Optional: an MCP-compatible client (Claude Desktop, Claude Code, Cursor, etc.), only needed if you use `ctxhub mcp`.
@@ -154,7 +154,7 @@ privacy:
 - `ctxhub ci init [--with-eval]`: create a GitHub Actions workflow that runs build, `ctxhub validate docs`, and optionally `ctxhub eval` on pull requests.
 - `ctxhub index`: index changed workspace files.
 - `ctxhub sync`: pull configured repos and re-index changed files.
-- `ctxhub search <query>`: search the LanceDB project index.
+- `ctxhub search <query>`: search the LanceDB project index. Add `-i`/`--interactive` (query becomes optional) for a live terminal UI — type to search-as-you-type, arrow keys to move, enter to view the full chunk, esc to go back/quit.
 - `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order. Add `--out <file>` to save a portable replay artifact.
 - `ctxhub explain <query>`: create a citation-first explanation scaffold from indexed context without inventing uncited claims.
 - `ctxhub replay <file>`: replay an exported context pack artifact and compare recorded repo HEADs against the current workspace.

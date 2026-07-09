@@ -18,9 +18,11 @@ npm run dev -- <command>
 
 ## Tests
 
-Tests use Node's built-in test runner (`node:test`), not a separate framework — `npm test` runs everything under `src/**/*.test.ts` via `tsx`. Tests favor real behavior over mocks: git tests run against real temporary git repos, hook tests actually spawn shell commands, and the MCP server test drives a real in-memory client/server pair via `@modelcontextprotocol/sdk`.
+Tests use Node's built-in test runner (`node:test`), not a separate framework — `npm test` runs everything under `src/**/*.test.ts` and `src/**/*.test.tsx` via `tsx`. Tests favor real behavior over mocks: git tests run against real temporary git repos, hook tests actually spawn shell commands, and the MCP server test drives a real in-memory client/server pair via `@modelcontextprotocol/sdk`.
 
 When adding a command or module, add a colocated `*.test.ts` next to it. Modules take an explicit `cwd` parameter (defaulting to `process.cwd()`) specifically so tests can run against temp directories without mocking the filesystem.
+
+Ink components under `src/tui/` are tested with `ink-testing-library` (`render` from that package, not `ink`'s own `render`), which fakes stdin/stdout so tests don't need a real TTY — see `src/tui/SearchApp.test.tsx` for the pattern (write simulated keystrokes to `stdin`, await the debounce/async work, assert on `lastFrame()`).
 
 Exception: `onboard.ts` is a thin interactive wizard over already-tested command functions (`init`, `repoDiscoverCommand`, `repoHookCommand`, `agentLaunchCommand`, `skillsInstallCommand`, `indexCommand`) — its `@inquirer/prompts` `checkbox` step needs raw keypress handling that doesn't degrade cleanly to piped stdin, so it's covered by manually driving the CLI rather than an automated test. If you change its orchestration logic, verify by actually running `ctxhub onboard` in a scratch directory.
 
@@ -32,7 +34,7 @@ npm test        # all tests must pass
 npm run lint    # eslint must pass with no errors
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same three, plus `npm audit --audit-level=high` and, on PRs, commitlint against every commit in the PR range — all against a Node 20/22 matrix.
+CI (`.github/workflows/ci.yml`) runs the same three, plus `npm audit --audit-level=high` and, on PRs, commitlint against every commit in the PR range — all against a Node 22/24 matrix.
 
 ## Code style
 

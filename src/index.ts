@@ -103,8 +103,9 @@ program
 
 program
   .command('search')
-  .argument('<query>', 'Search query')
+  .argument('[query]', 'Search query (omit when using --interactive)')
   .option('-l, --limit <limit>', 'Max results', '5')
+  .option('-i, --interactive', 'Launch a live, filterable terminal search UI')
   .description('Search indexed workspace knowledge')
   .action(searchCommand);
 
