@@ -8,70 +8,35 @@ import type { CtxhubConfig } from '../config/types.js';
 
 export const SUPPORTED_SKILL_AGENTS = ['claude', 'codex', 'copilot', 'cursor'] as const;
 export type SkillAgent = (typeof SUPPORTED_SKILL_AGENTS)[number];
+const SUPPORTED_SKILL_IDS = ['ctxhub', 'ctxhub-search', 'ctxhub-context', 'ctxhub-note', 'ctxhub-diagram'] as const;
+type SkillId = (typeof SUPPORTED_SKILL_IDS)[number];
 
 // dist/commands/skills.js and src/commands/skills.ts are both two directories below the package root.
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export type SkillTemplate = {
   agent: SkillAgent;
-  // Unique per agent, e.g. "ctxhub" (ambient, auto-invoked guidance) or
-  // "ctxhub-search" (explicit, argument-driven on-demand search).
-  id: string;
+  id: SkillId;
   label?: string;
   source: string;
   target: (cwd: string) => string;
 };
 
-export const SKILL_TEMPLATES: SkillTemplate[] = [
-  {
-    agent: 'claude',
-    id: 'ctxhub',
-    source: path.join(PACKAGE_ROOT, 'skills', 'claude', 'ctxhub', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.claude', 'skills', 'ctxhub', 'SKILL.md')
-  },
-  {
-    agent: 'claude',
-    id: 'ctxhub-search',
-    source: path.join(PACKAGE_ROOT, 'skills', 'claude', 'ctxhub-search', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.claude', 'skills', 'ctxhub-search', 'SKILL.md')
-  },
-  {
-    agent: 'codex',
-    id: 'ctxhub',
-    source: path.join(PACKAGE_ROOT, 'skills', 'codex', 'ctxhub', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.agents', 'skills', 'ctxhub', 'SKILL.md')
-  },
-  {
-    agent: 'codex',
-    id: 'ctxhub-search',
-    source: path.join(PACKAGE_ROOT, 'skills', 'codex', 'ctxhub-search', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.agents', 'skills', 'ctxhub-search', 'SKILL.md')
-  },
-  {
-    agent: 'copilot',
-    id: 'ctxhub',
-    source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.github', 'skills', 'ctxhub', 'SKILL.md')
-  },
-  {
-    agent: 'copilot',
-    id: 'ctxhub-search',
-    source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub-search', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.github', 'skills', 'ctxhub-search', 'SKILL.md')
-  },
-  {
-    agent: 'cursor',
-    id: 'ctxhub',
-    source: path.join(PACKAGE_ROOT, 'skills', 'cursor', 'ctxhub', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.cursor', 'skills', 'ctxhub', 'SKILL.md')
-  },
-  {
-    agent: 'cursor',
-    id: 'ctxhub-search',
-    source: path.join(PACKAGE_ROOT, 'skills', 'cursor', 'ctxhub-search', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.cursor', 'skills', 'ctxhub-search', 'SKILL.md')
-  }
-];
+const SKILL_TARGET_ROOTS: Record<SkillAgent, (cwd: string) => string> = {
+  claude: cwd => path.join(cwd, '.claude', 'skills'),
+  codex: cwd => path.join(cwd, '.agents', 'skills'),
+  copilot: cwd => path.join(cwd, '.github', 'skills'),
+  cursor: cwd => path.join(cwd, '.cursor', 'skills')
+};
+
+export const SKILL_TEMPLATES: SkillTemplate[] = SUPPORTED_SKILL_AGENTS.flatMap(agent =>
+  SUPPORTED_SKILL_IDS.map(id => ({
+    agent,
+    id,
+    source: path.join(PACKAGE_ROOT, 'skills', agent, id, 'SKILL.md'),
+    target: cwd => path.join(SKILL_TARGET_ROOTS[agent](cwd), id, 'SKILL.md')
+  }))
+);
 
 export async function skillsInstallCommand(agents: string[] = []) {
   const targets = agents.length ? agents : [...SUPPORTED_SKILL_AGENTS];

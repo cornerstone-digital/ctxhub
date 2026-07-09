@@ -226,7 +226,7 @@ export function buildProgram(): Command {
     .addArgument(
       new Argument('[agents...]', 'Agents to install for (default: all)').choices(SUPPORTED_SKILL_AGENTS)
     )
-    .description('Install ctxhub skill files (ambient guidance + explicit search) for one or more coding agents')
+    .description('Install ctxhub skill files for workspace search, context, notes, and diagrams')
     .action(skillsInstallCommand);
 
   const note = program.command('note').description('Scaffold git-tracked, team-shared notes for a repo');

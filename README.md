@@ -307,8 +307,11 @@ Architecture diagrams use the same team-shared path. `ctxhub diagram add <repo> 
 
 - **`ctxhub`** — ambient guidance, auto-invoked when the agent's own judgment matches the description (e.g. "the answer might be in a different repo"). No arguments; this is the "don't forget the index exists" nudge.
 - **`ctxhub-search`** — explicit, on-demand search. In Claude Code and Codex this is invoked directly as `/ctxhub-search <query>`, with `$ARGUMENTS` handling in the skill body so the typed query is unambiguous rather than left to the model's interpretation — the same pattern spec-kit's own commands use. Codex may show this via a `/skills` picker or `$ctxhub-search` rather than an identical `/name` syntax; worth checking your Codex version.
+- **`ctxhub-context`** — explicit context-pack gathering for broad cross-repo questions where the agent should read a suggested path and architecture/freshness evidence before answering.
+- **`ctxhub-note`** — explicit team-note capture for durable findings that should live in a repo under `agent-notes/` and be reviewed/indexed with the codebase.
+- **`ctxhub-diagram`** — explicit Mermaid architecture capture for system relationships, request/event flows, ownership boundaries, integrations, or runtime topology.
 
-This complements the MCP server (which grants tool access) with usage guidance (which nudges *when* and *how* to use it), and still helps agents that don't have the MCP server wired up, since it also documents the plain CLI commands. Run with no arguments to install both skills for all four agents; name specific agents (e.g. `ctxhub skills install claude cursor`) to limit it.
+This complements the MCP server (which grants tool access) with usage guidance (which nudges *when* and *how* to use it), and still helps agents that don't have the MCP server wired up, since it also documents the plain CLI commands. Run with no arguments to install the full skill set for all four agents; name specific agents (e.g. `ctxhub skills install claude cursor`) to limit it.
 
 Skills are project-scoped files. If a ctxhub config is discoverable above your current directory, `ctxhub skills install` writes canonical copies at that workspace root. For GitHub/Copilot, ctxhub follows Spec Kit's skills-mode layout: `.github/skills/<name>/SKILL.md`. For Cursor, ctxhub follows Spec Kit's current `.cursor/skills/<name>/SKILL.md` layout. It also creates repo-local links for every configured child repo, e.g. `my-workspace/api-service/.claude/skills/...` or `my-workspace/api-service/.github/skills/...` points back to the workspace copy. That keeps agent sessions launched at a child repo root from missing skills when the workspace root sits above the repo's Git root. If symlinks are unavailable, ctxhub falls back to copying the file.
 
@@ -316,10 +319,10 @@ The templates themselves live in this repo under [`skills/`](./skills/) and are 
 
 | Agent | Templates | Installs to |
 | --- | --- | --- |
-| `claude` | [`skills/claude/ctxhub/SKILL.md`](./skills/claude/ctxhub/SKILL.md), [`skills/claude/ctxhub-search/SKILL.md`](./skills/claude/ctxhub-search/SKILL.md) | `.claude/skills/ctxhub/SKILL.md`, `.claude/skills/ctxhub-search/SKILL.md` |
-| `codex` | [`skills/codex/ctxhub/SKILL.md`](./skills/codex/ctxhub/SKILL.md), [`skills/codex/ctxhub-search/SKILL.md`](./skills/codex/ctxhub-search/SKILL.md) | `.agents/skills/ctxhub/SKILL.md`, `.agents/skills/ctxhub-search/SKILL.md` (identical content to Claude's — Codex's skills format is compatible) |
-| `copilot` | [`skills/copilot/ctxhub/SKILL.md`](./skills/copilot/ctxhub/SKILL.md), [`skills/copilot/ctxhub-search/SKILL.md`](./skills/copilot/ctxhub-search/SKILL.md) | `.github/skills/ctxhub/SKILL.md`, `.github/skills/ctxhub-search/SKILL.md` |
-| `cursor` | [`skills/cursor/ctxhub/SKILL.md`](./skills/cursor/ctxhub/SKILL.md), [`skills/cursor/ctxhub-search/SKILL.md`](./skills/cursor/ctxhub-search/SKILL.md) | `.cursor/skills/ctxhub/SKILL.md`, `.cursor/skills/ctxhub-search/SKILL.md` |
+| `claude` | `skills/claude/<skill>/SKILL.md` for `ctxhub`, `ctxhub-search`, `ctxhub-context`, `ctxhub-note`, `ctxhub-diagram` | `.claude/skills/<skill>/SKILL.md` |
+| `codex` | `skills/codex/<skill>/SKILL.md` for the same five skills | `.agents/skills/<skill>/SKILL.md` (identical content to Claude's — Codex's skills format is compatible) |
+| `copilot` | `skills/copilot/<skill>/SKILL.md` for the same five skills | `.github/skills/<skill>/SKILL.md` |
+| `cursor` | `skills/cursor/<skill>/SKILL.md` for the same five skills | `.cursor/skills/<skill>/SKILL.md` |
 
 Each destination is a dedicated file ctxhub owns (namespaced by skill name), so there's no merge concern the way there is for the shared MCP config files above — the command just copies each template in verbatim, overwriting whatever was there.
 

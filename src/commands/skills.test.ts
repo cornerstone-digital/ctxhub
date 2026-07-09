@@ -9,6 +9,13 @@ import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { pathExists, readText } from '../utils/fs.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const SKILL_IDS = ['ctxhub', 'ctxhub-search', 'ctxhub-context', 'ctxhub-note', 'ctxhub-diagram'];
+const AGENT_SKILL_ROOTS = {
+  claude: ['.claude', 'skills'],
+  codex: ['.agents', 'skills'],
+  copilot: ['.github', 'skills'],
+  cursor: ['.cursor', 'skills']
+} as const;
 
 async function withTempCwd(run: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-skills-'));
@@ -22,41 +29,33 @@ async function withTempCwd(run: (dir: string) => Promise<void>) {
   }
 }
 
-test('skillsInstallCommand with no args installs the ambient and search skills for all supported agents', () => {
+test('skillsInstallCommand with no args installs all ctxhub skills for all supported agents', () => {
   return withTempCwd(async dir => {
     await skillsInstallCommand();
 
-    const claude = await readText(path.join(dir, '.claude', 'skills', 'ctxhub', 'SKILL.md'));
-    assert.equal(claude, await readText(path.join(REPO_ROOT, 'skills', 'claude', 'ctxhub', 'SKILL.md')));
-    assert.match(claude, /^---\nname: ctxhub\ndescription: /);
+    for (const [agent, rootParts] of Object.entries(AGENT_SKILL_ROOTS)) {
+      for (const skillId of SKILL_IDS) {
+        const installed = await readText(path.join(dir, ...rootParts, skillId, 'SKILL.md'));
+        const source = await readText(path.join(REPO_ROOT, 'skills', agent, skillId, 'SKILL.md'));
+        assert.equal(installed, source);
+        assert.match(installed, new RegExp(`^---\\nname: ${skillId}\\n`));
+      }
+    }
 
     const claudeSearch = await readText(path.join(dir, '.claude', 'skills', 'ctxhub-search', 'SKILL.md'));
-    assert.equal(claudeSearch, await readText(path.join(REPO_ROOT, 'skills', 'claude', 'ctxhub-search', 'SKILL.md')));
-    assert.match(claudeSearch, /^---\nname: ctxhub-search\ndescription: /);
     assert.match(claudeSearch, /\$ARGUMENTS/);
+    const claudeContext = await readText(path.join(dir, '.claude', 'skills', 'ctxhub-context', 'SKILL.md'));
+    assert.match(claudeContext, /context_pack/);
+    const claudeNote = await readText(path.join(dir, '.claude', 'skills', 'ctxhub-note', 'SKILL.md'));
+    assert.match(claudeNote, /ctxhub note add/);
+    const claudeDiagram = await readText(path.join(dir, '.claude', 'skills', 'ctxhub-diagram', 'SKILL.md'));
+    assert.match(claudeDiagram, /Mermaid/);
 
-    const codex = await readText(path.join(dir, '.agents', 'skills', 'ctxhub', 'SKILL.md'));
-    assert.equal(codex, await readText(path.join(REPO_ROOT, 'skills', 'codex', 'ctxhub', 'SKILL.md')));
-    assert.equal(codex, claude);
-
-    const codexSearch = await readText(path.join(dir, '.agents', 'skills', 'ctxhub-search', 'SKILL.md'));
-    assert.equal(codexSearch, claudeSearch);
-
-    const copilotSkill = await readText(path.join(dir, '.github', 'skills', 'ctxhub', 'SKILL.md'));
-    assert.equal(copilotSkill, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub', 'SKILL.md')));
-    assert.match(copilotSkill, /^---\nname: ctxhub\n/);
-
-    const copilotSearchSkill = await readText(path.join(dir, '.github', 'skills', 'ctxhub-search', 'SKILL.md'));
-    assert.equal(copilotSearchSkill, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ctxhub-search', 'SKILL.md')));
-    assert.match(copilotSearchSkill, /^---\nname: ctxhub-search\n/);
-
-    const cursor = await readText(path.join(dir, '.cursor', 'skills', 'ctxhub', 'SKILL.md'));
-    assert.equal(cursor, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ctxhub', 'SKILL.md')));
-    assert.match(cursor, /^---\nname: ctxhub\n/);
-
-    const cursorSearch = await readText(path.join(dir, '.cursor', 'skills', 'ctxhub-search', 'SKILL.md'));
-    assert.equal(cursorSearch, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ctxhub-search', 'SKILL.md')));
-    assert.match(cursorSearch, /^---\nname: ctxhub-search\n/);
+    for (const skillId of SKILL_IDS) {
+      const claude = await readText(path.join(dir, '.claude', 'skills', skillId, 'SKILL.md'));
+      const codex = await readText(path.join(dir, '.agents', 'skills', skillId, 'SKILL.md'));
+      assert.equal(codex, claude);
+    }
   });
 });
 
