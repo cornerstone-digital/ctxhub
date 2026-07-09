@@ -29,6 +29,8 @@ test('DoctorChecklistApp shows each check as pending, then its resolved lines, i
     const frame = lastFrame() ?? '';
     assert.match(frame, /✓ Node v22/);
     assert.match(frame, /◐ Git\.\.\./);
+    assert.match(frame, /Summary/);
+    assert.match(frame, /Now/);
 
     // Resolving triggers exit(), which clears Ink's live region by design (see
     // IndexProgressApp.tsx) -- the durable record is what onSettled reports, covered

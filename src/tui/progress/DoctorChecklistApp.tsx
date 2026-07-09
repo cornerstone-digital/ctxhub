@@ -18,6 +18,11 @@ export function DoctorChecklistApp({ checks, onSettled }: Props) {
   const { exit } = useApp();
   const [states, setStates] = useState<CheckState[]>(() => checks.map(check => ({ id: check.id, status: 'pending', lines: [] })));
   const completed = states.filter(state => state.status === 'done').length;
+  const lines = states.flatMap(state => state.lines);
+  const errors = lines.filter(line => line.status === 'error').length;
+  const warnings = lines.filter(line => line.status === 'warn').length;
+  const ok = lines.filter(line => line.status === 'ok').length;
+  const active = states.find(state => state.status === 'pending');
 
   useEffect(() => {
     (async () => {
@@ -34,20 +39,37 @@ export function DoctorChecklistApp({ checks, onSettled }: Props) {
     <Box flexDirection="column" paddingX={1}>
       <Text bold color="cyan">ctxhub doctor</Text>
       <Text color="gray">Checking workspace health · {completed}/{states.length} complete</Text>
-      <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
-        {states.map(state =>
-          state.status === 'pending' ? (
-            <Text key={state.id} color="gray">
-              ◐ {CHECK_LABELS[state.id] ?? state.id}...
-            </Text>
-          ) : (
-            state.lines.map((line, index) => (
-              <Text key={`${state.id}-${index}`} color={COLOR_BY_STATUS[line.status]}>
-                {GLYPH_BY_STATUS[line.status]} {line.message}
+      <Box marginTop={1} flexDirection="row">
+        <Box width="64%" borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
+          <Text bold>Checks</Text>
+          {states.map(state =>
+            state.status === 'pending' ? (
+              <Text key={state.id} color="gray">
+                ◐ {CHECK_LABELS[state.id] ?? state.id}...
               </Text>
-            ))
-          )
-        )}
+            ) : state.lines.length ? (
+              state.lines.map((line, index) => (
+                <Text key={`${state.id}-${index}`} color={COLOR_BY_STATUS[line.status]}>
+                  {GLYPH_BY_STATUS[line.status]} {line.message}
+                </Text>
+              ))
+            ) : (
+              <Text key={state.id} color="green">
+                ✓ {CHECK_LABELS[state.id] ?? state.id}: no issues
+              </Text>
+            )
+          )}
+        </Box>
+        <Box marginLeft={1} width="36%" borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+          <Text bold>Summary</Text>
+          <Text color="green">ok {ok}</Text>
+          <Text color={warnings ? 'yellow' : 'gray'}>warnings {warnings}</Text>
+          <Text color={errors ? 'red' : 'gray'}>errors {errors}</Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text bold>Now</Text>
+            <Text color="gray">{active ? CHECK_LABELS[active.id] ?? active.id : 'finishing'}</Text>
+          </Box>
+        </Box>
       </Box>
     </Box>
   );

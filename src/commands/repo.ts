@@ -3,8 +3,16 @@ import { chmod } from 'node:fs/promises';
 import chalk from 'chalk';
 import fg from 'fast-glob';
 import { loadConfig, saveConfig } from '../config/config.js';
+import type { CtxhubConfig } from '../config/types.js';
 import { getRepoName, isGitRepo } from '../git/git.js';
 import { pathExists, writeText } from '../utils/fs.js';
+import { runRepoDiscoverReview } from '../tui/RepoDiscoverApp.js';
+
+export type DiscoveredRepo = {
+  name: string;
+  path: string;
+  state: 'new' | 'configured';
+};
 
 export async function repoAddCommand(name: string, repoPath: string) {
   const config = await loadConfig();
@@ -39,35 +47,50 @@ export async function repoListCommand() {
 
 export async function repoDiscoverCommand(root = '.') {
   const config = await loadConfig();
-  const gitDirs = await fg('**/.git', { cwd: root, onlyDirectories: true, ignore: ['**/node_modules/**', '**/dist/**'] });
-  let added = 0;
-  let skipped = 0;
+  const discovered = await discoverRepositories(root, config);
+  const newRepos = discovered.filter(repo => repo.state === 'new');
+  const skipped = discovered.length - newRepos.length;
 
-  for (const gitDir of gitDirs) {
-    const repoPath = path.dirname(path.join(root, gitDir));
-    const name = getRepoName(repoPath);
-    if (!config.repositories.some(r => r.path === repoPath || r.name === name)) {
-      config.repositories.push({ name, path: repoPath, git: true });
-      console.log(chalk.green(`Discovered ${name} -> ${repoPath}`));
-      added += 1;
-    } else {
-      skipped += 1;
-    }
-  }
-
-  await saveConfig(config);
-  if (!gitDirs.length) {
+  if (!discovered.length) {
     console.log(chalk.yellow(`No Git repositories found under ${root}.`));
     return;
   }
 
-  if (!added) {
+  const selected = process.stdin.isTTY && process.stdout.isTTY && newRepos.length
+    ? await runRepoDiscoverReview(root, discovered)
+    : newRepos;
+
+  if (!selected) {
+    console.log(chalk.yellow('Repository discovery cancelled.'));
+    return;
+  }
+
+  for (const repo of selected) {
+    config.repositories.push({ name: repo.name, path: repo.path, git: true });
+    console.log(chalk.green(`Discovered ${repo.name} -> ${repo.path}`));
+  }
+
+  await saveConfig(config);
+  if (!selected.length) {
     console.log(chalk.gray(`No new repositories added (${skipped} already configured).`));
     return;
   }
 
-  console.log(chalk.green(`Added ${added} repositor${added === 1 ? 'y' : 'ies'}${skipped ? `, skipped ${skipped} already configured` : ''}.`));
+  console.log(chalk.green(`Added ${selected.length} repositor${selected.length === 1 ? 'y' : 'ies'}${skipped ? `, skipped ${skipped} already configured` : ''}.`));
   console.log(chalk.gray('Next: run ctxhub index to add their knowledge to the workspace.'));
+}
+
+export async function discoverRepositories(root: string, config: CtxhubConfig): Promise<DiscoveredRepo[]> {
+  const gitDirs = await fg('**/.git', { cwd: root, onlyDirectories: true, ignore: ['**/node_modules/**', '**/dist/**'] });
+  return gitDirs.map(gitDir => {
+    const repoPath = path.dirname(path.join(root, gitDir));
+    const name = getRepoName(repoPath);
+    return {
+      name,
+      path: repoPath,
+      state: config.repositories.some(r => r.path === repoPath || r.name === name) ? 'configured' : 'new'
+    };
+  });
 }
 
 export function postCommitHookScript(workspaceRoot: string, cliEntryPath: string, repoName: string): string {
