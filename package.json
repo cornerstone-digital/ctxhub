@@ -19,6 +19,7 @@
     "dev": "tsx src/index.ts",
     "ctxhub": "tsx src/index.ts",
     "test": "node --import tsx --test",
+    "lint": "eslint .",
     "prepack": "npm run build",
     "prepare": "husky"
   },
@@ -40,6 +41,7 @@
   "devDependencies": {
     "@commitlint/cli": "^21.2.1",
     "@commitlint/config-conventional": "^21.2.0",
+    "@eslint/js": "^10.0.1",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/git": "^10.0.1",
@@ -48,9 +50,12 @@
     "@semantic-release/release-notes-generator": "^14.1.1",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.13.10",
+    "eslint": "^10.6.0",
+    "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
     "semantic-release": "^25.0.5",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.63.0"
   }
 }
