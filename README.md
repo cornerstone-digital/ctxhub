@@ -193,8 +193,4 @@ The index API lives in `src/indexing/IndexProvider.ts`. LanceDB is the default i
 
 The memory API lives in `src/memory/MemoryAdapter.ts`. MemPalace is the default durable memory provider, and local JSON remains available for simple/offline experiments.
 
-Planned extension points:
-
-- AI-generated documentation validation
-
-Not planned: a MemPalace provider for CLI write operations (writes should go through MemPalace's own CLI/MCP tools, not ctxhub's document indexer — see `MempalaceMemory` in `src/memory/LocalJsonMemory.ts`), or an embeddings/vector-DB index provider (lexical/FTS search already covers this project's typical doc+code corpus well, and a local embedding model would mean a second native binary dependency for modest benefit). Both were deliberately decided against rather than merely deferred.
+See [ROADMAP.md](./ROADMAP.md) for what's shipped, what's planned, and what's explicitly not planned.

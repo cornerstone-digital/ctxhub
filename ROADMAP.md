@@ -1,0 +1,22 @@
+# Roadmap
+
+## Shipped
+
+- Multi-repo workspace config, repo discovery, and Git-aware indexing
+- LanceDB-backed document/source index with full-text search (`ctxhub index` / `ctxhub search`)
+- MemPalace as the default durable agent-memory provider, with a `local-json` fallback
+- MCP server (`ctxhub mcp`) exposing `search`, `memory_status`, and `repo_list` as read-only tools
+- Config-level lifecycle hooks (`hooks.postPull`, `hooks.postIndex`) and a real Git `post-commit` hook (`ctxhub repo hook`)
+- Agent launch integration for Claude, Codex, and Copilot (`ctxhub agent <name>`)
+- Installable skills/prompt files for Claude, Codex, Copilot, and Cursor (`ctxhub skills install`)
+
+## Planned
+
+- AI-generated documentation validation
+
+## Not planned
+
+- A MemPalace provider for CLI *write* operations — writes should go through MemPalace's own CLI/MCP tools, not this project's document indexer.
+- An embeddings/vector-DB index provider — lexical/full-text search already covers this project's typical doc+code corpus well, and a local embedding model would add a second native-binary dependency for modest benefit on identifier-dense content.
+
+Both were deliberately decided against rather than merely deferred.
