@@ -22,6 +22,7 @@ import { openCommand } from './commands/open.js';
 import { prContextCommand } from './commands/prContext.js';
 import { watchCommand } from './commands/watch.js';
 import { reportCommand } from './commands/report.js';
+import { ciInitCommand } from './commands/ci.js';
 import { checkForDriftOnce } from './utils/driftCheck.js';
 import { getPackageVersion } from './utils/version.js';
 
@@ -74,6 +75,16 @@ repo
   .description('Install a post-commit hook that re-indexes the workspace after each commit')
   .option('-f, --force', 'Overwrite an existing post-commit hook')
   .action(repoHookCommand);
+
+const ci = program.command('ci').description('Scaffold CI integrations for ctxhub workspace checks');
+
+ci
+  .command('init')
+  .description('Create a GitHub Actions workflow for ctxhub docs, diagram, and optional eval checks')
+  .option('-f, --force', 'Overwrite an existing ctxhub workflow')
+  .option('--with-eval', 'Include ctxhub eval in the workflow')
+  .option('--package-manager <name>', 'Package manager to use (npm, pnpm, yarn)', 'npm')
+  .action(ciInitCommand);
 
 program
   .command('index')

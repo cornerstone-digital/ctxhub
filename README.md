@@ -150,6 +150,7 @@ privacy:
 - `ctxhub repo list`: print configured repos.
 - `ctxhub repo discover [path]`: find Git repositories below a folder and add them.
 - `ctxhub repo hook <name>`: install a `post-commit` Git hook in that repo which re-indexes the workspace in the background after each commit (`-f/--force` to overwrite an existing hook).
+- `ctxhub ci init [--with-eval]`: create a GitHub Actions workflow that runs build, `ctxhub validate docs`, and optionally `ctxhub eval` on pull requests.
 - `ctxhub index`: index changed workspace files.
 - `ctxhub sync`: pull configured repos and re-index changed files.
 - `ctxhub search <query>`: search the LanceDB project index.
