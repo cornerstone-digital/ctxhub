@@ -1,23 +1,23 @@
 {
-  "name": "devctx",
+  "name": "ctxhub",
   "version": "0.1.0",
   "description": "Reusable developer workspace CLI for multi-repo indexing and AI agent memory/MCP workflows.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "devctx": "dist/index.js"
+    "ctxhub": "dist/index.js"
   },
   "files": [
     "dist",
     "skills",
     "README.md",
-    "devctx.example.yaml"
+    "ctxhub.example.yaml"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc",
     "dev": "tsx src/index.ts",
-    "devctx": "tsx src/index.ts",
+    "ctxhub": "tsx src/index.ts",
     "test": "node --import tsx --test",
     "prepack": "npm run build"
   },

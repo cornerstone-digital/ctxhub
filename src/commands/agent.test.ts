@@ -8,7 +8,7 @@ import { agentLaunchCommand, launchAgentBinary, writeClaudeMcpConfig, writeCodex
 import { readText } from '../utils/fs.js';
 
 async function withTempDir(run: (dir: string) => Promise<void>) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'devctx-agent-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-agent-'));
   try {
     await run(dir);
   } finally {
@@ -35,7 +35,7 @@ test('writeClaudeMcpConfig creates .mcp.json when none exists', () => {
     assert.equal(changed, true);
 
     const written = JSON.parse(await readText(configPath));
-    assert.deepEqual(written.mcpServers.devctx, { command: 'devctx', args: ['mcp'] });
+    assert.deepEqual(written.mcpServers.ctxhub, { command: 'ctxhub', args: ['mcp'] });
   });
 });
 
@@ -51,12 +51,12 @@ test('writeClaudeMcpConfig merges into an existing .mcp.json without clobbering 
 
     const written = JSON.parse(await readText(configPath));
     assert.deepEqual(written.mcpServers.other, { command: 'other-tool', args: ['serve'] });
-    assert.deepEqual(written.mcpServers.devctx, { command: 'devctx', args: ['mcp'] });
+    assert.deepEqual(written.mcpServers.ctxhub, { command: 'ctxhub', args: ['mcp'] });
     assert.equal(written.somethingElse, true);
   });
 });
 
-test('writeClaudeMcpConfig is idempotent once the devctx entry is already correct', () => {
+test('writeClaudeMcpConfig is idempotent once the ctxhub entry is already correct', () => {
   return withTempDir(async dir => {
     const first = await writeClaudeMcpConfig(dir);
     assert.equal(first.changed, true);
@@ -73,7 +73,7 @@ test('writeCodexMcpConfig creates .codex/config.toml when none exists', () => {
     assert.match(note ?? '', /trusts/);
 
     const written = parse(await readText(configPath)) as { mcp_servers: Record<string, unknown> };
-    assert.deepEqual(written.mcp_servers.devctx, { command: 'devctx', args: ['mcp'] });
+    assert.deepEqual(written.mcp_servers.ctxhub, { command: 'ctxhub', args: ['mcp'] });
   });
 });
 
@@ -91,12 +91,12 @@ test('writeCodexMcpConfig merges into an existing .codex/config.toml without clo
 
     const written = parse(await readText(configPath)) as Record<string, unknown> & { mcp_servers: Record<string, unknown> };
     assert.deepEqual(written.mcp_servers.other, { command: 'other-tool', args: ['serve'] });
-    assert.deepEqual(written.mcp_servers.devctx, { command: 'devctx', args: ['mcp'] });
+    assert.deepEqual(written.mcp_servers.ctxhub, { command: 'ctxhub', args: ['mcp'] });
     assert.equal(written.model, 'gpt-5-codex');
   });
 });
 
-test('writeCodexMcpConfig is idempotent once the devctx entry is already correct', () => {
+test('writeCodexMcpConfig is idempotent once the ctxhub entry is already correct', () => {
   return withTempDir(async dir => {
     const first = await writeCodexMcpConfig(dir);
     assert.equal(first.changed, true);
@@ -113,7 +113,7 @@ test('writeCopilotMcpConfig creates ~/.copilot/mcp-config.json (COPILOT_HOME) wh
     assert.match(note ?? '', /user-level config/);
 
     const written = JSON.parse(await readText(configPath));
-    assert.deepEqual(written.mcpServers.devctx, { type: 'local', command: 'devctx', args: ['mcp'], tools: ['*'] });
+    assert.deepEqual(written.mcpServers.ctxhub, { type: 'local', command: 'ctxhub', args: ['mcp'], tools: ['*'] });
     assert.equal(configPath, path.join(dir, 'mcp-config.json'));
   });
 });
@@ -130,11 +130,11 @@ test('writeCopilotMcpConfig merges into an existing mcp-config.json without clob
 
     const written = JSON.parse(await readText(configPath));
     assert.deepEqual(written.mcpServers.other, { type: 'local', command: 'other-tool', args: ['serve'] });
-    assert.deepEqual(written.mcpServers.devctx, { type: 'local', command: 'devctx', args: ['mcp'], tools: ['*'] });
+    assert.deepEqual(written.mcpServers.ctxhub, { type: 'local', command: 'ctxhub', args: ['mcp'], tools: ['*'] });
   });
 });
 
-test('writeCopilotMcpConfig is idempotent once the devctx entry is already correct', () => {
+test('writeCopilotMcpConfig is idempotent once the ctxhub entry is already correct', () => {
   return withCopilotHome(async () => {
     const first = await writeCopilotMcpConfig();
     assert.equal(first.changed, true);
@@ -148,7 +148,7 @@ test('agentLaunchCommand copilot with --no-launch writes COPILOT_HOME/mcp-config
   return withCopilotHome(async dir => {
     await agentLaunchCommand('copilot', { launch: false });
     const written = JSON.parse(await readText(path.join(dir, 'mcp-config.json')));
-    assert.deepEqual(written.mcpServers.devctx, { type: 'local', command: 'devctx', args: ['mcp'], tools: ['*'] });
+    assert.deepEqual(written.mcpServers.ctxhub, { type: 'local', command: 'ctxhub', args: ['mcp'], tools: ['*'] });
   });
 });
 
@@ -171,7 +171,7 @@ test('agentLaunchCommand with --no-launch only writes the MCP config', () => {
     try {
       await agentLaunchCommand('claude', { launch: false });
       const written = JSON.parse(await readText(path.join(dir, '.mcp.json')));
-      assert.deepEqual(written.mcpServers.devctx, { command: 'devctx', args: ['mcp'] });
+      assert.deepEqual(written.mcpServers.ctxhub, { command: 'ctxhub', args: ['mcp'] });
     } finally {
       process.chdir(originalCwd);
     }
@@ -185,7 +185,7 @@ test('agentLaunchCommand codex with --no-launch writes .codex/config.toml and pr
     try {
       await agentLaunchCommand('codex', { launch: false });
       const written = parse(await readText(path.join(dir, '.codex', 'config.toml'))) as { mcp_servers: Record<string, unknown> };
-      assert.deepEqual(written.mcp_servers.devctx, { command: 'devctx', args: ['mcp'] });
+      assert.deepEqual(written.mcp_servers.ctxhub, { command: 'ctxhub', args: ['mcp'] });
     } finally {
       process.chdir(originalCwd);
     }
@@ -195,7 +195,7 @@ test('agentLaunchCommand codex with --no-launch writes .codex/config.toml and pr
 test('launchAgentBinary rejects with a friendly error when the binary is missing', () => {
   return withTempDir(async dir => {
     await assert.rejects(
-      () => launchAgentBinary('devctx-test-nonexistent-binary-xyz', [], dir),
+      () => launchAgentBinary('ctxhub-test-nonexistent-binary-xyz', [], dir),
       /was not found on PATH/
     );
   });

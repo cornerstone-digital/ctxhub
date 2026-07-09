@@ -5,11 +5,11 @@ import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createDevctxMcpServer } from './server.js';
+import { createCtxhubMcpServer } from './server.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 
 async function withConnectedClient(cwd: string, run: (client: Client) => Promise<void>) {
-  const server = createDevctxMcpServer(cwd);
+  const server = createCtxhubMcpServer(cwd);
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -23,7 +23,7 @@ async function withConnectedClient(cwd: string, run: (client: Client) => Promise
 }
 
 async function withWorkspace(run: (cwd: string) => Promise<void>) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'devctx-mcp-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-mcp-'));
   try {
     await initConfig('mcp-test-ws', dir);
     await mkdir(path.join(dir, 'app'), { recursive: true });

@@ -56,7 +56,7 @@ export async function repoDiscoverCommand(root = '.') {
 export function postCommitHookScript(workspaceRoot: string, cliEntryPath: string, repoName: string): string {
   return [
     '#!/bin/sh',
-    `# Installed by devctx (\`devctx repo hook ${repoName}\`) — re-indexes this devctx workspace after each commit.`,
+    `# Installed by ctxhub (\`ctxhub repo hook ${repoName}\`) — re-indexes this ctxhub workspace after each commit.`,
     `cd "${workspaceRoot}" || exit 0`,
     `node "${cliEntryPath}" index >/dev/null 2>&1 &`,
     'exit 0',

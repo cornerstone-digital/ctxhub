@@ -9,14 +9,14 @@ import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 export async function doctorCommand() {
   const configPath = await findConfigPath();
   if (!configPath) {
-    console.log(`${chalk.red('✗')} No config found. Run: devctx init`);
+    console.log(`${chalk.red('✗')} No config found. Run: ctxhub init`);
     return;
   }
 
   const config = await loadConfig();
   console.log(`${chalk.green('✓')} Node ${process.version}`);
   console.log((await isGitInstalled()) ? `${chalk.green('✓')} Git installed` : `${chalk.red('✗')} Git is not installed`);
-  console.log(`${chalk.green('✓')} devctx config loaded: ${config.workspace.name} (${relativeConfigPath(configPath)})`);
+  console.log(`${chalk.green('✓')} ctxhub config loaded: ${config.workspace.name} (${relativeConfigPath(configPath)})`);
 
   try {
     await ensureDir(path.join(process.cwd(), INDEX_DIR));

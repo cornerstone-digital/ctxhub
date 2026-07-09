@@ -9,7 +9,7 @@ import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { repoHookCommand } from './repo.js';
 
 async function withGitRepoWorkspace(run: (cwd: string, repoPath: string) => Promise<void>) {
-  const cwd = await mkdtemp(path.join(os.tmpdir(), 'devctx-repohook-'));
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-repohook-'));
   try {
     await initConfig('ws', cwd);
     const repoPath = path.join(cwd, 'app');
@@ -41,7 +41,7 @@ test('repoHookCommand installs an executable post-commit hook', () => {
 
     const contents = await readText(hookPath);
     assert.match(contents, /^#!\/bin\/sh/);
-    assert.match(contents, /devctx repo hook app/);
+    assert.match(contents, /ctxhub repo hook app/);
     assert.match(contents, /index >\/dev\/null/);
 
     const stats = await stat(hookPath);

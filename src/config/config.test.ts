@@ -7,7 +7,7 @@ import yaml from 'js-yaml';
 import { findConfigPath, initConfig, loadConfig, LOCAL_CONFIG_PATH, PROJECT_CONFIG_PATH, saveConfig } from './config.js';
 
 async function withTempCwd(run: (cwd: string) => Promise<void>) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'devctx-config-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-config-'));
   try {
     await run(dir);
   } finally {
@@ -15,9 +15,9 @@ async function withTempCwd(run: (cwd: string) => Promise<void>) {
   }
 }
 
-test('findConfigPath prefers devctx.yaml over .devctx/config.yaml', () => {
+test('findConfigPath prefers ctxhub.yaml over .ctxhub/config.yaml', () => {
   return withTempCwd(async cwd => {
-    await mkdir(path.join(cwd, '.devctx'), { recursive: true });
+    await mkdir(path.join(cwd, '.ctxhub'), { recursive: true });
     await writeFile(path.join(cwd, PROJECT_CONFIG_PATH), 'version: 1\n');
     await writeFile(path.join(cwd, LOCAL_CONFIG_PATH), 'version: 1\n');
 
@@ -56,7 +56,7 @@ test('loadConfig merges partial hooks over the (empty) defaults', () => {
 
 test('loadConfig throws a helpful error when no config exists', () => {
   return withTempCwd(async cwd => {
-    await assert.rejects(() => loadConfig(cwd), /Run: devctx init/);
+    await assert.rejects(() => loadConfig(cwd), /Run: ctxhub init/);
   });
 });
 

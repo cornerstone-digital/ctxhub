@@ -17,13 +17,13 @@ type McpConfigFile = { mcpServers?: Record<string, unknown> } & Record<string, u
 export async function writeClaudeMcpConfig(cwd = process.cwd()): Promise<AgentConfigResult> {
   const configPath = path.join(cwd, MCP_CONFIG_FILE);
   const existing: McpConfigFile = (await pathExists(configPath)) ? JSON.parse(await readText(configPath)) : {};
-  const serverEntry = { command: 'devctx', args: ['mcp'] };
-  const changed = JSON.stringify(existing.mcpServers?.devctx) !== JSON.stringify(serverEntry);
+  const serverEntry = { command: 'ctxhub', args: ['mcp'] };
+  const changed = JSON.stringify(existing.mcpServers?.ctxhub) !== JSON.stringify(serverEntry);
 
   if (changed) {
     const merged: McpConfigFile = {
       ...existing,
-      mcpServers: { ...existing.mcpServers, devctx: serverEntry }
+      mcpServers: { ...existing.mcpServers, ctxhub: serverEntry }
     };
     await writeText(configPath, `${JSON.stringify(merged, null, 2)}\n`);
   }
@@ -35,18 +35,18 @@ type CodexConfigFile = { mcp_servers?: Record<string, unknown> } & Record<string
 
 const CODEX_TRUST_NOTE =
   'Codex only loads project-scoped .codex/config.toml for projects it trusts — ' +
-  'if Codex does not pick up the devctx server, trust this project in Codex first.';
+  'if Codex does not pick up the ctxhub server, trust this project in Codex first.';
 
 export async function writeCodexMcpConfig(cwd = process.cwd()): Promise<AgentConfigResult> {
   const configPath = path.join(cwd, CODEX_CONFIG_FILE);
   const existing: CodexConfigFile = (await pathExists(configPath)) ? (parse(await readText(configPath)) as CodexConfigFile) : {};
-  const serverEntry = { command: 'devctx', args: ['mcp'] };
-  const changed = JSON.stringify(existing.mcp_servers?.devctx) !== JSON.stringify(serverEntry);
+  const serverEntry = { command: 'ctxhub', args: ['mcp'] };
+  const changed = JSON.stringify(existing.mcp_servers?.ctxhub) !== JSON.stringify(serverEntry);
 
   if (changed) {
     const merged: CodexConfigFile = {
       ...existing,
-      mcp_servers: { ...existing.mcp_servers, devctx: serverEntry }
+      mcp_servers: { ...existing.mcp_servers, ctxhub: serverEntry }
     };
     await writeText(configPath, stringify(merged));
   }
@@ -56,7 +56,7 @@ export async function writeCodexMcpConfig(cwd = process.cwd()): Promise<AgentCon
 
 const COPILOT_SCOPE_NOTE =
   'This is a user-level config (~/.copilot/mcp-config.json, or $COPILOT_HOME) shared across all your projects — ' +
-  'GitHub found no supported project-scoped file for the Copilot CLI. The devctx server still uses whatever ' +
+  'GitHub found no supported project-scoped file for the Copilot CLI. The ctxhub server still uses whatever ' +
   'directory `copilot` is launched from, so this works per-project in practice.';
 
 function copilotConfigPath(): string {
@@ -66,13 +66,13 @@ function copilotConfigPath(): string {
 export async function writeCopilotMcpConfig(): Promise<AgentConfigResult> {
   const configPath = copilotConfigPath();
   const existing: McpConfigFile = (await pathExists(configPath)) ? JSON.parse(await readText(configPath)) : {};
-  const serverEntry = { type: 'local', command: 'devctx', args: ['mcp'], tools: ['*'] };
-  const changed = JSON.stringify(existing.mcpServers?.devctx) !== JSON.stringify(serverEntry);
+  const serverEntry = { type: 'local', command: 'ctxhub', args: ['mcp'], tools: ['*'] };
+  const changed = JSON.stringify(existing.mcpServers?.ctxhub) !== JSON.stringify(serverEntry);
 
   if (changed) {
     const merged: McpConfigFile = {
       ...existing,
-      mcpServers: { ...existing.mcpServers, devctx: serverEntry }
+      mcpServers: { ...existing.mcpServers, ctxhub: serverEntry }
     };
     await writeText(configPath, `${JSON.stringify(merged, null, 2)}\n`);
   }
@@ -107,7 +107,7 @@ export async function agentLaunchCommand(agent: string, opts: { launch?: boolean
   }
 
   const { path: configPath, changed, note } = await writeConfig();
-  console.log(chalk.green(`${changed ? 'Wrote' : 'Confirmed'} devctx MCP server in ${configPath}`));
+  console.log(chalk.green(`${changed ? 'Wrote' : 'Confirmed'} ctxhub MCP server in ${configPath}`));
   if (note) console.log(chalk.yellow(note));
 
   if (opts.launch === false) {

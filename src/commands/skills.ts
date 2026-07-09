@@ -12,19 +12,19 @@ const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const TEMPLATES: Record<SkillAgent, { source: string; target: (cwd: string) => string }> = {
   claude: {
     source: path.join(PACKAGE_ROOT, 'skills', 'claude', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.claude', 'skills', 'devctx', 'SKILL.md')
+    target: cwd => path.join(cwd, '.claude', 'skills', 'ctxhub', 'SKILL.md')
   },
   codex: {
     source: path.join(PACKAGE_ROOT, 'skills', 'codex', 'SKILL.md'),
-    target: cwd => path.join(cwd, '.agents', 'skills', 'devctx', 'SKILL.md')
+    target: cwd => path.join(cwd, '.agents', 'skills', 'ctxhub', 'SKILL.md')
   },
   copilot: {
-    source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'devctx.prompt.md'),
-    target: cwd => path.join(cwd, '.github', 'prompts', 'devctx.prompt.md')
+    source: path.join(PACKAGE_ROOT, 'skills', 'copilot', 'ctxhub.prompt.md'),
+    target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub.prompt.md')
   },
   cursor: {
-    source: path.join(PACKAGE_ROOT, 'skills', 'cursor', 'devctx.md'),
-    target: cwd => path.join(cwd, '.cursor', 'commands', 'devctx.md')
+    source: path.join(PACKAGE_ROOT, 'skills', 'cursor', 'ctxhub.md'),
+    target: cwd => path.join(cwd, '.cursor', 'commands', 'ctxhub.md')
   }
 };
 
@@ -42,6 +42,6 @@ export async function skillsInstallCommand(agents: string[] = []) {
     const { source, target } = TEMPLATES[agent as SkillAgent];
     const destination = target(cwd);
     await writeText(destination, await readText(source));
-    console.log(chalk.green(`Installed devctx skill for ${agent}: ${destination}`));
+    console.log(chalk.green(`Installed ctxhub skill for ${agent}: ${destination}`));
   }
 }

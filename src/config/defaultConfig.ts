@@ -1,9 +1,9 @@
-import type { DevctxConfig } from './types.js';
+import type { CtxhubConfig } from './types.js';
 
-export const defaultConfig: DevctxConfig = {
+export const defaultConfig: CtxhubConfig = {
   version: 1,
   workspace: {
-    name: 'devctx-workspace'
+    name: 'ctxhub-workspace'
   },
   repositories: [],
   knowledge: {
@@ -18,12 +18,12 @@ export const defaultConfig: DevctxConfig = {
   },
   memory: {
     provider: 'mempalace',
-    path: '.devctx/memory/mempalace'
+    path: '.ctxhub/memory/mempalace'
   },
   index: {
     provider: 'lancedb',
-    path: '.devctx/index/lancedb',
-    table: 'devctx_chunks',
+    path: '.ctxhub/index/lancedb',
+    table: 'ctxhub_chunks',
     incremental: true,
     chunkSize: 1800
   },

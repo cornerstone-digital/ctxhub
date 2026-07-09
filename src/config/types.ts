@@ -6,7 +6,7 @@ export type RepoConfig = {
   git?: boolean;
 };
 
-export type DevctxConfig = {
+export type CtxhubConfig = {
   version: number;
   workspace: {
     name: string;

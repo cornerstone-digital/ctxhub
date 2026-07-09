@@ -15,13 +15,13 @@ import { skillsInstallCommand, SUPPORTED_SKILL_AGENTS } from './commands/skills.
 const program = new Command();
 
 program
-  .name('devctx')
-  .description('devctx developer workspace CLI')
+  .name('ctxhub')
+  .description('ctxhub developer workspace CLI')
   .version('0.1.0');
 
 program
   .command('init')
-  .description('Initialise a devctx workspace')
+  .description('Initialise a ctxhub workspace')
   .option('-n, --name <name>', 'Workspace name')
   .option('-f, --force', 'Overwrite existing config')
   .action(initCommand);
@@ -92,22 +92,22 @@ program
 
 program
   .command('mcp')
-  .description('Start the devctx MCP server (stdio) for AI agent tool use')
+  .description('Start the ctxhub MCP server (stdio) for AI agent tool use')
   .action(mcpCommand);
 
 program
   .command('agent')
   .argument('<name>', `Agent to launch (${SUPPORTED_AGENTS.join(', ')})`)
-  .description("Write the agent's MCP config for this workspace and launch it, pre-wired with the devctx MCP server")
+  .description("Write the agent's MCP config for this workspace and launch it, pre-wired with the ctxhub MCP server")
   .option('--no-launch', 'Only write the MCP config, do not launch the agent')
   .action(agentLaunchCommand);
 
-const skills = program.command('skills').description('Install chat-native devctx usage guidance for coding agents');
+const skills = program.command('skills').description('Install chat-native ctxhub usage guidance for coding agents');
 
 skills
   .command('install')
   .argument('[agents...]', `Agents to install for (default: all — ${SUPPORTED_SKILL_AGENTS.join(', ')})`)
-  .description('Install a devctx skill/prompt file for one or more coding agents')
+  .description('Install a ctxhub skill/prompt file for one or more coding agents')
   .action(skillsInstallCommand);
 
 program.exitOverride();

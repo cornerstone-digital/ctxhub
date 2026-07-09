@@ -7,7 +7,7 @@ import { execa } from '../utils/execa-lite.js';
 import { getCurrentCommit, getRepoName, isGitInstalled, isGitRepo, pullRepo } from './git.js';
 
 async function withTempRepo(run: (repoPath: string) => Promise<void>) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'devctx-git-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-git-'));
   try {
     await execa('git', ['init', '-q'], { cwd: dir });
     await execa('git', ['-c', 'user.email=test@example.com', '-c', 'user.name=Test', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: dir });
@@ -25,7 +25,7 @@ test('isGitRepo is true for a git repo and false for a plain directory', () => {
   return withTempRepo(async repoPath => {
     assert.equal(await isGitRepo(repoPath), true);
 
-    const plainDir = await mkdtemp(path.join(os.tmpdir(), 'devctx-nongit-'));
+    const plainDir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-nongit-'));
     try {
       assert.equal(await isGitRepo(plainDir), false);
     } finally {
@@ -42,7 +42,7 @@ test('getCurrentCommit returns the HEAD sha', () => {
 });
 
 test('getCurrentCommit returns undefined for a non-git path', async () => {
-  const plainDir = await mkdtemp(path.join(os.tmpdir(), 'devctx-nongit-'));
+  const plainDir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-nongit-'));
   try {
     assert.equal(await getCurrentCommit(plainDir), undefined);
   } finally {
@@ -67,7 +67,7 @@ test('pullRepo succeeds against a real remote', () => {
     await execa('git', ['add', 'file.txt'], { cwd: originPath });
     await execa('git', ['-c', 'user.email=test@example.com', '-c', 'user.name=Test', 'commit', '-q', '-m', 'add file'], { cwd: originPath });
 
-    const clonePath = await mkdtemp(path.join(os.tmpdir(), 'devctx-clone-'));
+    const clonePath = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-clone-'));
     try {
       await execa('git', ['clone', '-q', originPath, clonePath]);
       await pullRepo(clonePath);

@@ -9,15 +9,15 @@ function textResult(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
 }
 
-export function createDevctxMcpServer(cwd = process.cwd()): McpServer {
-  const server = new McpServer({ name: 'devctx', version: '0.1.0' });
+export function createCtxhubMcpServer(cwd = process.cwd()): McpServer {
+  const server = new McpServer({ name: 'ctxhub', version: '0.1.0' });
 
   server.registerTool(
     'search',
     {
       title: 'Search workspace knowledge',
       description:
-        'Search the indexed docs/source across all repos configured in this devctx workspace. ' +
+        'Search the indexed docs/source across all repos configured in this ctxhub workspace. ' +
         'Returns ranked chunks with repo, path, heading, snippet, and commit.',
       inputSchema: {
         query: z.string().describe('Search query'),
@@ -37,7 +37,7 @@ export function createDevctxMcpServer(cwd = process.cwd()): McpServer {
     {
       title: 'Memory and index status',
       description:
-        'Report the devctx memory provider status (e.g. MemPalace availability) and the document ' +
+        'Report the ctxhub memory provider status (e.g. MemPalace availability) and the document ' +
         'index status (provider, chunk count, last indexed time).',
       inputSchema: {}
     },
@@ -54,7 +54,7 @@ export function createDevctxMcpServer(cwd = process.cwd()): McpServer {
     'repo_list',
     {
       title: 'List configured repositories',
-      description: 'List the repositories registered in this devctx workspace config, including path and Git status.',
+      description: 'List the repositories registered in this ctxhub workspace config, including path and Git status.',
       inputSchema: {}
     },
     async () => {
@@ -67,7 +67,7 @@ export function createDevctxMcpServer(cwd = process.cwd()): McpServer {
 }
 
 export async function startMcpServer(cwd = process.cwd()): Promise<void> {
-  const server = createDevctxMcpServer(cwd);
+  const server = createCtxhubMcpServer(cwd);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
