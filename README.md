@@ -153,7 +153,7 @@ Guided mode is generated directly from that same command tree (so it can't drift
 
 ## Interactive defaults and automation
 
-ctxhub prefers rich terminal views for humans and plain output for automation. If stdin/stdout are real TTYs and `CI`/`GITHUB_ACTIONS` are not set, commands with a useful terminal UI use it by default: `index`, `sync`, `doctor`, `repo discover`, `memory status`, and query-less `search`. When output is piped, JSON is requested, or a common CI environment is detected, ctxhub automatically falls back to script-friendly output.
+ctxhub prefers rich terminal views for humans and plain output for automation. If stdin/stdout are real TTYs and `CI`/`GITHUB_ACTIONS` are not set, commands with a useful terminal UI use it by default: `index`, `sync`, `doctor`, `repo discover`, `memory status`, and `search`. When output is piped, JSON is requested, or a common CI environment is detected, ctxhub automatically falls back to script-friendly output.
 
 Use these flags when you need to force the mode:
 
@@ -164,7 +164,7 @@ Use these flags when you need to force the mode:
 Examples:
 
 ```bash
-ctxhub search                 # live search UI in a terminal
+ctxhub search "auth"          # live search UI in a terminal, seeded with auth
 ctxhub search --plain "auth"  # one-shot output for agents/scripts
 ctxhub --plain doctor         # plain health-check output
 ctxhub eval --json            # CI-friendly eval payload
@@ -182,7 +182,7 @@ ctxhub eval --json            # CI-friendly eval payload
 - `ctxhub ci init [--with-eval]`: create a GitHub Actions workflow that runs build, `ctxhub validate docs`, and optionally `ctxhub eval` on pull requests.
 - `ctxhub index`: index changed workspace files. In a real terminal it shows per-repo progress, then prints the durable summary; use `--plain` to force plain progress output.
 - `ctxhub sync [--no-pull]`: pull configured repos and re-index changed files. In a real terminal it shows separate pull and index progress; `--no-pull` skips the Git pull phase and `--plain` forces plain progress output.
-- `ctxhub search [query]`: search the LanceDB project index. With no query in a real terminal it opens live search by default — type to search-as-you-type, arrow keys to move, enter to view the full chunk, esc to go back/quit. Use `ctxhub search --plain "<query>"` for one-shot output.
+- `ctxhub search [query]`: search the LanceDB project index. In a real terminal it opens live search by default, seeded with the query when provided — type to search-as-you-type, arrow keys to move, enter to view the full chunk, esc to go back/quit. Use `ctxhub search --plain "<query>"` for one-shot output.
 - `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order. Add `--out <file>` to save a portable replay artifact.
 - `ctxhub explain <query>`: create a citation-first explanation scaffold from indexed context without inventing uncited claims.
 - `ctxhub replay <file>`: replay an exported context pack artifact and compare recorded repo HEADs against the current workspace.

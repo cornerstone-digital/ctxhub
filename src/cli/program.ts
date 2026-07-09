@@ -119,7 +119,7 @@ export function buildProgram(): Command {
 
   program
     .command('search')
-    .argument('[query]', 'Search query (omit in a terminal to open live search)')
+    .argument('[query]', 'Initial search query')
     .option('-l, --limit <limit>', 'Max results', '5')
     .option('-i, --interactive', 'Launch a live, filterable terminal search UI')
     .option('--plain', 'Require a query and print one-shot search results')

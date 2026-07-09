@@ -8,7 +8,7 @@ import { shouldUseInteractive } from '../utils/interactive.js';
 export async function searchCommand(query: string | undefined, opts: { limit?: string; interactive?: boolean; plain?: boolean }) {
   const config = await loadConfig();
 
-  if ((opts.interactive && !opts.plain) || (!query && shouldUseInteractive(opts))) {
+  if ((opts.interactive && !opts.plain) || shouldUseInteractive(opts)) {
     if (!process.stdin.isTTY) {
       throw new Error('--interactive needs a real terminal (stdin is not a TTY). Run ctxhub search "<query>" instead.');
     }
