@@ -4,12 +4,13 @@ import chalk from 'chalk';
 import { loadConfig } from '../config/config.js';
 import { pathExists, readText } from '../utils/fs.js';
 
-type ValidationIssue = { file: string; message: string };
+type ValidationIssue = { file: string; message: string; severity: 'error' | 'warning' };
 const markdownLinkPattern = /\[[^\]]+\]\(([^)]+)\)/g;
 
 export async function validateDocsCommand(opts: { json?: boolean } = {}) {
   const config = await loadConfig();
   const issues: ValidationIssue[] = [];
+  const knownComponents = new Set(config.repositories.map(repo => repo.name.toLowerCase()));
 
   for (const repo of config.repositories) {
     const repoPath = path.resolve(process.cwd(), repo.path);
@@ -30,13 +31,21 @@ export async function validateDocsCommand(opts: { json?: boolean } = {}) {
           const linkPath = target.split('#')[0];
           if (!linkPath) continue;
           if (!(await pathExists(path.resolve(path.dirname(absolutePath), linkPath)))) {
-            issues.push({ file: `${repo.name}:${file}`, message: `broken local link: ${target}` });
+            issues.push({ file: `${repo.name}:${file}`, message: `broken local link: ${target}`, severity: 'error' });
           }
         }
       }
 
       if (/\.(mmd|mermaid)$/.test(file) && !/\b(flowchart|graph|sequenceDiagram|classDiagram|erDiagram|stateDiagram|C4Context|C4Container|C4Component)\b/.test(content)) {
-        issues.push({ file: `${repo.name}:${file}`, message: 'Mermaid file has no recognized diagram declaration' });
+        issues.push({ file: `${repo.name}:${file}`, message: 'Mermaid file has no recognized diagram declaration', severity: 'error' });
+      }
+
+      if (/\.(mmd|mermaid)$/.test(file)) {
+        for (const component of extractComponentLikeTokens(content)) {
+          if (!knownComponents.has(component.toLowerCase())) {
+            issues.push({ file: `${repo.name}:${file}`, message: `component has no matching configured repo: ${component}`, severity: 'warning' });
+          }
+        }
       }
     }
   }
@@ -51,6 +60,20 @@ export async function validateDocsCommand(opts: { json?: boolean } = {}) {
     return;
   }
 
-  for (const issue of issues) console.log(`${chalk.red('✗')} ${issue.file}: ${issue.message}`);
-  process.exitCode = 1;
+  for (const issue of issues) {
+    const marker = issue.severity === 'error' ? chalk.red('✗') : chalk.yellow('!');
+    console.log(`${marker} ${issue.file}: ${issue.message}`);
+  }
+  if (issues.some(issue => issue.severity === 'error')) process.exitCode = 1;
+}
+
+function extractComponentLikeTokens(content: string): string[] {
+  const tokens = new Set<string>();
+  for (const line of content.split('\n')) {
+    if (!/[-.=]+>|--|<->|->>/.test(line)) continue;
+    for (const token of line.replace(/\[[^\]]*\]|\([^)]+\)|\{[^}]+\}/g, ' ').split(/[-.=<>:\s]+/)) {
+      if (/^[A-Z][A-Za-z0-9_-]+$/.test(token)) tokens.add(token);
+    }
+  }
+  return [...tokens].slice(0, 100);
 }

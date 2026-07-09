@@ -82,12 +82,22 @@ export function lexicalSearch(documents: IndexedDocument[], query: string, limit
         document.relationships?.join(' '),
         document.content
       ].filter(Boolean).join(' ').toLowerCase();
-      const score = terms.reduce((acc, term) => acc + (haystack.includes(term) ? 1 : 0), 0);
+      const termScore = terms.reduce((acc, term) => acc + (haystack.includes(term) ? 1 : 0), 0);
+      const score = termScore ? termScore + searchBoost(document) : 0;
       return { ...document, score, snippet: createSnippet(document.content, terms) };
     })
     .filter(document => document.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
+}
+
+export function searchBoost(document: IndexedDocument): number {
+  let boost = 0;
+  if (document.kind === 'architecture-diagram') boost += 2;
+  if (/README\.md$/i.test(document.filePath)) boost += 1.5;
+  if (/(^|\/)(adr|docs)\//i.test(document.filePath)) boost += 1;
+  if (/agent-notes\//i.test(document.filePath)) boost += 0.5;
+  return boost;
 }
 
 export function createLocalJsonIndex(configuredPath: string, cwd = process.cwd()): IndexProvider {

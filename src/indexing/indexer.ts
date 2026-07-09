@@ -8,6 +8,7 @@ import { pathExists, readText } from '../utils/fs.js';
 import { sha256 } from '../utils/hash.js';
 import { getCurrentCommit } from '../git/git.js';
 import { chunkDocument, extractTitle } from './chunk.js';
+import { redactContent } from './redact.js';
 
 export type IndexResult = {
   scanned: number;
@@ -50,6 +51,7 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
       const absolutePath = path.join(repoPath, filePath);
       const raw = await readText(absolutePath);
       const hash = sha256(raw);
+      const redaction = redactContent(raw, config.privacy.redactPatterns);
       const key = manifestKey(repo.name, filePath);
       seenKeys.add(key);
 
@@ -63,8 +65,8 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
         await index.removeDocuments(existing.chunkIds);
       }
 
-      const title = extractTitle(raw);
-      const parts = chunkDocument(filePath, raw, config.index.chunkSize);
+      const title = extractTitle(redaction.content);
+      const parts = chunkDocument(filePath, redaction.content, config.index.chunkSize);
       const chunks: IndexedChunk[] = parts.map((part, i) => ({
         id: sha256(`${repo.name}:${filePath}:${hash}:${i}`),
         workspace: config.workspace.name,
@@ -77,6 +79,7 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
         relationships: part.relationships,
         title: part.heading ?? title,
         content: part.content,
+        redacted: redaction.redacted,
         hash,
         commit,
         lastIndexed: new Date().toISOString()

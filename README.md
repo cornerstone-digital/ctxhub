@@ -136,6 +136,10 @@ index:
 hooks:
   postPull: "npm --prefix ./app install"
   postIndex: "echo indexed workspace $CTXHUB_WORKSPACE"
+privacy:
+  redactPatterns:
+    - "(api[_-]?key|token|secret|password)\\s*[:=]\\s*[^\\s]+"
+    - "AKIA[0-9A-Z]{16}"
 ```
 
 ## Commands
@@ -150,6 +154,10 @@ hooks:
 - `ctxhub sync`: pull configured repos and re-index changed files.
 - `ctxhub search <query>`: search the LanceDB project index.
 - `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order.
+- `ctxhub open <id>`: print a full indexed chunk returned by search or a context pack.
+- `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch.
+- `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development.
+- `ctxhub report [-o <path>]`: generate a small HTML report of workspace status, repos, and indexed architecture diagrams.
 - `ctxhub memory status`: show MemPalace memory status and LanceDB index status.
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
 - `ctxhub doctor`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version.
@@ -161,6 +169,8 @@ hooks:
 - `ctxhub graph [--json]`: summarize workspace components and relationships from indexed diagrams plus package metadata.
 - `ctxhub validate docs [--json]`: check Markdown local links and Mermaid diagram declarations.
 - `ctxhub eval [--init|--file <path>]`: run golden query checks against the index.
+
+The default config excludes `.env` files and redacts common secret-looking values before content is written to the index. `privacy.redactPatterns` accepts JavaScript regular expression source strings; matches are replaced with `[REDACTED]`.
 
 ## MCP server
 

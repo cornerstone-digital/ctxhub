@@ -44,6 +44,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<CtxhubConfig> {
     memory: { ...defaultConfig.memory, ...parsed.memory },
     index: { ...defaultConfig.index, ...parsed.index },
     hooks: { ...defaultConfig.hooks, ...parsed.hooks },
+    privacy: { ...defaultConfig.privacy, ...parsed.privacy },
     repositories: parsed.repositories ?? []
   };
 }

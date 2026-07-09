@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { IndexedDocument, IndexProviderName, IndexStatus, SearchResult } from '../config/types.js';
 import { ensureDir } from '../utils/fs.js';
 import type { IndexProvider } from './IndexProvider.js';
-import { lexicalSearch } from './LocalJsonIndex.js';
+import { lexicalSearch, searchBoost } from './LocalJsonIndex.js';
 
 type LanceDbModule = typeof import('@lancedb/lancedb');
 type LanceTable = import('@lancedb/lancedb').Table;
@@ -66,7 +66,7 @@ export class LanceDbIndex implements IndexProvider {
     const table = await this.table();
     try {
       const rows = await table.search(query, 'fts', 'content').limit(limit).toArray();
-      return rows.map(rowToSearchResult);
+      return rows.map(rowToSearchResult).sort((a, b) => b.score - a.score);
     } catch {
       const rows = await table.query().limit(10000).toArray();
       return lexicalSearch(rows.map(rowToDocument), query, limit);
@@ -123,9 +123,9 @@ export class LanceDbIndex implements IndexProvider {
     const schema = await table.schema();
     const fields = schema.fields as Array<{ name: string }>;
     const existing = new Set(fields.map(field => field.name));
-    const missing = ['kind', 'diagramType', 'components', 'relationships']
+    const missing = ['kind', 'diagramType', 'components', 'relationships', 'redacted']
       .filter(name => !existing.has(name))
-      .map(name => ({ name, valueSql: name === 'kind' ? "'document'" : "''" }));
+      .map(name => ({ name, valueSql: name === 'kind' ? "'document'" : name === 'redacted' ? 'false' : "''" }));
 
     if (missing.length) {
       await table.addColumns(missing);
@@ -146,6 +146,7 @@ function toRow(document: IndexedDocument): Record<string, unknown> {
     components: document.components?.join('\n') ?? '',
     relationships: document.relationships?.join('\n') ?? '',
     content: document.content,
+    redacted: document.redacted ?? false,
     hash: document.hash,
     commit: document.commit ?? '',
     lastIndexed: document.lastIndexed
@@ -165,6 +166,7 @@ function emptyRow(): Record<string, unknown> {
     components: '',
     relationships: '',
     content: '',
+    redacted: false,
     hash: '',
     commit: '',
     lastIndexed: ''
@@ -184,6 +186,7 @@ function rowToDocument(row: Record<string, unknown>): IndexedDocument {
     relationships: splitList(row.relationships),
     title: String(row.title || '') || undefined,
     content: String(row.content),
+    redacted: Boolean(row.redacted),
     hash: String(row.hash),
     commit: String(row.commit || '') || undefined,
     lastIndexed: String(row.lastIndexed)
@@ -200,7 +203,7 @@ function rowToSearchResult(row: Record<string, unknown>): SearchResult {
   const score = Number(row._score ?? row.score ?? 0);
   return {
     ...document,
-    score,
+    score: score + searchBoost(document),
     snippet: document.content.replace(/\s+/g, ' ').slice(0, 360)
   };
 }

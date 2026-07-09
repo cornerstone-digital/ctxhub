@@ -8,13 +8,14 @@ import { createContextPack } from '../context/pack.js';
 import { getFileContext } from '../context/fileContext.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { pullRepo } from '../git/git.js';
+import { getPackageVersion } from '../utils/version.js';
 
 function textResult(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
 }
 
 export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean } = {}): McpServer {
-  const server = new McpServer({ name: 'ctxhub', version: '0.1.0' });
+  const server = new McpServer({ name: 'ctxhub', version: getPackageVersion() });
 
   server.registerTool(
     'search',

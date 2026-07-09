@@ -18,6 +18,10 @@ import { packCommand } from './commands/pack.js';
 import { evalCommand } from './commands/eval.js';
 import { validateDocsCommand } from './commands/validate.js';
 import { graphCommand } from './commands/graph.js';
+import { openCommand } from './commands/open.js';
+import { prContextCommand } from './commands/prContext.js';
+import { watchCommand } from './commands/watch.js';
+import { reportCommand } from './commands/report.js';
 import { checkForDriftOnce } from './utils/driftCheck.js';
 import { getPackageVersion } from './utils/version.js';
 
@@ -97,6 +101,21 @@ program
   .option('--json', 'Print JSON')
   .description('Assemble an agent-ready context pack from search, architecture, freshness, and workspace status')
   .action(packCommand);
+
+program
+  .command('open')
+  .argument('<id>', 'Indexed chunk id')
+  .option('--json', 'Print JSON')
+  .description('Open a full indexed chunk by id')
+  .action(openCommand);
+
+program
+  .command('pr-context')
+  .option('--base <ref>', 'Base git ref', 'origin/main')
+  .option('-l, --limit <limit>', 'Max context results', '8')
+  .option('--json', 'Print JSON')
+  .description('Build a context pack for files changed on the current branch')
+  .action(prContextCommand);
 
 const memory = program.command('memory').description('Manage memory/index store');
 
@@ -179,6 +198,18 @@ program
   .option('--json', 'Print JSON')
   .description('Summarize workspace components and relationships from architecture diagrams and package metadata')
   .action(graphCommand);
+
+program
+  .command('watch')
+  .option('--interval <seconds>', 'Polling interval in seconds', '30')
+  .description('Continuously re-index changed workspace files')
+  .action(watchCommand);
+
+program
+  .command('report')
+  .option('-o, --output <path>', 'Output HTML path')
+  .description('Generate a browsable HTML workspace report')
+  .action(reportCommand);
 
 program.exitOverride();
 

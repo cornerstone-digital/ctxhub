@@ -26,3 +26,7 @@ index:
 hooks:
   postPull: "npm --prefix ./app install"
   postIndex: "echo indexed workspace $CTXHUB_WORKSPACE"
+privacy:
+  redactPatterns:
+    - "(api[_-]?key|token|secret|password)\\s*[:=]\\s*[^\\s]+"
+    - "AKIA[0-9A-Z]{16}"

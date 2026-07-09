@@ -24,7 +24,8 @@ function makeConfig(hooks: CtxhubConfig['hooks']): CtxhubConfig {
     knowledge: { include: [], exclude: [] },
     memory: { provider: 'local-json', path: '.ctxhub/memory' },
     index: { provider: 'local-json', path: '.ctxhub/index', table: 't', incremental: true, chunkSize: 100 },
-    hooks
+    hooks,
+    privacy: { redactPatterns: [] }
   };
 }
 

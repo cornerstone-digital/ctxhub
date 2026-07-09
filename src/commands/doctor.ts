@@ -29,6 +29,19 @@ export async function doctorCommand() {
     console.log(`${chalk.green('✓')} Config schema up to date (v${config.version})`);
   }
 
+  const riskyIncludes = config.knowledge.include.filter(pattern =>
+    pattern.includes('.env') ||
+    /(^|\/)\*\*\/\*$/.test(pattern) ||
+    /(^|\/)\*\*\/\*\.\*$/.test(pattern) ||
+    /\b(secret|secrets|private-key|private_key)\b/i.test(pattern)
+  );
+  if (riskyIncludes.length) {
+    console.log(`${chalk.yellow('!')} Broad/risky include patterns present: ${riskyIncludes.join(', ')}. Redaction is enabled, but review ctxhub.yaml.`);
+  }
+  if (!config.privacy.redactPatterns.length) {
+    console.log(`${chalk.yellow('!')} No privacy.redactPatterns configured; secrets in indexed docs will not be redacted.`);
+  }
+
   try {
     await ensureDir(path.join(process.cwd(), INDEX_DIR));
     console.log(`${chalk.green('✓')} Index directory writable`);

@@ -21,6 +21,8 @@
 - Exact context expansion tools (`open_chunk`, `get_file_context`) let agents move from search snippets to grounded source/doc context.
 - Freshness metadata marks stale search results when repo HEAD or dirty state no longer matches the indexed commit.
 - `ctxhub eval`, `ctxhub validate docs`, and `ctxhub graph` add search-quality checks, documentation validation, and architecture graph summaries.
+- `ctxhub open`, `ctxhub pr-context`, `ctxhub watch`, and `ctxhub report` round out day-to-day review, development-loop, and workspace-report workflows.
+- Privacy-aware indexing excludes environment files by default and redacts common secret-like values before storing chunks.
 
 ## Planned
 

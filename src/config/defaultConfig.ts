@@ -17,7 +17,7 @@ export const defaultConfig: CtxhubConfig = {
       '**/*.{mmd,mermaid}',
       '**/*.{ts,tsx,js,jsx,mjs,cjs,json}'
     ],
-    exclude: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**', 'coverage/**', 'cicd/**']
+    exclude: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**', 'coverage/**', 'cicd/**', '.env', '.env.*']
   },
   memory: {
     provider: 'mempalace',
@@ -30,5 +30,12 @@ export const defaultConfig: CtxhubConfig = {
     incremental: true,
     chunkSize: 1800
   },
-  hooks: {}
+  hooks: {},
+  privacy: {
+    redactPatterns: [
+      '(api[_-]?key|token|secret|password)\\s*[:=]\\s*[^\\s]+',
+      'AKIA[0-9A-Z]{16}',
+      '-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----'
+    ]
+  }
 };

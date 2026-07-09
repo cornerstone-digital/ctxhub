@@ -31,6 +31,9 @@ export type CtxhubConfig = {
     postPull?: string;
     postIndex?: string;
   };
+  privacy: {
+    redactPatterns: string[];
+  };
 };
 
 export type IndexProviderName = 'local-json' | 'lancedb';
@@ -48,6 +51,7 @@ export type IndexedDocument = {
   relationships?: string[];
   title?: string;
   content: string;
+  redacted?: boolean;
   hash: string;
   commit?: string;
   lastIndexed: string;
