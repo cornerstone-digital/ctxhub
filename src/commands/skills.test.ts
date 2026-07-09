@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { skillsInstallCommand } from './skills.js';
-import { initConfig } from '../config/config.js';
+import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { pathExists, readText } from '../utils/fs.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -69,17 +69,26 @@ test('skillsInstallCommand with specific agents only installs those', () => {
   });
 });
 
-test('skillsInstallCommand writes to the discovered workspace root from a child repo', () => {
+test('skillsInstallCommand writes to the workspace root and links configured child repos', () => {
   return withTempCwd(async dir => {
     await initConfig('skills-ws', dir);
     const child = path.join(dir, 'app');
     await mkdir(child);
+    const config = await loadConfig(dir);
+    config.repositories.push({ name: 'app', path: './app', git: false });
+    await saveConfig(config, dir);
     process.chdir(child);
 
     await skillsInstallCommand(['claude']);
 
     assert.equal(await pathExists(path.join(dir, '.claude', 'skills', 'ctxhub', 'SKILL.md')), true);
-    assert.equal(await pathExists(path.join(child, '.claude', 'skills', 'ctxhub', 'SKILL.md')), false);
+    const childSkillPath = path.join(child, '.claude', 'skills', 'ctxhub', 'SKILL.md');
+    assert.equal(await pathExists(childSkillPath), true);
+    assert.equal((await lstat(childSkillPath)).isSymbolicLink(), true);
+    assert.equal(
+      await readText(childSkillPath),
+      await readText(path.join(dir, '.claude', 'skills', 'ctxhub', 'SKILL.md'))
+    );
   });
 });
 

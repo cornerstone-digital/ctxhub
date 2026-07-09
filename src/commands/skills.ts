@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rm, symlink } from 'node:fs/promises';
 import chalk from 'chalk';
-import { readText, writeText } from '../utils/fs.js';
+import { ensureDir, pathExists, readText, writeText } from '../utils/fs.js';
 import { loadWorkspaceConfig } from '../config/config.js';
+import type { CtxhubConfig } from '../config/types.js';
 
 export const SUPPORTED_SKILL_AGENTS = ['claude', 'codex', 'copilot', 'cursor'] as const;
 export type SkillAgent = (typeof SUPPORTED_SKILL_AGENTS)[number];
@@ -79,12 +81,48 @@ export async function skillsInstallCommand(agents: string[] = []) {
     }
   }
 
-  const cwd = await loadWorkspaceConfig().then(workspace => workspace.workspaceRoot).catch(() => process.cwd());
+  const workspace = await loadWorkspaceConfig()
+    .then(({ config, workspaceRoot }) => ({ config, workspaceRoot }))
+    .catch(() => ({ config: undefined, workspaceRoot: process.cwd() }));
+  const { config, workspaceRoot } = workspace;
+
   for (const agent of targets) {
     for (const { id, source, target } of SKILL_TEMPLATES.filter(t => t.agent === agent)) {
-      const destination = target(cwd);
-      await writeText(destination, await readText(source));
+      const destination = target(workspaceRoot);
+      const content = await readText(source);
+      await writeText(destination, content);
       console.log(chalk.green(`Installed ctxhub skill '${id}' for ${agent}: ${destination}`));
+
+      for (const repoRoot of await configuredRepoRoots(config, workspaceRoot)) {
+        const linkedDestination = target(repoRoot);
+        if (path.resolve(linkedDestination) === path.resolve(destination)) continue;
+        await linkOrCopySkill(destination, linkedDestination, content);
+        console.log(chalk.green(`Linked ctxhub skill '${id}' for ${agent}: ${linkedDestination}`));
+      }
     }
+  }
+}
+
+async function configuredRepoRoots(config: CtxhubConfig | undefined, workspaceRoot: string): Promise<string[]> {
+  if (!config) return [];
+
+  const roots: string[] = [];
+  for (const repo of config.repositories) {
+    const repoRoot = path.resolve(workspaceRoot, repo.path);
+    if (repoRoot === workspaceRoot || !(await pathExists(repoRoot))) continue;
+    roots.push(repoRoot);
+  }
+  return roots;
+}
+
+async function linkOrCopySkill(source: string, destination: string, fallbackContent: string): Promise<void> {
+  await ensureDir(path.dirname(destination));
+  await rm(destination, { force: true });
+
+  try {
+    const relativeSource = path.relative(path.dirname(destination), source);
+    await symlink(relativeSource || source, destination);
+  } catch {
+    await writeText(destination, fallbackContent);
   }
 }
