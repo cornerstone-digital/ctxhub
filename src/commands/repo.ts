@@ -40,6 +40,8 @@ export async function repoListCommand() {
 export async function repoDiscoverCommand(root = '.') {
   const config = await loadConfig();
   const gitDirs = await fg('**/.git', { cwd: root, onlyDirectories: true, ignore: ['**/node_modules/**', '**/dist/**'] });
+  let added = 0;
+  let skipped = 0;
 
   for (const gitDir of gitDirs) {
     const repoPath = path.dirname(path.join(root, gitDir));
@@ -47,10 +49,25 @@ export async function repoDiscoverCommand(root = '.') {
     if (!config.repositories.some(r => r.path === repoPath || r.name === name)) {
       config.repositories.push({ name, path: repoPath, git: true });
       console.log(chalk.green(`Discovered ${name} -> ${repoPath}`));
+      added += 1;
+    } else {
+      skipped += 1;
     }
   }
 
   await saveConfig(config);
+  if (!gitDirs.length) {
+    console.log(chalk.yellow(`No Git repositories found under ${root}.`));
+    return;
+  }
+
+  if (!added) {
+    console.log(chalk.gray(`No new repositories added (${skipped} already configured).`));
+    return;
+  }
+
+  console.log(chalk.green(`Added ${added} repositor${added === 1 ? 'y' : 'ies'}${skipped ? `, skipped ${skipped} already configured` : ''}.`));
+  console.log(chalk.gray('Next: run ctxhub index to add their knowledge to the workspace.'));
 }
 
 export function postCommitHookScript(workspaceRoot: string, cliEntryPath: string, repoName: string): string {

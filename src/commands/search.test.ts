@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { searchCommand } from './search.js';
+import { openCommand } from './open.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 
@@ -51,6 +52,19 @@ test('searchCommand prints ranked results for a one-shot query', () => {
     const lines = await captureLog(() => searchCommand('authentication', {}));
     assert.ok(lines.some(line => line.includes('app')));
     assert.ok(lines.some(line => line.includes('README.md')));
+    assert.ok(lines.some(line => /id [a-f0-9]{12}/.test(line)));
+    assert.ok(lines.some(line => /open: ctxhub open [a-f0-9]{12}/.test(line)));
+  });
+});
+
+test('openCommand accepts the short id printed by searchCommand', () => {
+  return withWorkspace(async () => {
+    const searchLines = await captureLog(() => searchCommand('authentication', {}));
+    const shortId = searchLines.join('\n').match(/open: ctxhub open ([a-f0-9]{12})/)?.[1];
+    assert.ok(shortId, 'expected search output to include a short open id');
+
+    const openLines = await captureLog(() => openCommand(shortId));
+    assert.ok(openLines.some(line => line.includes('Auth details live here.')));
   });
 });
 

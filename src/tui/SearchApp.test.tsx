@@ -61,6 +61,9 @@ test('SearchApp renders live search results as the query is typed', () => {
       const frame = await waitForFrame(lastFrame, /README\.md/);
       assert.match(frame, /app/);
       assert.match(frame, /README\.md/);
+      assert.match(frame, /Preview/);
+      assert.match(frame, /Snippet/);
+      assert.match(frame, /ctxhub open/);
     } finally {
       unmount();
     }
@@ -87,7 +90,7 @@ test('SearchApp shows the full chunk on enter and returns to the list on escape'
       await wait(50);
 
       const listFrame = lastFrame() ?? '';
-      assert.match(listFrame, /move · enter view chunk · esc quit/);
+      assert.match(listFrame, /move · enter full chunk · esc quit/);
     } finally {
       unmount();
     }

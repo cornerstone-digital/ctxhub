@@ -2,11 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { execa } from '../utils/execa-lite.js';
 import { readText, pathExists } from '../utils/fs.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
-import { repoHookCommand } from './repo.js';
+import { repoDiscoverCommand, repoHookCommand } from './repo.js';
 
 async function withGitRepoWorkspace(run: (cwd: string, repoPath: string) => Promise<void>) {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-repohook-'));
@@ -30,6 +30,20 @@ async function withGitRepoWorkspace(run: (cwd: string, repoPath: string) => Prom
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+}
+
+async function captureLog(run: () => Promise<void>): Promise<string[]> {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => {
+    lines.push(args.join(' '));
+  };
+  try {
+    await run();
+  } finally {
+    console.log = original;
+  }
+  return lines;
 }
 
 test('repoHookCommand installs an executable post-commit hook', () => {
@@ -64,4 +78,26 @@ test('repoHookCommand errors for an unknown repo', () => {
   return withGitRepoWorkspace(async () => {
     await assert.rejects(() => repoHookCommand('missing'), /Repository not found/);
   });
+});
+
+test('repoDiscoverCommand summarizes discovered and already-configured repositories', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-repodiscover-'));
+  const originalCwd = process.cwd();
+  try {
+    await initConfig('ws', cwd);
+    await mkdir(path.join(cwd, 'repos'), { recursive: true });
+    await execa('git', ['init', '-q', path.join(cwd, 'repos', 'app')]);
+
+    process.chdir(cwd);
+    const firstRun = await captureLog(() => repoDiscoverCommand('repos'));
+    assert.ok(firstRun.some(line => line.includes('Discovered app -> repos/app')));
+    assert.ok(firstRun.some(line => line.includes('Added 1 repository')));
+    assert.ok(firstRun.some(line => line.includes('ctxhub index')));
+
+    const secondRun = await captureLog(() => repoDiscoverCommand('repos'));
+    assert.ok(secondRun.some(line => line.includes('No new repositories added')));
+  } finally {
+    process.chdir(originalCwd);
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

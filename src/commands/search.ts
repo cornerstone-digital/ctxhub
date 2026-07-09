@@ -31,7 +31,8 @@ export async function searchCommand(query: string | undefined, opts: { limit?: s
     console.log(`\n${chalk.green(chunk.repo)} ${chalk.gray(chunk.filePath)}`);
     if (chunk.title) console.log(chalk.bold(chunk.title));
     const freshness = chunk.freshness?.stale ? chalk.yellow(` · stale: ${chunk.freshness.reason}`) : '';
-    console.log(chalk.gray(`score ${chunk.score}${chunk.commit ? ` · ${chunk.commit.slice(0, 7)}` : ''}`) + freshness);
+    console.log(chalk.gray(`id ${chunk.id.slice(0, 12)} · score ${chunk.score}${chunk.commit ? ` · ${chunk.commit.slice(0, 7)}` : ''}`) + freshness);
     console.log(chunk.snippet);
+    console.log(chalk.gray(`open: ctxhub open ${chunk.id.slice(0, 12)}`));
   }
 }
