@@ -21,3 +21,6 @@ index:
   table: ssd_chunks
   incremental: true
   chunkSize: 1800
+hooks:
+  postPull: "npm --prefix ./app install"
+  postIndex: "echo indexed workspace $SSD_WORKSPACE"

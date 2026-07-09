@@ -3,6 +3,7 @@ import ora from 'ora';
 import { loadConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { pullRepo } from '../git/git.js';
+import { runConfiguredHook } from '../utils/hooks.js';
 
 export async function syncCommand(opts: { noPull?: boolean }) {
   const config = await loadConfig();
@@ -17,10 +18,14 @@ export async function syncCommand(opts: { noPull?: boolean }) {
         spinner.warn(`Could not pull ${repo.name}: ${(error as Error).message}`);
       }
     }
+
+    await runConfiguredHook(config, 'postPull');
   }
 
   const spinner = ora('Re-indexing changed knowledge').start();
   const result = await indexWorkspace();
   spinner.succeed('Workspace synced');
   console.log(`${chalk.green('✓')} indexed ${result.indexed} changed file(s), skipped ${result.skipped}`);
+
+  await runConfiguredHook(config, 'postIndex');
 }

@@ -26,5 +26,6 @@ export const defaultConfig: SsdConfig = {
     table: 'ssd_chunks',
     incremental: true,
     chunkSize: 1800
-  }
+  },
+  hooks: {}
 };

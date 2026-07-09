@@ -1,9 +1,10 @@
 import path from 'node:path';
+import { chmod } from 'node:fs/promises';
 import chalk from 'chalk';
 import fg from 'fast-glob';
 import { loadConfig, saveConfig } from '../config/config.js';
 import { getRepoName, isGitRepo } from '../git/git.js';
-import { pathExists } from '../utils/fs.js';
+import { pathExists, writeText } from '../utils/fs.js';
 
 export async function repoAddCommand(name: string, repoPath: string) {
   const config = await loadConfig();
@@ -50,4 +51,40 @@ export async function repoDiscoverCommand(root = '.') {
   }
 
   await saveConfig(config);
+}
+
+export function postCommitHookScript(workspaceRoot: string, ssdEntry: string, repoName: string): string {
+  return [
+    '#!/bin/sh',
+    `# Installed by ssd (\`ssd repo hook ${repoName}\`) — re-indexes this SSD workspace after each commit.`,
+    `cd "${workspaceRoot}" || exit 0`,
+    `node "${ssdEntry}" index >/dev/null 2>&1 &`,
+    'exit 0',
+    ''
+  ].join('\n');
+}
+
+export async function repoHookCommand(name: string, opts: { force?: boolean } = {}) {
+  const config = await loadConfig();
+  const repo = config.repositories.find(r => r.name === name);
+  if (!repo) {
+    throw new Error(`Repository not found: ${name}`);
+  }
+
+  const repoAbsolutePath = path.resolve(process.cwd(), repo.path);
+  if (!(await isGitRepo(repoAbsolutePath))) {
+    throw new Error(`${name} is not a Git repository: ${repo.path}`);
+  }
+
+  const hookPath = path.join(repoAbsolutePath, '.git', 'hooks', 'post-commit');
+  if (!opts.force && (await pathExists(hookPath))) {
+    throw new Error(`${hookPath} already exists. Use --force to overwrite.`);
+  }
+
+  const script = postCommitHookScript(process.cwd(), process.argv[1], name);
+  await writeText(hookPath, script);
+  await chmod(hookPath, 0o755);
+
+  console.log(chalk.green(`Installed post-commit hook for ${name}`));
+  console.log(chalk.gray(hookPath));
 }

@@ -27,6 +27,10 @@ export type SsdConfig = {
     incremental: boolean;
     chunkSize: number;
   };
+  hooks: {
+    postPull?: string;
+    postIndex?: string;
+  };
 };
 
 export type IndexProviderName = 'local-json' | 'lancedb';

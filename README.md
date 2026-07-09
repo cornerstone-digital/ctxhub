@@ -77,6 +77,9 @@ index:
   table: ssd_chunks
   incremental: true
   chunkSize: 1800
+hooks:
+  postPull: "npm --prefix ./app install"
+  postIndex: "echo indexed workspace $SSD_WORKSPACE"
 ```
 
 ## Commands
@@ -85,6 +88,7 @@ index:
 - `ssd repo add <name> <path>`: add a repo, validate the path, and detect Git.
 - `ssd repo list`: print configured repos.
 - `ssd repo discover [path]`: find Git repositories below a folder and add them.
+- `ssd repo hook <name>`: install a `post-commit` Git hook in that repo which re-indexes the workspace in the background after each commit (`-f/--force` to overwrite an existing hook).
 - `ssd index`: index changed workspace files.
 - `ssd sync`: pull configured repos and re-index changed files.
 - `ssd search <query>`: search the LanceDB project index.
@@ -119,6 +123,13 @@ Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.js
 }
 ```
 
+## Hooks
+
+Two kinds of hooks keep the index fresh automatically:
+
+- **Config-level lifecycle hooks** (`hooks.postPull`, `hooks.postIndex` in config) — arbitrary shell commands run after `ssd sync` pulls repos, and after any indexing run (`ssd index` or `ssd sync`), respectively. Each runs with `SSD_EVENT` and `SSD_WORKSPACE` env vars set. A failing hook prints a warning but does not fail the command.
+- **Git `post-commit` hook** (`ssd repo hook <name>`) — installs a real `.git/hooks/post-commit` script in that repo which backgrounds a `ssd index` run in the workspace after every local commit, so the index stays current even between `ssd sync` runs. This is opt-in per repo and won't overwrite an existing hook unless you pass `--force`.
+
 ## Extension Points
 
 The index API lives in `src/indexing/IndexProvider.ts`. LanceDB is the default implementation, with local JSON available as a fallback.
@@ -129,5 +140,4 @@ Planned extension points:
 
 - Claude/Codex launch integration
 - embeddings/vector DB provider
-- post-pull/post-commit hooks
 - AI-generated documentation validation

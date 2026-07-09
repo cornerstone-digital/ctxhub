@@ -2,7 +2,7 @@
 import { Command, CommanderError } from 'commander';
 import chalk from 'chalk';
 import { initCommand } from './commands/init.js';
-import { repoAddCommand, repoDiscoverCommand, repoListCommand } from './commands/repo.js';
+import { repoAddCommand, repoDiscoverCommand, repoHookCommand, repoListCommand } from './commands/repo.js';
 import { indexCommand } from './commands/index.js';
 import { searchCommand } from './commands/search.js';
 import { syncCommand } from './commands/sync.js';
@@ -43,6 +43,13 @@ repo
   .argument('[root]', 'Root folder to scan', '.')
   .description('Discover Git repositories under a folder')
   .action(repoDiscoverCommand);
+
+repo
+  .command('hook')
+  .argument('<name>', 'Repository name')
+  .description('Install a post-commit hook that re-indexes the workspace after each commit')
+  .option('-f, --force', 'Overwrite an existing post-commit hook')
+  .action(repoHookCommand);
 
 program
   .command('index')

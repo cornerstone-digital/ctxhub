@@ -1,6 +1,8 @@
 import chalk from 'chalk';
 import ora from 'ora';
+import { loadConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
+import { runConfiguredHook } from '../utils/hooks.js';
 
 export async function indexCommand(opts: { force?: boolean }) {
   const spinner = ora('Indexing workspace knowledge').start();
@@ -11,4 +13,7 @@ export async function indexCommand(opts: { force?: boolean }) {
   console.log(`${chalk.green('✓')} indexed: ${result.indexed}`);
   console.log(`${chalk.gray('•')} skipped: ${result.skipped}`);
   console.log(`${chalk.yellow('•')} deleted: ${result.deleted}`);
+
+  const config = await loadConfig();
+  await runConfiguredHook(config, 'postIndex');
 }

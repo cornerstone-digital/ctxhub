@@ -73,8 +73,9 @@ index:
 | `ssd repo add <name> <path>` | Adds a repo entry to config; validates the path exists; detects whether it's a Git repo. |
 | `ssd repo list` | Prints registered repos with their Git status. |
 | `ssd repo discover [path]` | Finds Git repositories under the given path and adds any not already registered. |
-| `ssd index` | Reads all configured repos, applies include/exclude globs, chunks Markdown by heading, and indexes changed files (hash-based skip) into the configured index provider. |
-| `ssd sync` | Pulls each Git repo (`--no-pull` to skip), then re-indexes changed files and removes deleted ones. Prints a scanned/indexed/skipped/deleted summary. |
+| `ssd repo hook <name>` | Installs a real `.git/hooks/post-commit` script in that repo which backgrounds a `ssd index` run after each local commit (`--force` to overwrite an existing hook). Opt-in per repo. |
+| `ssd index` | Reads all configured repos, applies include/exclude globs, chunks Markdown by heading, and indexes changed files (hash-based skip) into the configured index provider. Runs the `hooks.postIndex` command afterward if configured. |
+| `ssd sync` | Pulls each Git repo (`--no-pull` to skip), runs `hooks.postPull` if configured, then re-indexes changed files, removes deleted ones, and runs `hooks.postIndex`. Prints a scanned/indexed/skipped/deleted summary. |
 | `ssd search <query>` | Searches the index; returns ranked results with repo, path, heading, snippet, and commit. |
 | `ssd memory status` | Shows memory provider status (e.g. MemPalace CLI availability) and index status (provider, chunk count, last indexed). |
 | `ssd memory clear` | Clears the local index after confirmation (`--force` to skip). External MemPalace stores are left untouched — MemPalace manages its own memory lifecycle. |
@@ -97,6 +98,13 @@ Both providers implement the same shape of interface (`src/memory/MemoryAdapter.
 - A manifest (`.ssd/memory/manifest.json`) tracks per-file hashes so `ssd index`/`ssd sync` only re-index changed files and remove deleted ones.
 - LanceDB search uses its native full-text index when available, falling back to lexical scoring for small or partially-indexed tables — keeping the door open for embeddings/vector search later without changing the `IndexProvider` interface.
 
+## Hooks
+
+Two mechanisms keep the index current without manual `ssd index` runs:
+
+- **Config-level lifecycle hooks** (`src/utils/hooks.ts`) — `hooks.postPull`/`hooks.postIndex` in config are arbitrary shell commands, run with `SSD_EVENT`/`SSD_WORKSPACE` env vars via `child_process.spawn({ shell: true, stdio: 'inherit' })`. Wired into `ssd sync` (postPull after pulling, postIndex after re-indexing) and `ssd index` (postIndex). A failing hook warns rather than failing the command.
+- **Git `post-commit` hook** (`ssd repo hook <name>`, in `src/commands/repo.ts`) — writes an executable `.git/hooks/post-commit` script into the target repo that backgrounds `ssd index` (via an absolute path to the running CLI entrypoint) after every commit. Explicit opt-in per repo, refuses to clobber an existing hook without `--force`.
+
 ## Git utilities
 
 `src/git/git.ts` implements `isGitRepo`, `getCurrentCommit`, `pullRepo`, `getRepoName`, and `isGitInstalled`, all via `src/utils/execa-lite.ts` — a small `child_process.spawn` wrapper with `shell: false` and argument arrays throughout, so repo paths/names can never reach a shell.
@@ -108,7 +116,7 @@ Terminal output uses `chalk` for ticks/crosses/warnings and `ora` spinners for l
 ## Quality
 
 - TypeScript strict mode; `npm run build` type-checks with `tsc` and excludes `*.test.ts` from the published `dist/`.
-- `npm test` runs the Node test suite (config loading/merging, git helpers against real temp repos, Markdown chunking, the manifest, `LocalJsonMemory`, and the MCP server via an in-memory client/transport pair).
+- `npm test` runs the Node test suite (config loading/merging, git helpers against real temp repos, Markdown chunking, the manifest, `LocalJsonMemory`, the MCP server via an in-memory client/transport pair, hook execution, and the `repo hook` git-hook installer).
 - Errors are actionable (e.g. "No SSD config found... Run: ssd init") rather than raw stack traces.
 
 ## Extension points
@@ -116,10 +124,10 @@ Terminal output uses `chalk` for ticks/crosses/warnings and `ora` spinners for l
 Status of the extension points named in the original brief:
 
 - [x] MCP server integration — `ssd mcp`, see above.
+- [x] Post-pull/post-commit hooks — `hooks.postPull`/`hooks.postIndex` config, plus `ssd repo hook <name>` for a real Git `post-commit` hook.
 - [ ] MemPalace provider for CLI *write* operations (currently read/status-only by design; writes go through MemPalace itself).
 - [ ] Claude/Codex launch integration.
 - [ ] Embeddings/vector DB index provider (the `IndexProvider` interface and LanceDB's schema are structured to support this later).
-- [ ] Post-pull/post-commit hooks.
 - [ ] AI-generated documentation validation.
 
 ## Acceptance criteria

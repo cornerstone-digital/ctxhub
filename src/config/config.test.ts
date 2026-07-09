@@ -41,6 +41,19 @@ test('loadConfig merges a partial config over defaults', () => {
   });
 });
 
+test('loadConfig merges partial hooks over the (empty) defaults', () => {
+  return withTempCwd(async cwd => {
+    await writeFile(
+      path.join(cwd, LOCAL_CONFIG_PATH),
+      yaml.dump({ hooks: { postPull: 'echo pulled' } })
+    );
+
+    const config = await loadConfig(cwd);
+    assert.equal(config.hooks.postPull, 'echo pulled');
+    assert.equal(config.hooks.postIndex, undefined);
+  });
+});
+
 test('loadConfig throws a helpful error when no config exists', () => {
   return withTempCwd(async cwd => {
     await assert.rejects(() => loadConfig(cwd), /Run: ssd init/);

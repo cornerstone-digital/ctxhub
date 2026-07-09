@@ -43,6 +43,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<SsdConfig> {
     knowledge: { ...defaultConfig.knowledge, ...parsed.knowledge },
     memory: { ...defaultConfig.memory, ...parsed.memory },
     index: { ...defaultConfig.index, ...parsed.index },
+    hooks: { ...defaultConfig.hooks, ...parsed.hooks },
     repositories: parsed.repositories ?? []
   };
 }
