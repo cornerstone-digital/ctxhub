@@ -142,7 +142,7 @@ export function expectedMcpEntry(agent: SupportedAgent): unknown {
   return agent === 'copilot' ? COPILOT_MCP_ENTRY : CLAUDE_CODEX_MCP_ENTRY;
 }
 
-const CONFIG_WRITERS: Record<SupportedAgent, (cwd?: string) => Promise<AgentConfigResult>> = {
+export const CONFIG_WRITERS: Record<SupportedAgent, (cwd?: string) => Promise<AgentConfigResult>> = {
   claude: writeClaudeMcpConfig,
   codex: writeCodexMcpConfig,
   copilot: writeCopilotMcpConfig

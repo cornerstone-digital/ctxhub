@@ -175,6 +175,10 @@ memory
 program
   .command('doctor')
   .description('Check workspace health')
+  .option('--fix', 'Apply safe, low-risk automatic fixes (missing dirs, default privacy config)')
+  .option('--dry-run', 'With --fix, explain intended changes without applying them')
+  .option('--fix-skills', 'With --fix, reinstall stale skill files (overwrites installed skill files)')
+  .option('--fix-agent <name>', `With --fix, refresh one agent's MCP config (${SUPPORTED_AGENTS.join(', ')})`)
   .action(doctorCommand);
 
 program
