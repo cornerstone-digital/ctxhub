@@ -1,0 +1,23 @@
+version: 1
+workspace:
+  name: my-workspace
+repositories:
+  - name: app
+    path: ./app
+    include:
+      - "README.md"
+      - "docs/**/*.md"
+      - "adr/**/*.md"
+    exclude:
+      - "node_modules/**"
+      - ".git/**"
+      - "dist/**"
+memory:
+  provider: mempalace
+  path: .ssd/memory/mempalace
+index:
+  provider: lancedb
+  path: .ssd/index/lancedb
+  table: ssd_chunks
+  incremental: true
+  chunkSize: 1800

@@ -1,0 +1,41 @@
+{
+  "name": "ssd",
+  "version": "0.1.0",
+  "description": "Reusable SSD developer workspace CLI for multi-repo indexing and AI memory workflows.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "ssd": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "ssd.example.yaml"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc",
+    "dev": "tsx src/index.ts",
+    "ssd": "tsx src/index.ts",
+    "test": "node --import tsx --test",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@lancedb/lancedb": "^0.31.0",
+    "@inquirer/prompts": "^7.3.2",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "fast-glob": "^3.3.3",
+    "js-yaml": "^4.1.0",
+    "ora": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
