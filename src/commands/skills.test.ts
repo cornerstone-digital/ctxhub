@@ -2,9 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { skillsInstallCommand } from './skills.js';
 import { readText } from '../utils/fs.js';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 async function withTempCwd(run: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ssd-skills-'));
@@ -18,22 +21,25 @@ async function withTempCwd(run: (dir: string) => Promise<void>) {
   }
 }
 
-test('skillsInstallCommand with no args installs for all supported agents', () => {
+test('skillsInstallCommand with no args installs for all supported agents by copying the repo templates verbatim', () => {
   return withTempCwd(async dir => {
     await skillsInstallCommand();
 
     const claude = await readText(path.join(dir, '.claude', 'skills', 'ssd', 'SKILL.md'));
+    assert.equal(claude, await readText(path.join(REPO_ROOT, 'skills', 'claude', 'SKILL.md')));
     assert.match(claude, /^---\nname: ssd\ndescription: /);
-    assert.match(claude, /ssd search/);
 
     const codex = await readText(path.join(dir, '.agents', 'skills', 'ssd', 'SKILL.md'));
+    assert.equal(codex, await readText(path.join(REPO_ROOT, 'skills', 'codex', 'SKILL.md')));
     assert.equal(codex, claude);
 
     const copilot = await readText(path.join(dir, '.github', 'prompts', 'ssd.prompt.md'));
+    assert.equal(copilot, await readText(path.join(REPO_ROOT, 'skills', 'copilot', 'ssd.prompt.md')));
     assert.match(copilot, /^---\ndescription: /);
     assert.doesNotMatch(copilot, /^---\nname:/);
 
     const cursor = await readText(path.join(dir, '.cursor', 'commands', 'ssd.md'));
+    assert.equal(cursor, await readText(path.join(REPO_ROOT, 'skills', 'cursor', 'ssd.md')));
     assert.match(cursor, /^# Using ssd/);
     assert.doesNotMatch(cursor, /^---/);
   });

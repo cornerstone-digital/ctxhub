@@ -19,14 +19,15 @@ It is intentionally generic — nothing in the codebase is specific to any one p
 
 ```text
 src/
-  commands/    CLI command implementations (init, repo, index, sync, search, memory, doctor, mcp)
+  commands/    CLI command implementations (init, repo, index, sync, search, memory, doctor, mcp, agent, skills)
   config/      Config types, defaults, loading/saving, discovery
   git/         Safe git helpers (spawn-based, no shell interpolation)
   indexing/    Chunking, manifest tracking, and the index provider abstraction (LanceDB, local-json)
   mcp/         MCP server exposing read-only workspace tools to AI agents
   memory/      Memory provider abstraction (local-json, MemPalace)
-  utils/       fs/hash/exec helpers
+  utils/       fs/hash/exec helpers, hook execution
   index.ts     CLI entrypoint (bin: ssd)
+skills/        Static per-agent skill/prompt templates copied by `ssd skills install` (not compiled, shipped as-is)
 ```
 
 Each module under `commands/`, `config/`, `git/`, `indexing/`, and `memory/` is plain, dependency-injected TypeScript (functions take an explicit `cwd`), so it's unit-testable without mocking the filesystem globally. See `*.test.ts` files alongside the modules they cover, run via `npm test` (Node's built-in test runner, no extra test framework dependency).
@@ -120,14 +121,16 @@ Neither JSON nor TOML writer preserves comments/formatting on rewrite — the sa
 
 ## Installable skills
 
-`ssd skills install [agents...]` (`src/commands/skills.ts`) writes a static "how to use ssd in this workspace" skill/prompt file per agent, complementing the MCP server: MCP grants tool access, the skill nudges *when* to use it (and documents the plain CLI as a fallback for agents without the MCP server wired up). Defaults to all four supported agents when none are named; validates all requested agent names before writing anything.
+`ssd skills install [agents...]` (`src/commands/skills.ts`) copies a static "how to use ssd in this workspace" skill/prompt file per agent, complementing the MCP server: MCP grants tool access, the skill nudges *when* to use it (and documents the plain CLI as a fallback for agents without the MCP server wired up). Defaults to all four supported agents when none are named; validates all requested agent names before writing anything.
+
+The template content itself lives as plain files under [`skills/`](./skills/) at the repo root, not as string literals in code — so they render as real Markdown on GitHub, are directly diffable/editable, and can be copied in by hand without running the CLI at all. `skills.ts` resolves its own package root via `import.meta.url` (works identically whether running from `src/` under `tsx` or from the compiled `dist/`) and just reads-then-writes each template verbatim; `package.json`'s `files` array ships the `skills/` directory with the published npm package.
 
 Researched each agent's actual convention rather than assuming one shared format:
 
-- **`claude`**: `.claude/skills/ssd/SKILL.md` — frontmatter `name`/`description` (both required; `name` must match the folder name).
-- **`codex`**: `.agents/skills/ssd/SKILL.md` — same frontmatter shape as Claude's. Codex deprecated its old `~/.codex/prompts/*.md` custom-prompts mechanism in favor of this SKILL.md convention, which happens to be close enough to Claude's that the two share one file body.
-- **`copilot`**: `.github/prompts/ssd.prompt.md` — frontmatter has `description` only (no `name`; the filename is the identifier).
-- **`cursor`**: `.cursor/commands/ssd.md` — plain Markdown, no frontmatter at all.
+- **`claude`**: `skills/claude/SKILL.md` → `.claude/skills/ssd/SKILL.md` — frontmatter `name`/`description` (both required; `name` must match the folder name).
+- **`codex`**: `skills/codex/SKILL.md` → `.agents/skills/ssd/SKILL.md` — byte-identical to Claude's template (same frontmatter shape). Codex deprecated its old `~/.codex/prompts/*.md` custom-prompts mechanism in favor of this SKILL.md convention.
+- **`copilot`**: `skills/copilot/ssd.prompt.md` → `.github/prompts/ssd.prompt.md` — frontmatter has `description` only (no `name`; the filename is the identifier).
+- **`cursor`**: `skills/cursor/ssd.md` → `.cursor/commands/ssd.md` — plain Markdown, no frontmatter at all.
 
 Unlike the MCP config writers above, each target here is a dedicated file namespaced by the skill name (`ssd`), not a shared config file with other entries to preserve — so there's no merge logic, just a plain overwrite on each install.
 

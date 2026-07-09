@@ -167,16 +167,18 @@ All merges preserve any other keys or servers already in the file and are idempo
 
 ## Installable skills
 
-`ssd skills install [agents...]` drops a small "how to use ssd in this workspace" skill/prompt file into one or more coding agents' own conventions, so the agent knows to check the index *before* answering questions about this codebase — this complements the MCP server (which grants tool access) with usage guidance (which nudges *when* to use it), and still helps agents that don't have the MCP server wired up, since it also documents the plain CLI commands. Run with no arguments to install for all four; name specific agents (e.g. `ssd skills install claude cursor`) to limit it.
+`ssd skills install [agents...]` copies a small "how to use ssd in this workspace" skill/prompt file into one or more coding agents' own conventions, so the agent knows to check the index *before* answering questions about this codebase — this complements the MCP server (which grants tool access) with usage guidance (which nudges *when* to use it), and still helps agents that don't have the MCP server wired up, since it also documents the plain CLI commands. Run with no arguments to install for all four; name specific agents (e.g. `ssd skills install claude cursor`) to limit it.
 
-| Agent | File | Format |
+The templates themselves live in this repo under [`skills/`](./skills/) and are plain, static files — copy them in by hand instead of running the command if you'd rather not install the CLI at all:
+
+| Agent | Template | Installs to |
 | --- | --- | --- |
-| `claude` | `.claude/skills/ssd/SKILL.md` | frontmatter: `name`, `description` |
-| `codex` | `.agents/skills/ssd/SKILL.md` | same frontmatter shape as Claude's (Codex's skills format is compatible) |
-| `copilot` | `.github/prompts/ssd.prompt.md` | frontmatter: `description` |
-| `cursor` | `.cursor/commands/ssd.md` | plain Markdown, no frontmatter |
+| `claude` | [`skills/claude/SKILL.md`](./skills/claude/SKILL.md) | `.claude/skills/ssd/SKILL.md` |
+| `codex` | [`skills/codex/SKILL.md`](./skills/codex/SKILL.md) | `.agents/skills/ssd/SKILL.md` (identical content to Claude's — Codex's skills format is compatible) |
+| `copilot` | [`skills/copilot/ssd.prompt.md`](./skills/copilot/ssd.prompt.md) | `.github/prompts/ssd.prompt.md` |
+| `cursor` | [`skills/cursor/ssd.md`](./skills/cursor/ssd.md) | `.cursor/commands/ssd.md` |
 
-Each is a dedicated file SSD owns (namespaced by the `ssd` skill/command name), so re-running the install command simply regenerates it — there's no merge concern here the way there is for the shared MCP config files above.
+Each destination is a dedicated file SSD owns (namespaced by the `ssd` skill/command name), so there's no merge concern the way there is for the shared MCP config files above — the command just copies the template in verbatim, overwriting whatever was there.
 
 ## Hooks
 
