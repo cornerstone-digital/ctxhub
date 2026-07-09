@@ -4,7 +4,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 
 ## Progress
 
-- [ ] Cited explain command
+- [x] Cited explain command
 - [x] CI workflow templates
 - [x] Context pack export and replay
 - [ ] Interactive workspace viewer
@@ -16,6 +16,8 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [ ] Source-aware context expansion
 
 ## 1. Cited Explain Command
+
+**Status:** Done
 
 **Command:** `ctxhub explain <query>`
 

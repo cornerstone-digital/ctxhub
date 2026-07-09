@@ -15,6 +15,7 @@ import { onboardCommand } from './commands/onboard.js';
 import { noteAddCommand } from './commands/note.js';
 import { diagramAddCommand } from './commands/diagram.js';
 import { packCommand } from './commands/pack.js';
+import { explainCommand } from './commands/explain.js';
 import { replayCommand } from './commands/replay.js';
 import { handoffCommand } from './commands/handoff.js';
 import { evalCommand } from './commands/eval.js';
@@ -116,6 +117,14 @@ program
   .option('--include-absolute-paths', 'Include absolute local paths in exported artifacts')
   .description('Assemble an agent-ready context pack from search, architecture, freshness, and workspace status')
   .action(packCommand);
+
+program
+  .command('explain')
+  .argument('<query>', 'Question or topic to explain from indexed evidence')
+  .option('-l, --limit <limit>', 'Max context results', '8')
+  .option('--json', 'Print JSON')
+  .description('Create a citation-first explanation scaffold from indexed context')
+  .action(explainCommand);
 
 program
   .command('replay')
