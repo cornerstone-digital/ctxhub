@@ -73,13 +73,6 @@ export const SKILL_TEMPLATES: SkillTemplate[] = [
   }
 ];
 
-const LEGACY_SKILL_TARGETS: Array<{ agent: SkillAgent; target: (cwd: string) => string }> = [
-  { agent: 'copilot', target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub.prompt.md') },
-  { agent: 'copilot', target: cwd => path.join(cwd, '.github', 'prompts', 'ctxhub-search.prompt.md') },
-  { agent: 'cursor', target: cwd => path.join(cwd, '.cursor', 'commands', 'ctxhub.md') },
-  { agent: 'cursor', target: cwd => path.join(cwd, '.cursor', 'commands', 'ctxhub-search.md') }
-];
-
 export async function skillsInstallCommand(agents: string[] = []) {
   const targets = agents.length ? agents : [...SUPPORTED_SKILL_AGENTS];
 
@@ -107,12 +100,6 @@ export async function skillsInstallCommand(agents: string[] = []) {
         if (path.resolve(linkedDestination) === path.resolve(destination)) continue;
         await linkOrCopySkill(destination, linkedDestination, content);
         console.log(chalk.green(`Linked ctxhub skill '${label ?? id}' for ${agent}: ${linkedDestination}`));
-      }
-    }
-
-    for (const { target } of LEGACY_SKILL_TARGETS.filter(t => t.agent === agent)) {
-      for (const root of [workspaceRoot, ...repoRoots]) {
-        await rm(target(root), { force: true });
       }
     }
   }
