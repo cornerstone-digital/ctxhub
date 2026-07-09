@@ -42,6 +42,10 @@ export type IndexedDocument = {
   repo: string;
   filePath: string;
   absolutePath: string;
+  kind?: 'document' | 'architecture-diagram';
+  diagramType?: string;
+  components?: string[];
+  relationships?: string[];
   title?: string;
   content: string;
   hash: string;
@@ -54,6 +58,16 @@ export type IndexedChunk = IndexedDocument;
 export type SearchResult = IndexedDocument & {
   score: number;
   snippet: string;
+  freshness?: FreshnessStatus;
+};
+
+export type FreshnessStatus = {
+  currentCommit?: string;
+  indexedCommit?: string;
+  repoMissing: boolean;
+  dirty: boolean;
+  stale: boolean;
+  reason?: string;
 };
 
 export type MemoryStatus = {

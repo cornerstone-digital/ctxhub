@@ -13,6 +13,11 @@ import { agentLaunchCommand, SUPPORTED_AGENTS } from './commands/agent.js';
 import { skillsInstallCommand, SUPPORTED_SKILL_AGENTS } from './commands/skills.js';
 import { onboardCommand } from './commands/onboard.js';
 import { noteAddCommand } from './commands/note.js';
+import { diagramAddCommand } from './commands/diagram.js';
+import { packCommand } from './commands/pack.js';
+import { evalCommand } from './commands/eval.js';
+import { validateDocsCommand } from './commands/validate.js';
+import { graphCommand } from './commands/graph.js';
 import { checkForDriftOnce } from './utils/driftCheck.js';
 import { getPackageVersion } from './utils/version.js';
 
@@ -85,6 +90,14 @@ program
   .description('Search indexed workspace knowledge')
   .action(searchCommand);
 
+program
+  .command('pack')
+  .argument('<query>', 'Question or topic to assemble context for')
+  .option('-l, --limit <limit>', 'Max results', '8')
+  .option('--json', 'Print JSON')
+  .description('Assemble an agent-ready context pack from search, architecture, freshness, and workspace status')
+  .action(packCommand);
+
 const memory = program.command('memory').description('Manage memory/index store');
 
 memory
@@ -106,6 +119,7 @@ program
 program
   .command('mcp')
   .description('Start the ctxhub MCP server (stdio) for AI agent tool use')
+  .option('--allow-index', 'Expose opt-in mutating index/sync tools over MCP')
   .action(mcpCommand);
 
 program
@@ -132,6 +146,39 @@ note
   .option('--agent <name>', 'Name of the agent creating this note')
   .description('Create a dated, consistently-formatted note file under <repo>/agent-notes/')
   .action(noteAddCommand);
+
+const diagram = program.command('diagram').description('Scaffold git-tracked Mermaid architecture diagrams for a repo');
+
+diagram
+  .command('add')
+  .argument('<repo>', 'Repository name (see: ctxhub repo list)')
+  .argument('<title>', 'Diagram title')
+  .option('--agent <name>', 'Name of the agent creating this diagram')
+  .option('--dir <path>', 'Directory under the repo', 'docs/architecture')
+  .option('--type <type>', 'Mermaid diagram type', 'flowchart')
+  .description('Create a dated .mmd architecture diagram under <repo>/docs/architecture/')
+  .action(diagramAddCommand);
+
+program
+  .command('eval')
+  .option('--file <path>', 'Eval suite JSON path')
+  .option('--init', 'Create a starter eval suite')
+  .description('Run golden query checks against the workspace index')
+  .action(evalCommand);
+
+const validate = program.command('validate').description('Validate indexed docs and architecture artifacts');
+
+validate
+  .command('docs')
+  .option('--json', 'Print JSON')
+  .description('Check docs for broken local links and malformed Mermaid files')
+  .action(validateDocsCommand);
+
+program
+  .command('graph')
+  .option('--json', 'Print JSON')
+  .description('Summarize workspace components and relationships from architecture diagrams and package metadata')
+  .action(graphCommand);
 
 program.exitOverride();
 

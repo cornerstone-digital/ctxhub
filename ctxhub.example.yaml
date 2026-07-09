@@ -8,6 +8,8 @@ repositories:
       - "README.md"
       - "docs/**/*.md"
       - "adr/**/*.md"
+      - "docs/architecture/**/*.mmd"
+      - "diagrams/**/*.mmd"
     exclude:
       - "node_modules/**"
       - ".git/**"

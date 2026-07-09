@@ -16,6 +16,11 @@
 - Automatic drift nudge on any command after a ctxhub upgrade (once per version, not on every command), via a Commander `preAction` hook
 - `ctxhub agent <name>` also wires up MemPalace's own MCP server (`mempalace-mcp`) alongside ctxhub's when it's the configured memory provider and available, so agents get a real write-capable memory surface (`mempalace_add_drawer`, `mempalace_checkpoint`, etc.) for durable, personal/session notes
 - `ctxhub note add <repo> "<title>"` scaffolds a dated, consistently-formatted note file under `<repo>/agent-notes/` for anything worth a teammate seeing and reviewing — git-tracked, shows up in the PR diff, and gets indexed like any other doc once merged. Distinct from MemPalace: this is for team-shared, review-worthy notes, not personal/session memory.
+- Mermaid architecture diagrams are first-class context: `.mmd`/`.mermaid` files and fenced Mermaid blocks are indexed with extracted component/relationship metadata, `ctxhub diagram add` scaffolds git-tracked diagrams under `docs/architecture/`, and MCP exposes architecture-specific search/map tools.
+- Agent context packs (`ctxhub pack` / MCP `context_pack`) combine search, architecture, freshness, repo list, and status into one agent-ready bundle.
+- Exact context expansion tools (`open_chunk`, `get_file_context`) let agents move from search snippets to grounded source/doc context.
+- Freshness metadata marks stale search results when repo HEAD or dirty state no longer matches the indexed commit.
+- `ctxhub eval`, `ctxhub validate docs`, and `ctxhub graph` add search-quality checks, documentation validation, and architecture graph summaries.
 
 ## Planned
 

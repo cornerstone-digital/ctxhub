@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chunkMarkdown, chunkPlainText, extractTitle } from './chunk.js';
+import {
+  chunkDocument,
+  chunkMarkdown,
+  chunkPlainText,
+  detectDiagramType,
+  extractDiagramComponents,
+  extractDiagramRelationships,
+  extractTitle
+} from './chunk.js';
 
 test('extractTitle finds the first H1', () => {
   assert.equal(extractTitle('# Hello World\n\nBody text.'), 'Hello World');
@@ -47,4 +55,43 @@ test('chunkMarkdown falls back to plain-text chunking with no headings', () => {
   assert.equal(chunks.length, 1);
   assert.equal(chunks[0].heading, undefined);
   assert.equal(chunks[0].content, content);
+});
+
+test('chunkDocument indexes Mermaid files as architecture diagrams with graph metadata', () => {
+  const content = [
+    'flowchart TD',
+    '  API[API] --> Worker[Worker]',
+    '  Worker --> DB[(Postgres)]'
+  ].join('\n');
+  const [chunk] = chunkDocument('docs/architecture/system.mmd', content, 1800);
+
+  assert.equal(chunk.kind, 'architecture-diagram');
+  assert.equal(chunk.diagramType, 'flowchart');
+  assert.deepEqual(chunk.components, ['API', 'Worker', 'DB']);
+  assert.deepEqual(chunk.relationships, ['API[API] --> Worker[Worker]', 'Worker --> DB[(Postgres)]']);
+});
+
+test('chunkDocument extracts Mermaid fenced blocks from Markdown as diagram chunks', () => {
+  const content = [
+    '# System',
+    '',
+    'Overview.',
+    '',
+    '```mermaid',
+    'sequenceDiagram',
+    '  API->>Worker: enqueue',
+    '```'
+  ].join('\n');
+  const chunks = chunkDocument('docs/system.md', content, 1800);
+
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[1].kind, 'architecture-diagram');
+  assert.equal(chunks[1].diagramType, 'sequenceDiagram');
+});
+
+test('diagram helpers detect type, components, and relationships', () => {
+  const content = 'flowchart LR\n  Web --> API\n  API --> DB';
+  assert.equal(detectDiagramType(content), 'flowchart');
+  assert.deepEqual(extractDiagramComponents(content), ['Web', 'API', 'DB']);
+  assert.deepEqual(extractDiagramRelationships(content), ['Web --> API', 'API --> DB']);
 });

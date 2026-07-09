@@ -26,7 +26,9 @@ export class LanceDbIndex implements IndexProvider {
     const tableNames = await db.tableNames();
 
     if (tableNames.includes(this.tableName)) {
-      return db.openTable(this.tableName);
+      const existing = await db.openTable(this.tableName);
+      await this.ensureMetadataColumns(existing);
+      return existing;
     }
 
     const seed = documents?.length ? documents.map(toRow) : [emptyRow()];
@@ -51,6 +53,13 @@ export class LanceDbIndex implements IndexProvider {
     const table = await this.table();
     const predicates = documentIds.map(id => `id = '${escapeSqlString(id)}'`).join(' OR ');
     await table.delete(predicates);
+  }
+
+  async getDocument(documentId: string): Promise<IndexedDocument | undefined> {
+    const table = await this.table();
+    const rows = await table.query().where(`id = '${escapeSqlString(documentId)}'`).limit(1).toArray();
+    const [row] = rows;
+    return row ? rowToDocument(row) : undefined;
   }
 
   async search(query: string, limit = 5): Promise<SearchResult[]> {
@@ -109,6 +118,19 @@ export class LanceDbIndex implements IndexProvider {
       // The lexical fallback keeps search usable on small or partially indexed tables.
     }
   }
+
+  private async ensureMetadataColumns(table: LanceTable): Promise<void> {
+    const schema = await table.schema();
+    const fields = schema.fields as Array<{ name: string }>;
+    const existing = new Set(fields.map(field => field.name));
+    const missing = ['kind', 'diagramType', 'components', 'relationships']
+      .filter(name => !existing.has(name))
+      .map(name => ({ name, valueSql: name === 'kind' ? "'document'" : "''" }));
+
+    if (missing.length) {
+      await table.addColumns(missing);
+    }
+  }
 }
 
 function toRow(document: IndexedDocument): Record<string, unknown> {
@@ -119,6 +141,10 @@ function toRow(document: IndexedDocument): Record<string, unknown> {
     filePath: document.filePath,
     absolutePath: document.absolutePath,
     title: document.title ?? '',
+    kind: document.kind ?? 'document',
+    diagramType: document.diagramType ?? '',
+    components: document.components?.join('\n') ?? '',
+    relationships: document.relationships?.join('\n') ?? '',
     content: document.content,
     hash: document.hash,
     commit: document.commit ?? '',
@@ -134,6 +160,10 @@ function emptyRow(): Record<string, unknown> {
     filePath: '',
     absolutePath: '',
     title: '',
+    kind: 'document',
+    diagramType: '',
+    components: '',
+    relationships: '',
     content: '',
     hash: '',
     commit: '',
@@ -148,12 +178,21 @@ function rowToDocument(row: Record<string, unknown>): IndexedDocument {
     repo: String(row.repo),
     filePath: String(row.filePath),
     absolutePath: String(row.absolutePath),
+    kind: row.kind === 'architecture-diagram' ? 'architecture-diagram' : 'document',
+    diagramType: String(row.diagramType || '') || undefined,
+    components: splitList(row.components),
+    relationships: splitList(row.relationships),
     title: String(row.title || '') || undefined,
     content: String(row.content),
     hash: String(row.hash),
     commit: String(row.commit || '') || undefined,
     lastIndexed: String(row.lastIndexed)
   };
+}
+
+function splitList(value: unknown): string[] | undefined {
+  const items = String(value || '').split('\n').map(item => item.trim()).filter(Boolean);
+  return items.length ? items : undefined;
 }
 
 function rowToSearchResult(row: Record<string, unknown>): SearchResult {

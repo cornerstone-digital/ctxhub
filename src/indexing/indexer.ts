@@ -7,7 +7,7 @@ import { createIndexProvider } from './providers.js';
 import { pathExists, readText } from '../utils/fs.js';
 import { sha256 } from '../utils/hash.js';
 import { getCurrentCommit } from '../git/git.js';
-import { chunkText, extractTitle } from './chunk.js';
+import { chunkDocument, extractTitle } from './chunk.js';
 
 export type IndexResult = {
   scanned: number;
@@ -64,13 +64,17 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
       }
 
       const title = extractTitle(raw);
-      const parts = chunkText(raw, config.index.chunkSize);
+      const parts = chunkDocument(filePath, raw, config.index.chunkSize);
       const chunks: IndexedChunk[] = parts.map((part, i) => ({
         id: sha256(`${repo.name}:${filePath}:${hash}:${i}`),
         workspace: config.workspace.name,
         repo: repo.name,
         filePath,
         absolutePath,
+        kind: part.kind ?? 'document',
+        diagramType: part.diagramType,
+        components: part.components,
+        relationships: part.relationships,
         title: part.heading ?? title,
         content: part.content,
         hash,

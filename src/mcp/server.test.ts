@@ -8,8 +8,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createCtxhubMcpServer } from './server.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 
-async function withConnectedClient(cwd: string, run: (client: Client) => Promise<void>) {
-  const server = createCtxhubMcpServer(cwd);
+async function withConnectedClient(cwd: string, run: (client: Client) => Promise<void>, opts: { allowIndex?: boolean } = {}) {
+  const server = createCtxhubMcpServer(cwd, opts);
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -45,13 +45,33 @@ function firstTextPayload(result: { content: Array<{ type: string; text?: string
   return JSON.parse(first.text ?? '');
 }
 
-test('mcp server lists the search, memory_status, and repo_list tools', () => {
+test('mcp server lists the read-only ctxhub tools', () => {
   return withWorkspace(cwd =>
     withConnectedClient(cwd, async client => {
       const { tools } = await client.listTools();
       const names = tools.map(t => t.name).sort();
-      assert.deepEqual(names, ['memory_status', 'repo_list', 'search']);
+      assert.deepEqual(names, [
+        'architecture_map',
+        'architecture_search',
+        'context_pack',
+        'get_file_context',
+        'memory_status',
+        'open_chunk',
+        'repo_list',
+        'search'
+      ]);
     })
+  );
+});
+
+test('mcp mutating index tools are only listed when explicitly enabled', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(cwd, async client => {
+      const { tools } = await client.listTools();
+      const names = tools.map(t => t.name).sort();
+      assert.ok(names.includes('index_workspace'));
+      assert.ok(names.includes('sync_workspace'));
+    }, { allowIndex: true })
   );
 });
 

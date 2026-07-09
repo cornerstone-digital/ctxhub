@@ -31,6 +31,11 @@ export class LocalJsonIndex implements IndexProvider {
     await this.save(store);
   }
 
+  async getDocument(documentId: string): Promise<IndexedDocument | undefined> {
+    const store = await this.load();
+    return store.chunks[documentId];
+  }
+
   async search(query: string, limit = 5): Promise<SearchResult[]> {
     const store = await this.load();
     return lexicalSearch(Object.values(store.chunks), query, limit);
@@ -67,7 +72,16 @@ export function lexicalSearch(documents: IndexedDocument[], query: string, limit
 
   return documents
     .map(document => {
-      const haystack = `${document.repo} ${document.filePath} ${document.title ?? ''} ${document.content}`.toLowerCase();
+      const haystack = [
+        document.kind,
+        document.diagramType,
+        document.repo,
+        document.filePath,
+        document.title,
+        document.components?.join(' '),
+        document.relationships?.join(' '),
+        document.content
+      ].filter(Boolean).join(' ').toLowerCase();
       const score = terms.reduce((acc, term) => acc + (haystack.includes(term) ? 1 : 0), 0);
       return { ...document, score, snippet: createSnippet(document.content, terms) };
     })

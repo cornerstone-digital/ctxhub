@@ -83,6 +83,7 @@ ctxhub repo discover ../
 ctxhub repo list
 ctxhub index
 ctxhub search "authentication flow"
+ctxhub pack "how does authentication work?"
 ctxhub sync
 ctxhub memory status
 ctxhub doctor
@@ -117,6 +118,8 @@ repositories:
       - "README.md"
       - "docs/**/*.md"
       - "adr/**/*.md"
+      - "docs/architecture/**/*.mmd"
+      - "diagrams/**/*.mmd"
     exclude:
       - "node_modules/**"
       - ".git/**"
@@ -146,13 +149,18 @@ hooks:
 - `ctxhub index`: index changed workspace files.
 - `ctxhub sync`: pull configured repos and re-index changed files.
 - `ctxhub search <query>`: search the LanceDB project index.
+- `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order.
 - `ctxhub memory status`: show MemPalace memory status and LanceDB index status.
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
 - `ctxhub doctor`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version.
-- `ctxhub mcp`: start an MCP server (stdio) exposing `search`, `memory_status`, and `repo_list` as tools for AI agents.
+- `ctxhub mcp`: start an MCP server (stdio) exposing read-only context tools for AI agents (`--allow-index` adds opt-in mutating index/sync tools).
 - `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config). Also wires up MemPalace's own MCP server alongside ctxhub's when configured and available.
 - `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
 - `ctxhub note add <repo> "<title>" [--agent <name>]`: scaffold a dated, consistently-formatted note file under `<repo>/agent-notes/` for anything worth a teammate seeing in a PR (see [Two kinds of agent memory](#two-kinds-of-agent-memory)).
+- `ctxhub diagram add <repo> "<title>" [--agent <name>]`: scaffold a dated Mermaid `.mmd` architecture diagram under `<repo>/docs/architecture/` for reviewable team architecture context.
+- `ctxhub graph [--json]`: summarize workspace components and relationships from indexed diagrams plus package metadata.
+- `ctxhub validate docs [--json]`: check Markdown local links and Mermaid diagram declarations.
+- `ctxhub eval [--init|--file <path>]`: run golden query checks against the index.
 
 ## MCP server
 
@@ -161,10 +169,15 @@ hooks:
 Tools exposed:
 
 - `search(query, limit?)` — same ranked results as `ctxhub search`.
+- `context_pack(query, limit?)` — same bundle as `ctxhub pack --json`.
+- `open_chunk(id)` — return a full indexed chunk from a search/context-pack result.
+- `get_file_context(repo, path, line?, before?, after?)` — return surrounding file lines when a snippet is not enough.
 - `memory_status()` — same output as `ctxhub memory status`.
 - `repo_list()` — same output as `ctxhub repo list`.
+- `architecture_search(query, limit?)` — search indexed Mermaid diagrams and Mermaid code blocks.
+- `architecture_map(query?)` — summarize known components and relationships extracted from indexed diagrams.
 
-These are intentionally read-only. Mutating operations (`index`, `sync`, `memory clear`) stay CLI/human-driven rather than agent-callable, so an agent can look things up but can't rebuild or clear the index on its own.
+These are intentionally read-only by default. Mutating operations stay CLI/human-driven unless you start the MCP server with `ctxhub mcp --allow-index`, which adds `index_workspace(force?)` and `sync_workspace(noPull?)`. `memory clear` is never exposed over MCP.
 
 Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.json`):
 
@@ -232,6 +245,8 @@ ctxhub's own index is deliberately **read-only** — a mirror of this workspace'
 | Visibility | Not shared with the team, not indexed by ctxhub | Shows up in the normal PR diff for review; once merged, ctxhub indexes it like any other doc (it already matches the default `**/*.md` include glob) |
 
 ctxhub doesn't reimplement either of these — MemPalace already has a mature, write-capable MCP surface, and "write a markdown file" is something every agent can already do with its own file tools. ctxhub's job is just making the two paths unambiguous: which one to use, and where the shared one is looked for/indexed.
+
+Architecture diagrams use the same team-shared path. `ctxhub diagram add <repo> "<title>" --agent <name>` creates a reviewable Mermaid file under `<repo>/docs/architecture/`; the agent or developer edits it like normal code, and the PR makes the architecture change visible to the team. ctxhub indexes `.mmd`/`.mermaid` files and fenced Mermaid blocks in Markdown, extracts component and relationship metadata, and exposes architecture-specific MCP tools so agents can understand system shape instead of reconstructing it from scattered text hits.
 
 ## Installable skills
 

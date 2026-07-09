@@ -11,7 +11,10 @@ export const defaultConfig: CtxhubConfig = {
       'README.md',
       'docs/**/*.md',
       'adr/**/*.md',
+      'architecture/**/*.{mmd,mermaid}',
+      'diagrams/**/*.{mmd,mermaid}',
       '**/*.md',
+      '**/*.{mmd,mermaid}',
       '**/*.{ts,tsx,js,jsx,mjs,cjs,json}'
     ],
     exclude: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**', 'coverage/**', 'cicd/**']
