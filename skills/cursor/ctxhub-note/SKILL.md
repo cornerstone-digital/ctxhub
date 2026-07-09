@@ -8,7 +8,7 @@ Treat the user's invocation text as the finding to capture. If the repo or title
 
 ## What to do
 
-1. Choose the repo that owns the finding. If unsure, search first or ask a short clarifying question.
+1. Choose the repo that owns the finding — the boundary or decision, not merely a repo that consumes it. If unsure, search first or ask a short clarifying question.
 2. Create the scaffold with: `ctxhub note add <repo> "<short-title>" --agent <your-name>`.
 3. Edit the created Markdown file with concise, reviewable content: what was learned, evidence or source files, why it matters, and any uncertainty.
 4. Leave it as a normal repo change for review. Do not put private session notes, secrets, or speculation into team notes.

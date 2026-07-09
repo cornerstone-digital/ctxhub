@@ -24,8 +24,7 @@ Also treat the index as possibly stale after the user mentions pulling new chang
 - Otherwise, run the CLI directly: `ctxhub search --plain "<query>"`, `ctxhub memory status --plain`, `ctxhub repo list`.
 - Use typed search when intent is clear: `ctxhub search --plain --code "<query>"` for implementation/symbol lookup, `--docs` for README/decision docs, `--architecture` for Mermaid diagrams, and `--notes` for team notes.
 - For precise code edits, use ctxhub to find the right repo/file, then use local file reads and `rg` in that repo for exact method bodies.
-- Run `ctxhub sync --plain` (or ask the user to) if search results look stale; it pulls configured repos and re-indexes changed files.
-- Don't run mutating commands like `ctxhub index`, `ctxhub sync` (even with `--plain`), or `ctxhub memory clear` without the user's intent; these mutate the workspace's index/repos.
+- If search results look stale, tell the user and suggest `ctxhub sync --plain`; it pulls configured repos and re-indexes changed files. Don't run `ctxhub sync`, `ctxhub index`, or `ctxhub memory clear` yourself unless the user explicitly asked for a refresh or index mutation.
 
 ## Remembering things long-term
 

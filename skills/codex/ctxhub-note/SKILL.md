@@ -16,7 +16,7 @@ Treat the invocation text as the finding to capture. If the repo or title is unc
 
 ## What to do
 
-1. Choose the repo that owns the finding. If unsure, search first or ask a short clarifying question.
+1. Choose the repo that owns the finding — the boundary or decision, not merely a repo that consumes it. If unsure, search first or ask a short clarifying question.
 2. Create the scaffold with: `ctxhub note add <repo> "<short-title>" --agent <your-name>`.
 3. Edit the created Markdown file with concise, reviewable content:
    - what was learned
