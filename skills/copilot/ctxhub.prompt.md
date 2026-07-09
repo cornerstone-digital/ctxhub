@@ -1,13 +1,19 @@
 ---
-description: Use ctxhub to search this workspace's indexed docs and source before answering questions about existing code, decisions, or documentation across the configured repos.
+description: Search across every repo in this multi-repo workspace — including ones not currently open — before answering questions about how existing code or services work, which repo owns what, or why a past decision was made. Provides search, memory_status, and repo_list.
 ---
 
-This workspace uses `ctxhub` (see `ctxhub.yaml` / `.ctxhub/config.yaml`) to index documentation and source across its configured repos.
+This workspace uses `ctxhub` (see `ctxhub.yaml` / `.ctxhub/config.yaml`) to index documentation and source across *all* of its configured repos, not just the one you happen to have open.
 
 ## When to use this
 
-- Before answering questions about how existing code works, where something is implemented, or why a decision was made — check the index first rather than guessing.
-- After the user mentions pulling new changes or switching branches, treat the index as possibly stale.
+The key differentiator: the answer may live in a **different repo** than the one currently in context. Reach for this before answering questions like:
+
+- "How does `<other-service>` authenticate/call/consume `<this-service>`?"
+- "Which repo owns `<capability>`?"
+- "Why was `<decision>` made?" or "what's the history behind `<component>`?"
+- "Where is `<thing>` implemented?" when it isn't obviously in the current repo
+
+Also treat the index as possibly stale after the user mentions pulling new changes or switching branches.
 
 ## How to use it
 

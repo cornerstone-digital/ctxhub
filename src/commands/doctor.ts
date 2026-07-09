@@ -1,10 +1,13 @@
 import chalk from 'chalk';
 import path from 'node:path';
 import { loadConfig, findConfigPath, INDEX_DIR, relativeConfigPath } from '../config/config.js';
-import { ensureDir, pathExists } from '../utils/fs.js';
+import { defaultConfig } from '../config/defaultConfig.js';
+import { ensureDir, pathExists, readText } from '../utils/fs.js';
 import { getCurrentCommit, isGitInstalled, isGitRepo } from '../git/git.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
+import { SUPPORTED_SKILL_AGENTS, SKILL_TEMPLATES } from './skills.js';
+import { SUPPORTED_AGENTS, expectedMcpEntry, readInstalledMcpEntry } from './agent.js';
 
 export async function doctorCommand() {
   const configPath = await findConfigPath();
@@ -17,6 +20,15 @@ export async function doctorCommand() {
   console.log(`${chalk.green('✓')} Node ${process.version}`);
   console.log((await isGitInstalled()) ? `${chalk.green('✓')} Git installed` : `${chalk.red('✗')} Git is not installed`);
   console.log(`${chalk.green('✓')} ctxhub config loaded: ${config.workspace.name} (${relativeConfigPath(configPath)})`);
+
+  if (config.version !== defaultConfig.version) {
+    console.log(
+      `${chalk.yellow('!')} Config schema is version ${config.version}, this ctxhub expects ${defaultConfig.version}. ` +
+      'Review the config after upgrading, or re-run: ctxhub init --force'
+    );
+  } else {
+    console.log(`${chalk.green('✓')} Config schema up to date (v${config.version})`);
+  }
 
   try {
     await ensureDir(path.join(process.cwd(), INDEX_DIR));
@@ -53,5 +65,25 @@ export async function doctorCommand() {
     console.log(git
       ? `${chalk.green('✓')} ${repo.name}: ${commit?.slice(0, 7) ?? 'no commit'}`
       : `${chalk.yellow('!')} ${repo.name}: path exists, not a git repo`);
+  }
+
+  for (const agent of SUPPORTED_SKILL_AGENTS) {
+    const { source, target } = SKILL_TEMPLATES[agent];
+    const destination = target(process.cwd());
+    if (!(await pathExists(destination))) continue;
+
+    const [installed, current] = await Promise.all([readText(destination), readText(source)]);
+    console.log(installed === current
+      ? `${chalk.green('✓')} ${agent} skill up to date`
+      : `${chalk.yellow('!')} ${agent} skill is outdated. Run: ctxhub skills install ${agent}`);
+  }
+
+  for (const agent of SUPPORTED_AGENTS) {
+    const installed = await readInstalledMcpEntry(agent, process.cwd());
+    if (installed === undefined) continue;
+
+    console.log(JSON.stringify(installed) === JSON.stringify(expectedMcpEntry(agent))
+      ? `${chalk.green('✓')} ${agent} MCP config up to date`
+      : `${chalk.yellow('!')} ${agent} MCP config is outdated. Run: ctxhub agent ${agent} --no-launch`);
   }
 }

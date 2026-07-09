@@ -17,8 +17,11 @@ export function createCtxhubMcpServer(cwd = process.cwd()): McpServer {
     {
       title: 'Search workspace knowledge',
       description:
-        'Search the indexed docs/source across all repos configured in this ctxhub workspace. ' +
-        'Returns ranked chunks with repo, path, heading, snippet, and commit.',
+        'Search docs/source across EVERY repo in this multi-repo workspace, including repos other than ' +
+        'the one currently open. Use this before answering questions about how another service works, ' +
+        'which repo owns a capability, cross-repo integration behavior, or past decisions — anywhere the ' +
+        'answer might live outside the current repo. Returns ranked chunks with repo, path, heading, ' +
+        'snippet, and commit.',
       inputSchema: {
         query: z.string().describe('Search query'),
         limit: z.number().int().positive().max(50).optional().describe('Max results (default 5)')
@@ -38,7 +41,8 @@ export function createCtxhubMcpServer(cwd = process.cwd()): McpServer {
       title: 'Memory and index status',
       description:
         'Report the ctxhub memory provider status (e.g. MemPalace availability) and the document ' +
-        'index status (provider, chunk count, last indexed time).',
+        'index status (provider, chunk count, last indexed time). Use this to check whether the ' +
+        'workspace index is stale before trusting search results, or to confirm ctxhub is set up at all.',
       inputSchema: {}
     },
     async () => {
@@ -54,7 +58,9 @@ export function createCtxhubMcpServer(cwd = process.cwd()): McpServer {
     'repo_list',
     {
       title: 'List configured repositories',
-      description: 'List the repositories registered in this ctxhub workspace config, including path and Git status.',
+      description:
+        'List every repository registered in this multi-repo workspace, including path and Git status. ' +
+        'Use this to discover what other repos exist in this workspace before assuming something isn\'t tracked anywhere.',
       inputSchema: {}
     },
     async () => {

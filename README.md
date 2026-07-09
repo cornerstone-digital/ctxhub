@@ -111,7 +111,7 @@ hooks:
 - `ctxhub search <query>`: search the LanceDB project index.
 - `ctxhub memory status`: show MemPalace memory status and LanceDB index status.
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
-- `ctxhub doctor`: check Node, Git, config, repo paths, index directory, and memory provider.
+- `ctxhub doctor`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version.
 - `ctxhub mcp`: start an MCP server (stdio) exposing `search`, `memory_status`, and `repo_list` as tools for AI agents.
 - `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config).
 - `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
@@ -194,6 +194,18 @@ The templates themselves live in this repo under [`skills/`](./skills/) and are 
 | `cursor` | [`skills/cursor/ctxhub.md`](./skills/cursor/ctxhub.md) | `.cursor/commands/ctxhub.md` |
 
 Each destination is a dedicated file ctxhub owns (namespaced by the `ctxhub` skill/command name), so there's no merge concern the way there is for the shared MCP config files above — the command just copies the template in verbatim, overwriting whatever was there.
+
+## Detecting stale skills and agent configs
+
+Installed skill files and agent MCP configs are snapshots written at install time — if you upgrade ctxhub later (a revised skill description, a changed MCP entry shape), anything already installed in a workspace stays exactly as it was until you re-run the install command. `ctxhub doctor` catches this drift for anything it finds installed (it stays silent about agents/skills you never set up in the first place):
+
+```text
+! claude skill is outdated. Run: ctxhub skills install claude
+! codex MCP config is outdated. Run: ctxhub agent codex --no-launch
+✓ copilot skill up to date
+```
+
+It also flags a `config.yaml` schema version mismatch (`version: 1` today) the same way, in case a future ctxhub version changes the config shape. None of this is auto-fixed — `doctor` only diagnoses and tells you the exact command to run, consistent with the rest of its checks.
 
 ## Hooks
 
