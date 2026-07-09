@@ -2,6 +2,19 @@
 
 `ctxhub` is a reusable CLI for AI-assisted development workspaces. It manages multi-repo context, indexes local documentation and source files in LanceDB, and leaves durable agent memory to MemPalace by default.
 
+- [Prerequisites](#prerequisites)
+- [Install](#install)
+- [Way of working](#way-of-working) — start here for the actual day-to-day workflow
+- [Quick Start](#quick-start) — manual step-by-step equivalent of `onboard`
+- [Config](#config)
+- [Commands](#commands)
+- [MCP server](#mcp-server)
+- [Launching an agent](#launching-an-agent)
+- [Installable skills](#installable-skills)
+- [Detecting stale skills and agent configs](#detecting-stale-skills-and-agent-configs)
+- [Hooks](#hooks)
+- [Extension Points](#extension-points)
+
 ## Prerequisites
 
 - Node.js 20+
@@ -29,15 +42,37 @@ For local development, run against source without building:
 npm run ctxhub -- --help
 ```
 
-## Quick Start
+## Way of working
 
-The fastest path to a working setup is the interactive onboarding wizard:
+**One-time, per workspace:**
 
 ```bash
 ctxhub onboard
 ```
 
-It walks through initializing the workspace, discovering repos, optionally installing a git post-commit hook per repo, optionally installing MemPalace if you want it, picking which coding agents to wire up (MCP config + a usage skill for each), and running an initial index — reusing the same underlying commands listed below, so anything it does you can also do manually, one step at a time:
+Run this once in the folder containing your multi-repo workspace (a parent directory holding several git repos, or a single repo). It sets up the index, wires up the MCP server and skills for whichever agents you use, and optionally a git hook to keep the index fresh — see [Quick Start](#quick-start) below for the manual, step-by-step equivalent if you'd rather not use the wizard.
+
+**Day to day: you mostly don't touch the CLI.** That's the point of the MCP server and skills — once set up:
+
+- Ask Claude Code, Codex, or Copilot a question about the codebase as normal. The installed `ctxhub` skill nudges the agent to check the index first when the answer might live in a *different* repo than the one you have open, without you needing to remember ctxhub exists.
+- Want a search right now, on demand? `/ctxhub-search <query>` in Claude Code or Codex triggers it explicitly (see [Installable skills](#installable-skills)).
+- The index stays current however you set it up during onboarding: an automatic `post-commit` git hook per repo, or a manual `ctxhub sync` (which also pulls each repo first).
+
+**Worked example**, inside a Claude Code session at the workspace root, no CLI commands typed:
+
+> **You**: How does the webhook receiver authenticate before invoking the notifications service?
+>
+> **Claude**: *(reaches for the `search` MCP tool, since the answer spans two repos)* — reads results from `webhooks-service` and `notifications-service`, answers with citations to both.
+
+**Occasional maintenance:**
+
+- Added a new repo to the workspace? `ctxhub repo add <name> <path>` (or re-run `ctxhub repo discover`).
+- Upgraded ctxhub? Nothing to remember — the next command you run anywhere in the workspace prints a one-line nudge if a skill or agent config is now stale (see [Detecting stale skills and agent configs](#detecting-stale-skills-and-agent-configs)).
+- Something feels off? `ctxhub doctor` gives a full health check.
+
+## Quick Start
+
+The manual, step-by-step equivalent of `ctxhub onboard`, if you'd rather run each piece yourself:
 
 ```bash
 ctxhub init --name my-workspace
