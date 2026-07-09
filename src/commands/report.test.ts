@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { reportCommand } from './report.js';
+import { openReportCommand, reportCommand } from './report.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { readText } from '../utils/fs.js';
@@ -43,11 +43,25 @@ async function withWorkspace(run: (cwd: string) => Promise<void>) {
   }
 }
 
+async function captureLog(run: () => Promise<void>): Promise<string[]> {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => {
+    lines.push(args.join(' '));
+  };
+  try {
+    await run();
+  } finally {
+    console.log = original;
+  }
+  return lines;
+}
+
 test('reportCommand writes an HTML report with status, repos, architecture, and recent chunks', () => {
   return withWorkspace(async cwd => {
     await indexWorkspace(cwd);
     const output = path.join(cwd, 'report.html');
-    await reportCommand({ output });
+    const lines = await captureLog(() => reportCommand({ output }));
 
     const html = await readText(output);
     assert.match(html, /<h1>ws<\/h1>/);
@@ -55,7 +69,15 @@ test('reportCommand writes an HTML report with status, repos, architecture, and 
     assert.match(html, /"section":"architecture"/);
     assert.match(html, /"section":"recent"/);
     assert.match(html, /id="filter"/, 'should include the client-side filter input');
+    assert.ok(lines.some(line => line.includes('Wrote report:')));
+    assert.ok(lines.some(line => line.includes('architecture item')));
   });
+});
+
+test('openReportCommand picks the platform launcher without shell interpolation', () => {
+  assert.deepEqual(openReportCommand('/tmp/report.html', 'darwin'), { command: 'open', args: ['/tmp/report.html'] });
+  assert.deepEqual(openReportCommand('/tmp/report.html', 'win32'), { command: 'cmd', args: ['/c', 'start', '', '/tmp/report.html'] });
+  assert.deepEqual(openReportCommand('/tmp/report.html', 'linux'), { command: 'xdg-open', args: ['/tmp/report.html'] });
 });
 
 test('reportCommand flags stale chunks when the repo has drifted from the indexed commit', () => {

@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import chalk from 'chalk';
 import { CACHE_DIR, loadConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { attachFreshness } from '../context/freshness.js';
@@ -7,7 +9,7 @@ import type { SearchResult } from '../config/types.js';
 
 const RECENT_LIMIT = 40;
 
-export async function reportCommand(opts: { output?: string } = {}) {
+export async function reportCommand(opts: { output?: string; open?: boolean } = {}) {
   const cwd = process.cwd();
   const config = await loadConfig(cwd);
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
@@ -138,7 +140,26 @@ export async function reportCommand(opts: { output?: string } = {}) {
 </body>
 </html>
 `);
-  console.log(output);
+  console.log(chalk.green(`Wrote report: ${path.relative(cwd, output) || output}`));
+  console.log(chalk.gray(`${status.chunkCount} chunks · ${architecture.length} architecture item(s) · ${stale.length} stale recent chunk(s)`));
+  console.log(chalk.gray(`Open: ${output}`));
+
+  if (opts.open) {
+    openReport(output);
+    console.log(chalk.gray('Opening report in your browser...'));
+  }
+}
+
+export function openReport(filePath: string): void {
+  const { command, args } = openReportCommand(filePath, process.platform);
+  const child = spawn(command, args, { stdio: 'ignore', detached: true });
+  child.unref();
+}
+
+export function openReportCommand(filePath: string, platform: NodeJS.Platform): { command: string; args: string[] } {
+  if (platform === 'darwin') return { command: 'open', args: [filePath] };
+  if (platform === 'win32') return { command: 'cmd', args: ['/c', 'start', '', filePath] };
+  return { command: 'xdg-open', args: [filePath] };
 }
 
 function escapeHtml(value: string): string {

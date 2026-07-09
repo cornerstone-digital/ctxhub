@@ -272,6 +272,7 @@ export function buildProgram(): Command {
   program
     .command('report')
     .option('-o, --output <path>', 'Output HTML path')
+    .option('--open', 'Open the generated report in your browser')
     .description('Generate a browsable HTML workspace report')
     .action(reportCommand);
 
