@@ -93,13 +93,14 @@ export function OnboardApp({ cwd = process.cwd(), deps }: Props) {
 function TextPrompt({ message, defaultValue, onSubmit }: { message: string; defaultValue: string; onSubmit: (value: string) => void }) {
   const [value, setValue] = useState(defaultValue);
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <PromptFrame title="Workspace setup" hint="enter confirm">
       <Text>{message}</Text>
-      <Box>
+      <Text color="gray">Default: {defaultValue}</Text>
+      <Box marginTop={1}>
         <Text color="cyan">{'> '}</Text>
         <TextInput value={value} onChange={setValue} onSubmit={onSubmit} />
       </Box>
-    </Box>
+    </PromptFrame>
   );
 }
 
@@ -122,11 +123,11 @@ function ConfirmPrompt({
   });
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <PromptFrame title="Workspace setup" hint="up/down move · enter confirm">
       <Text>{message}</Text>
+      <Text color="gray">Default: {defaultValue ? 'Yes' : 'No'}</Text>
       <SelectList items={items} selectedIndex={choiceIndex} />
-      <Text color="gray">↑/↓ move · enter confirm</Text>
-    </Box>
+    </PromptFrame>
   );
 }
 
@@ -151,10 +152,25 @@ function MultiSelectPrompt({
   });
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <PromptFrame title="Workspace setup" hint="up/down move · space toggle · enter confirm">
       <Text>{message}</Text>
       <SelectList items={items} selectedIndex={choiceIndex} markerFor={(_item, index) => (toggled.has(index) ? '[x] ' : '[ ] ')} />
-      <Text color="gray">↑/↓ move · space toggle · enter confirm</Text>
+      <Text color="gray">{toggled.size} selected</Text>
+    </PromptFrame>
+  );
+}
+
+function PromptFrame({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Text bold color="cyan">ctxhub onboard</Text>
+      <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
+        <Text bold>{title}</Text>
+        <Box marginTop={1} flexDirection="column">
+          {children}
+        </Box>
+      </Box>
+      <Text color="gray">{hint}</Text>
     </Box>
   );
 }

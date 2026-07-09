@@ -67,15 +67,19 @@ export function SyncProgressApp({ repos, cwd, noPull, pullFn = pullRepo, indexFn
 
   return (
     <Box flexDirection="column" paddingX={1}>
+      <Text bold color="cyan">ctxhub sync</Text>
+      <Text color="gray">
+        {noPull ? 'Skipping pull phase' : 'Pulling repositories, then re-indexing'} in {cwd}
+      </Text>
       {!noPull ? (
-        <Box flexDirection="column">
+        <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
           <Text bold>Pulling repositories</Text>
-          <RepoStatusList repos={pullStatus} />
+          <RepoStatusList repos={pullStatus} showSummary />
         </Box>
       ) : null}
-      <Box flexDirection="column" marginTop={!noPull ? 1 : 0}>
+      <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={phase === 'pull' ? 'gray' : 'cyan'} paddingX={1}>
         <Text bold>{phase === 'pull' ? 'Re-indexing changed knowledge (queued)' : 'Re-indexing changed knowledge'}</Text>
-        <RepoStatusList repos={indexStatus} />
+        <RepoStatusList repos={indexStatus} showSummary />
       </Box>
     </Box>
   );

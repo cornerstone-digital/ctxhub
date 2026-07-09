@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { RepoStatusList, type RepoStatus } from './RepoStatusList.js';
+import { RepoStatusList, summarizeRepoStatuses, type RepoStatus } from './RepoStatusList.js';
 
 test('RepoStatusList renders an icon and optional detail per repo state', () => {
   const repos: RepoStatus[] = [
@@ -24,4 +24,17 @@ test('RepoStatusList renders an icon and optional detail per repo state', () => 
   } finally {
     unmount();
   }
+});
+
+test('summarizeRepoStatuses reports compact state counts', () => {
+  const repos: RepoStatus[] = [
+    { name: 'queued-repo', state: 'queued' },
+    { name: 'active-repo', state: 'active' },
+    { name: 'done-repo', state: 'done' },
+    { name: 'missing-repo', state: 'missing' },
+    { name: 'error-repo', state: 'error' }
+  ];
+
+  assert.equal(summarizeRepoStatuses(repos), '1 active · 1 done · 1 queued · 1 missing · 1 error');
+  assert.equal(summarizeRepoStatuses([]), 'no repositories');
 });

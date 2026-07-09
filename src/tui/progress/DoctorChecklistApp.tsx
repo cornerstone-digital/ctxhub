@@ -17,6 +17,7 @@ type Props = {
 export function DoctorChecklistApp({ checks, onSettled }: Props) {
   const { exit } = useApp();
   const [states, setStates] = useState<CheckState[]>(() => checks.map(check => ({ id: check.id, status: 'pending', lines: [] })));
+  const completed = states.filter(state => state.status === 'done').length;
 
   useEffect(() => {
     (async () => {
@@ -31,8 +32,9 @@ export function DoctorChecklistApp({ checks, onSettled }: Props) {
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold>ctxhub doctor</Text>
-      <Box marginTop={1} flexDirection="column">
+      <Text bold color="cyan">ctxhub doctor</Text>
+      <Text color="gray">Checking workspace health · {completed}/{states.length} complete</Text>
+      <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
         {states.map(state =>
           state.status === 'pending' ? (
             <Text key={state.id} color="gray">

@@ -49,9 +49,13 @@ export function IndexProgressApp({ repoNames, cwd, force, indexFn = indexWorkspa
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold>Indexing workspace knowledge</Text>
-      <Box marginTop={1}>
-        <RepoStatusList repos={repos} />
+      <Text bold color="cyan">ctxhub index</Text>
+      <Text color="gray">
+        {force ? 'Force re-indexing' : 'Indexing changed files'} in {cwd}
+      </Text>
+      <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
+        <Text bold>Workspace knowledge</Text>
+        <RepoStatusList repos={repos} showSummary />
       </Box>
     </Box>
   );

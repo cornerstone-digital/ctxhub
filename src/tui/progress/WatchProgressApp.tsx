@@ -74,7 +74,8 @@ export function WatchProgressApp({ repoNames, cwd, intervalMs, indexFn = indexWo
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold>Watching workspace — indexing every {intervalMs / 1000}s. Press Ctrl+C to stop.</Text>
+      <Text bold color="cyan">ctxhub watch</Text>
+      <Text color="gray">Indexing every {intervalMs / 1000}s in {cwd}. Press Ctrl+C to stop.</Text>
       <Box marginTop={1}>
         <Text color="gray">
           cycles: {cycles}
@@ -82,13 +83,13 @@ export function WatchProgressApp({ repoNames, cwd, intervalMs, indexFn = indexWo
         </Text>
       </Box>
       {running ? (
-        <Box marginTop={1} flexDirection="column">
+        <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
           <Text bold>Indexing...</Text>
-          <RepoStatusList repos={repos} />
+          <RepoStatusList repos={repos} showSummary />
         </Box>
       ) : null}
       {activity.length ? (
-        <Box marginTop={1} flexDirection="column">
+        <Box marginTop={1} borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
           <Text bold>Recent activity</Text>
           {activity.map((entry, index) => (
             <Text key={index} color="gray">
