@@ -2,6 +2,13 @@
 
 `ssd` is a reusable CLI for AI-assisted development workspaces. It manages multi-repo context, indexes local documentation and source files in LanceDB, and leaves durable agent memory to MemPalace by default.
 
+## Prerequisites
+
+- Node.js 20+
+- Git (only required if you want repo detection/`ssd sync` to do anything — SSD itself works without it)
+- Optional: [MemPalace](https://github.com) CLI, if you use the default `memory.provider: mempalace`. Install with `uv tool install mempalace` (requires [uv](https://docs.astral.sh/uv/)). Without it, `ssd memory status`/`ssd doctor` will report it as unavailable but the rest of the CLI (indexing, search) still works — or set `memory.provider: local-json` in config to avoid the dependency entirely.
+- Optional: an MCP-compatible client (Claude Desktop, Claude Code, Cursor, etc.), only needed if you use `ssd mcp`.
+
 ## Install
 
 ```bash
@@ -28,6 +35,7 @@ ssd search "authentication flow"
 ssd sync
 ssd memory status
 ssd doctor
+ssd mcp
 ```
 
 `ssd init` creates:
@@ -83,6 +91,33 @@ index:
 - `ssd memory status`: show MemPalace memory status and LanceDB index status.
 - `ssd memory clear`: clear the SSD index after confirmation; external MemPalace stores are left to MemPalace.
 - `ssd doctor`: check Node, Git, config, repo paths, index directory, and memory provider.
+- `ssd mcp`: start an MCP server (stdio) exposing `search`, `memory_status`, and `repo_list` as tools for AI agents.
+
+## MCP server
+
+`ssd mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server over stdio, so MCP-native clients (Claude Desktop, Claude Code, Cursor, etc.) can query the workspace index as structured tools instead of shelling out and parsing terminal output.
+
+Tools exposed:
+
+- `search(query, limit?)` — same ranked results as `ssd search`.
+- `memory_status()` — same output as `ssd memory status`.
+- `repo_list()` — same output as `ssd repo list`.
+
+These are intentionally read-only. Mutating operations (`index`, `sync`, `memory clear`) stay CLI/human-driven rather than agent-callable, so an agent can look things up but can't rebuild or clear the index on its own.
+
+Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "ssd": {
+      "command": "ssd",
+      "args": ["mcp"],
+      "cwd": "/path/to/your/workspace"
+    }
+  }
+}
+```
 
 ## Extension Points
 
@@ -92,8 +127,7 @@ The memory API lives in `src/memory/MemoryAdapter.ts`. MemPalace is the default 
 
 Planned extension points:
 
-- MemPalace provider
-- MCP server integration
 - Claude/Codex launch integration
 - embeddings/vector DB provider
 - post-pull/post-commit hooks
+- AI-generated documentation validation

@@ -8,6 +8,7 @@ import { searchCommand } from './commands/search.js';
 import { syncCommand } from './commands/sync.js';
 import { memoryClearCommand, memoryStatusCommand } from './commands/memory.js';
 import { doctorCommand } from './commands/doctor.js';
+import { mcpCommand } from './commands/mcp.js';
 
 const program = new Command();
 
@@ -79,6 +80,11 @@ program
   .command('doctor')
   .description('Check workspace health')
   .action(doctorCommand);
+
+program
+  .command('mcp')
+  .description('Start the SSD MCP server (stdio) for AI agent tool use')
+  .action(mcpCommand);
 
 program.exitOverride();
 
