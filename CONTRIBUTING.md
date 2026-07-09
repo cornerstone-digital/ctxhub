@@ -22,6 +22,8 @@ Tests use Node's built-in test runner (`node:test`), not a separate framework â€
 
 When adding a command or module, add a colocated `*.test.ts` next to it. Modules take an explicit `cwd` parameter (defaulting to `process.cwd()`) specifically so tests can run against temp directories without mocking the filesystem.
 
+Exception: `onboard.ts` is a thin interactive wizard over already-tested command functions (`init`, `repoDiscoverCommand`, `repoHookCommand`, `agentLaunchCommand`, `skillsInstallCommand`, `indexCommand`) â€” its `@inquirer/prompts` `checkbox` step needs raw keypress handling that doesn't degrade cleanly to piped stdin, so it's covered by manually driving the CLI rather than an automated test. If you change its orchestration logic, verify by actually running `ctxhub onboard` in a scratch directory.
+
 Before opening a PR:
 
 ```bash

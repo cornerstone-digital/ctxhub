@@ -11,6 +11,7 @@ import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
 import { agentLaunchCommand, SUPPORTED_AGENTS } from './commands/agent.js';
 import { skillsInstallCommand, SUPPORTED_SKILL_AGENTS } from './commands/skills.js';
+import { onboardCommand } from './commands/onboard.js';
 
 const program = new Command();
 
@@ -25,6 +26,11 @@ program
   .option('-n, --name <name>', 'Workspace name')
   .option('-f, --force', 'Overwrite existing config')
   .action(initCommand);
+
+program
+  .command('onboard')
+  .description('Interactively set up this workspace: init, repos, hooks, memory, agents, and skills')
+  .action(onboardCommand);
 
 const repo = program.command('repo').description('Manage workspace repositories');
 

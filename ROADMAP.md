@@ -9,6 +9,9 @@
 - Config-level lifecycle hooks (`hooks.postPull`, `hooks.postIndex`) and a real Git `post-commit` hook (`ctxhub repo hook`)
 - Agent launch integration for Claude, Codex, and Copilot (`ctxhub agent <name>`)
 - Installable skills/prompt files for Claude, Codex, Copilot, and Cursor (`ctxhub skills install`)
+- Interactive onboarding wizard (`ctxhub onboard`) that composes init, repo discovery, hooks, memory, agents, and skills into one guided flow
+- Standard OSS project scaffolding: LICENSE, CONTRIBUTING.md, CODE_OF_CONDUCT.md, issue/PR templates
+- Fully automated semantic versioning and changelog via semantic-release + Conventional Commits (npm publishing intentionally disabled until ready to ship)
 
 ## Planned
 

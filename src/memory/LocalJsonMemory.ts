@@ -166,7 +166,7 @@ export function createMemoryAdapter(provider: string, configuredPath: string, cw
   throw new Error(`Unsupported memory provider: ${provider}`);
 }
 
-async function isMempalaceAvailable(): Promise<boolean> {
+export async function isMempalaceAvailable(): Promise<boolean> {
   try {
     await execa('mempalace', ['--help']);
     return true;

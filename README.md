@@ -31,6 +31,14 @@ npm run ctxhub -- --help
 
 ## Quick Start
 
+The fastest path to a working setup is the interactive onboarding wizard:
+
+```bash
+ctxhub onboard
+```
+
+It walks through initializing the workspace, discovering repos, optionally installing a git post-commit hook per repo, optionally installing MemPalace if you want it, picking which coding agents to wire up (MCP config + a usage skill for each), and running an initial index — reusing the same underlying commands listed below, so anything it does you can also do manually, one step at a time:
+
 ```bash
 ctxhub init --name my-workspace
 ctxhub repo add app ./app
@@ -93,6 +101,7 @@ hooks:
 ## Commands
 
 - `ctxhub init`: create workspace config and local ctxhub directories.
+- `ctxhub onboard`: interactive setup wizard — init, repo discovery, hooks, memory provider, agents, skills, and an initial index, in one guided flow.
 - `ctxhub repo add <name> <path>`: add a repo, validate the path, and detect Git.
 - `ctxhub repo list`: print configured repos.
 - `ctxhub repo discover [path]`: find Git repositories below a folder and add them.
