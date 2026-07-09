@@ -77,6 +77,8 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
         diagramType: part.diagramType,
         components: part.components,
         relationships: part.relationships,
+        symbol: part.symbol,
+        symbolKind: part.symbolKind,
         title: part.heading ?? title,
         content: part.content,
         redacted: redaction.redacted,

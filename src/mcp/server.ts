@@ -74,18 +74,26 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
     'get_file_context',
     {
       title: 'Get file context',
-      description: 'Return surrounding source/doc lines for a repo file. Use after search when a snippet is not enough.',
+      description:
+        'Return surrounding source/doc lines for a repo file. Use after search when a snippet is not enough. ' +
+        'For TS/JS/JSX files this defaults to returning the full enclosing function/method/class around `line` ' +
+        '(mode "auto"), falling back to a before/after line window when no enclosing symbol is found or the file ' +
+        'is not source code. Pass mode "lines" to always use the line window.',
       inputSchema: {
         repo: z.string().describe('Configured repo name'),
         path: z.string().describe('Path within the repo'),
         line: z.number().int().positive().optional().describe('Line to center on (default 1)'),
-        before: z.number().int().nonnegative().max(500).optional().describe('Lines before'),
-        after: z.number().int().nonnegative().max(500).optional().describe('Lines after')
+        before: z.number().int().nonnegative().max(500).optional().describe('Lines before (line-window mode only)'),
+        after: z.number().int().nonnegative().max(500).optional().describe('Lines after (line-window mode only)'),
+        mode: z.enum(['auto', 'semantic', 'lines']).optional().describe(
+          '"auto" (default): full enclosing symbol for source files, else line window. ' +
+          '"semantic": same symbol lookup, explicit. "lines": always use before/after line window.'
+        )
       }
     },
-    async ({ repo, path, line, before, after }) => {
+    async ({ repo, path, line, before, after, mode }) => {
       const config = await loadConfig(cwd);
-      return textResult(await getFileContext(config, repo, path, { line, before, after }, cwd));
+      return textResult(await getFileContext(config, repo, path, { line, before, after, mode }, cwd));
     }
   );
 

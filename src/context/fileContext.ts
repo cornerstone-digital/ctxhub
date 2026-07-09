@@ -1,6 +1,9 @@
 import path from 'node:path';
 import type { CtxhubConfig } from '../config/types.js';
 import { readText } from '../utils/fs.js';
+import { findEnclosingSymbol, isSourceFile, type SymbolKind } from './symbols.js';
+
+export type FileContextMode = 'lines' | 'semantic' | 'auto';
 
 export type FileContext = {
   repo: string;
@@ -9,13 +12,14 @@ export type FileContext = {
   endLine: number;
   totalLines: number;
   content: string;
+  symbol?: { name?: string; kind: SymbolKind };
 };
 
 export async function getFileContext(
   config: CtxhubConfig,
   repoName: string,
   filePath: string,
-  opts: { line?: number; before?: number; after?: number } = {},
+  opts: { line?: number; before?: number; after?: number; mode?: FileContextMode } = {},
   cwd = process.cwd()
 ): Promise<FileContext> {
   const repo = config.repositories.find(candidate => candidate.name === repoName);
@@ -25,6 +29,23 @@ export async function getFileContext(
   const content = await readText(absolutePath);
   const lines = content.split('\n');
   const line = Math.min(Math.max(opts.line ?? 1, 1), lines.length);
+  const mode = opts.mode ?? 'auto';
+
+  if (mode !== 'lines' && isSourceFile(filePath)) {
+    const symbol = findEnclosingSymbol(content, line);
+    if (symbol) {
+      return {
+        repo: repoName,
+        path: filePath,
+        startLine: symbol.startLine,
+        endLine: symbol.endLine,
+        totalLines: lines.length,
+        content: lines.slice(symbol.startLine - 1, symbol.endLine).join('\n'),
+        symbol: { name: symbol.name, kind: symbol.kind }
+      };
+    }
+  }
+
   const before = opts.before ?? 40;
   const after = opts.after ?? 80;
   const startLine = Math.max(1, line - before);

@@ -132,7 +132,7 @@ export class LanceDbIndex implements IndexProvider {
     const schema = await table.schema();
     const fields = schema.fields as Array<{ name: string }>;
     const existing = new Set(fields.map(field => field.name));
-    const missing = ['kind', 'diagramType', 'components', 'relationships', 'redacted']
+    const missing = ['kind', 'diagramType', 'components', 'relationships', 'redacted', 'symbol', 'symbolKind']
       .filter(name => !existing.has(name))
       .map(name => ({ name, valueSql: name === 'kind' ? "'document'" : name === 'redacted' ? 'false' : "''" }));
 
@@ -154,6 +154,8 @@ function toRow(document: IndexedDocument): Record<string, unknown> {
     diagramType: document.diagramType ?? '',
     components: document.components?.join('\n') ?? '',
     relationships: document.relationships?.join('\n') ?? '',
+    symbol: document.symbol ?? '',
+    symbolKind: document.symbolKind ?? '',
     content: document.content,
     redacted: document.redacted ?? false,
     hash: document.hash,
@@ -174,6 +176,8 @@ function emptyRow(): Record<string, unknown> {
     diagramType: '',
     components: '',
     relationships: '',
+    symbol: '',
+    symbolKind: '',
     content: '',
     redacted: false,
     hash: '',
@@ -193,6 +197,8 @@ function rowToDocument(row: Record<string, unknown>): IndexedDocument {
     diagramType: String(row.diagramType || '') || undefined,
     components: splitList(row.components),
     relationships: splitList(row.relationships),
+    symbol: String(row.symbol || '') || undefined,
+    symbolKind: (String(row.symbolKind || '') || undefined) as IndexedDocument['symbolKind'],
     title: String(row.title || '') || undefined,
     content: String(row.content),
     redacted: Boolean(row.redacted),

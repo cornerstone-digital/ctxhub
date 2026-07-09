@@ -1,9 +1,13 @@
+import { isSourceFile, topLevelSymbols, type SymbolKind } from '../context/symbols.js';
+
 export type TextChunk = {
   heading?: string;
   kind?: 'document' | 'architecture-diagram';
   diagramType?: string;
   components?: string[];
   relationships?: string[];
+  symbol?: string;
+  symbolKind?: SymbolKind;
   content: string;
 };
 
@@ -19,9 +23,48 @@ export function chunkDocument(filePath: string, content: string, maxChars: numbe
     return [diagramChunk(content)];
   }
 
+  if (isSourceFile(filePath)) {
+    const sourceChunks = chunkSourceCode(content, maxChars);
+    if (sourceChunks.length) return sourceChunks;
+  }
+
   const chunks = chunkMarkdown(content, maxChars);
   const diagramChunks = extractMermaidBlocks(content).map(block => diagramChunk(block));
   return [...chunks, ...diagramChunks];
+}
+
+// One chunk per top-level function/class/arrow-function so search and open_chunk return
+// whole symbols instead of arbitrary blank-line-delimited slices. Falls back to plain-text
+// paragraph chunking (via chunkDocument's caller) when no recognizable symbols are found --
+// e.g. type-only files, constants, or code the heuristic parser can't confidently match.
+export function chunkSourceCode(content: string, maxChars: number): TextChunk[] {
+  const symbols = topLevelSymbols(content).sort((a, b) => a.startLine - b.startLine);
+  if (!symbols.length) return [];
+
+  const lines = content.split('\n');
+  const chunks: TextChunk[] = [];
+  let cursor = 1;
+
+  for (const symbol of symbols) {
+    if (symbol.startLine > cursor) {
+      const between = lines.slice(cursor - 1, symbol.startLine - 1).join('\n');
+      if (between.trim()) chunks.push(...chunkPlainText(between, maxChars));
+    }
+
+    const symbolContent = lines.slice(symbol.startLine - 1, symbol.endLine).join('\n');
+    for (const part of chunkPlainText(symbolContent, maxChars)) {
+      chunks.push({ ...part, heading: symbol.name, symbol: symbol.name, symbolKind: symbol.kind });
+    }
+
+    cursor = symbol.endLine + 1;
+  }
+
+  if (cursor <= lines.length) {
+    const trailing = lines.slice(cursor - 1).join('\n');
+    if (trailing.trim()) chunks.push(...chunkPlainText(trailing, maxChars));
+  }
+
+  return chunks;
 }
 
 export function chunkMarkdown(content: string, maxChars: number): TextChunk[] {

@@ -96,3 +96,43 @@ test('mcp memory_status tool reports provider and index status', () => {
     })
   );
 });
+
+test('mcp get_file_context tool defaults to the enclosing function for source files', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(cwd, async client => {
+      await writeFile(
+        path.join(cwd, 'app', 'thing.ts'),
+        ['export function outer() {', '  return 1;', '}'].join('\n')
+      );
+
+      const result = await client.callTool({
+        name: 'get_file_context',
+        arguments: { repo: 'app', path: 'thing.ts', line: 2 }
+      });
+      const context = firstTextPayload(result as never) as { symbol?: { name?: string }; startLine: number; endLine: number };
+      assert.equal(context.symbol?.name, 'outer');
+      assert.equal(context.startLine, 1);
+      assert.equal(context.endLine, 3);
+    })
+  );
+});
+
+test('mcp get_file_context tool mode "lines" bypasses symbol detection', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(cwd, async client => {
+      await writeFile(
+        path.join(cwd, 'app', 'thing.ts'),
+        ['export function outer() {', '  return 1;', '}'].join('\n')
+      );
+
+      const result = await client.callTool({
+        name: 'get_file_context',
+        arguments: { repo: 'app', path: 'thing.ts', line: 2, mode: 'lines', before: 0, after: 0 }
+      });
+      const context = firstTextPayload(result as never) as { symbol?: { name?: string }; startLine: number; endLine: number };
+      assert.equal(context.symbol, undefined);
+      assert.equal(context.startLine, 2);
+      assert.equal(context.endLine, 2);
+    })
+  );
+});

@@ -4,6 +4,7 @@ import {
   chunkDocument,
   chunkMarkdown,
   chunkPlainText,
+  chunkSourceCode,
   detectDiagramType,
   extractDiagramComponents,
   extractDiagramRelationships,
@@ -87,6 +88,63 @@ test('chunkDocument extracts Mermaid fenced blocks from Markdown as diagram chun
   assert.equal(chunks.length, 2);
   assert.equal(chunks[1].kind, 'architecture-diagram');
   assert.equal(chunks[1].diagramType, 'sequenceDiagram');
+});
+
+test('chunkSourceCode produces one chunk per top-level function, tagged with its symbol name', () => {
+  const content = [
+    'import path from "node:path";',
+    '',
+    'export function first() {',
+    '  return 1;',
+    '}',
+    '',
+    'export function second() {',
+    '  return 2;',
+    '}'
+  ].join('\n');
+
+  const chunks = chunkSourceCode(content, 1800);
+  const named = chunks.filter(c => c.symbol);
+  assert.deepEqual(named.map(c => c.symbol), ['first', 'second']);
+  assert.ok(named[0].content.includes('return 1;'));
+  assert.ok(named[1].content.includes('return 2;'));
+  assert.equal(named[0].symbolKind, 'function');
+});
+
+test('chunkSourceCode keeps a chunk with module-level code that sits outside any function', () => {
+  const content = [
+    'export const CONFIG_PATH = "ctxhub.yaml";',
+    '',
+    'export function load() {',
+    '  return CONFIG_PATH;',
+    '}'
+  ].join('\n');
+
+  const chunks = chunkSourceCode(content, 1800);
+  assert.ok(chunks.some(c => !c.symbol && c.content.includes('CONFIG_PATH = "ctxhub.yaml"')));
+  assert.ok(chunks.some(c => c.symbol === 'load'));
+});
+
+test('chunkSourceCode returns nothing when no recognizable symbols are found, so chunkDocument falls back to plain text', () => {
+  const content = 'export const A = 1;\nexport const B = 2;\n';
+  assert.deepEqual(chunkSourceCode(content, 1800), []);
+
+  const [chunk] = chunkDocument('src/constants.ts', content, 1800);
+  assert.equal(chunk.symbol, undefined);
+  assert.match(chunk.content, /A = 1/);
+});
+
+test('chunkDocument routes .ts files through symbol-aware chunking', () => {
+  const content = [
+    'export function greet(name: string) {',
+    '  return `hi ${name}`;',
+    '}'
+  ].join('\n');
+
+  const [chunk] = chunkDocument('src/greet.ts', content, 1800);
+  assert.equal(chunk.symbol, 'greet');
+  assert.equal(chunk.symbolKind, 'function');
+  assert.equal(chunk.heading, 'greet');
 });
 
 test('diagram helpers detect type, components, and relationships', () => {

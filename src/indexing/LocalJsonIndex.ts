@@ -85,6 +85,7 @@ export function lexicalSearch(documents: IndexedDocument[], query: string, limit
         document.repo,
         document.filePath,
         document.title,
+        document.symbol,
         document.components?.join(' '),
         document.relationships?.join(' '),
         document.content

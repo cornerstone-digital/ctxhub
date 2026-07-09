@@ -49,6 +49,8 @@ export type IndexedDocument = {
   diagramType?: string;
   components?: string[];
   relationships?: string[];
+  symbol?: string;
+  symbolKind?: 'function' | 'method' | 'class' | 'arrow';
   title?: string;
   content: string;
   redacted?: boolean;
