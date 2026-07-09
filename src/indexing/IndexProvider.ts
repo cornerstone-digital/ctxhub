@@ -6,6 +6,7 @@ export interface IndexProvider {
   removeDocuments(documentIds: string[]): Promise<void>;
   getDocument(documentId: string): Promise<IndexedDocument | undefined>;
   search(query: string, limit?: number): Promise<SearchResult[]>;
+  recent(limit?: number): Promise<IndexedDocument[]>;
   clear(): Promise<void>;
   status(): Promise<IndexStatus>;
 }

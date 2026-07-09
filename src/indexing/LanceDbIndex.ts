@@ -73,6 +73,15 @@ export class LanceDbIndex implements IndexProvider {
     }
   }
 
+  async recent(limit = 20): Promise<IndexedDocument[]> {
+    const table = await this.table();
+    const rows = await table.query().limit(10000).toArray();
+    return rows
+      .map(rowToDocument)
+      .sort((a, b) => b.lastIndexed.localeCompare(a.lastIndexed))
+      .slice(0, limit);
+  }
+
   async clear(): Promise<void> {
     await ensureDir(this.dbPath);
     const lancedb = await this.lancedb();

@@ -41,6 +41,13 @@ export class LocalJsonIndex implements IndexProvider {
     return lexicalSearch(Object.values(store.chunks), query, limit);
   }
 
+  async recent(limit = 20): Promise<IndexedDocument[]> {
+    const store = await this.load();
+    return Object.values(store.chunks)
+      .sort((a, b) => b.lastIndexed.localeCompare(a.lastIndexed))
+      .slice(0, limit);
+  }
+
   async status(): Promise<IndexStatus> {
     const store = await this.load();
     const documents = Object.values(store.chunks);
