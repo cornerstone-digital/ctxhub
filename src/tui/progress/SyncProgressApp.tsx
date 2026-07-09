@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import path from 'node:path';
 import { Box, Text, render, useApp } from 'ink';
 import { indexWorkspace, type IndexResult } from '../../indexing/indexer.js';
-import { loadConfig } from '../../config/config.js';
+import { loadWorkspaceConfig } from '../../config/config.js';
 import { pullRepo } from '../../git/git.js';
 import { RepoStatusList, type RepoStatus } from './RepoStatusList.js';
 import { applyIndexProgress } from './applyIndexProgress.js';
@@ -89,8 +90,8 @@ export async function runSyncWithProgress(
   cwd: string,
   noPull: boolean
 ): Promise<{ pullResults: RepoStatus[]; indexResults: RepoStatus[]; result: IndexResult }> {
-  const config = await loadConfig(cwd);
-  const repos = config.repositories.map(repo => ({ name: repo.name, path: repo.path }));
+  const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
+  const repos = config.repositories.map(repo => ({ name: repo.name, path: path.resolve(workspaceRoot, repo.path) }));
 
   let settledPull: RepoStatus[] = repos.map(repo => ({ name: repo.name, state: 'queued' }));
   let settledIndex: RepoStatus[] = repos.map(repo => ({ name: repo.name, state: 'queued' }));
@@ -100,7 +101,7 @@ export async function runSyncWithProgress(
   const instance = render(
     React.createElement(SyncProgressApp, {
       repos,
-      cwd,
+      cwd: workspaceRoot,
       noPull,
       pullFn: pullRepo,
       onSettled: (pullResults, indexResults, result) => {

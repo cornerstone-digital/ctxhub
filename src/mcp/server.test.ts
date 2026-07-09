@@ -86,6 +86,24 @@ test('mcp repo_list tool returns configured repositories', () => {
   );
 });
 
+test('mcp server discovers the parent workspace when launched from inside a configured repo', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(path.join(cwd, 'app'), async client => {
+      const result = await client.callTool({ name: 'repo_list', arguments: {} });
+      const repos = firstTextPayload(result as never) as Array<{ name: string; path: string }>;
+      assert.equal(repos.length, 1);
+      assert.equal(repos[0].name, 'app');
+
+      const fileResult = await client.callTool({
+        name: 'get_file_context',
+        arguments: { repo: 'app', path: 'README.md', line: 3, mode: 'lines', before: 0, after: 0 }
+      });
+      const context = firstTextPayload(fileResult as never) as { content: string };
+      assert.match(context.content, /Authentication flow/);
+    })
+  );
+});
+
 test('mcp memory_status tool reports provider and index status', () => {
   return withWorkspace(cwd =>
     withConnectedClient(cwd, async client => {

@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { parse, stringify } from 'smol-toml';
 import { pathExists, readText, writeText } from '../utils/fs.js';
-import { loadConfig } from '../config/config.js';
+import { loadConfig, loadWorkspaceConfig } from '../config/config.js';
 import { isMempalaceAvailable } from '../memory/LocalJsonMemory.js';
 
 export const MCP_CONFIG_FILE = '.mcp.json';
@@ -35,6 +35,10 @@ async function getMempalaceMcpEntry(cwd: string): Promise<{ command: string; arg
   return { command: 'mempalace-mcp', args: [] };
 }
 
+async function resolveAgentConfigRoot(cwd: string): Promise<string> {
+  return loadWorkspaceConfig(cwd).then(workspace => workspace.workspaceRoot).catch(() => cwd);
+}
+
 function mergeEntries(
   existing: Record<string, unknown> | undefined,
   entries: Record<string, unknown>
@@ -53,10 +57,11 @@ function mergeEntries(
 type McpConfigFile = { mcpServers?: Record<string, unknown> } & Record<string, unknown>;
 
 export async function writeClaudeMcpConfig(cwd = process.cwd()): Promise<AgentConfigResult> {
-  const configPath = path.join(cwd, MCP_CONFIG_FILE);
+  const configRoot = await resolveAgentConfigRoot(cwd);
+  const configPath = path.join(configRoot, MCP_CONFIG_FILE);
   const existing: McpConfigFile = (await pathExists(configPath)) ? JSON.parse(await readText(configPath)) : {};
 
-  const mempalace = await getMempalaceMcpEntry(cwd);
+  const mempalace = await getMempalaceMcpEntry(configRoot);
   const entries: Record<string, unknown> = { ctxhub: CLAUDE_CODEX_MCP_ENTRY };
   if (mempalace) entries.mempalace = mempalace;
 
@@ -75,10 +80,11 @@ const CODEX_TRUST_NOTE =
   'if Codex does not pick up the ctxhub server, trust this project in Codex first.';
 
 export async function writeCodexMcpConfig(cwd = process.cwd()): Promise<AgentConfigResult> {
-  const configPath = path.join(cwd, CODEX_CONFIG_FILE);
+  const configRoot = await resolveAgentConfigRoot(cwd);
+  const configPath = path.join(configRoot, CODEX_CONFIG_FILE);
   const existing: CodexConfigFile = (await pathExists(configPath)) ? (parse(await readText(configPath)) as CodexConfigFile) : {};
 
-  const mempalace = await getMempalaceMcpEntry(cwd);
+  const mempalace = await getMempalaceMcpEntry(configRoot);
   const entries: Record<string, unknown> = { ctxhub: CLAUDE_CODEX_MCP_ENTRY };
   if (mempalace) entries.mempalace = mempalace;
 
@@ -104,7 +110,8 @@ export async function writeCopilotMcpConfig(cwd = process.cwd()): Promise<AgentC
   const configPath = copilotConfigPath();
   const existing: McpConfigFile = (await pathExists(configPath)) ? JSON.parse(await readText(configPath)) : {};
 
-  const mempalace = await getMempalaceMcpEntry(cwd);
+  const configRoot = await resolveAgentConfigRoot(cwd);
+  const mempalace = await getMempalaceMcpEntry(configRoot);
   const entries: Record<string, unknown> = { ctxhub: COPILOT_MCP_ENTRY };
   if (mempalace) entries.mempalace = { type: 'local', ...mempalace, tools: ['*'] };
 
@@ -118,15 +125,16 @@ export async function writeCopilotMcpConfig(cwd = process.cwd()): Promise<AgentC
 }
 
 export async function readInstalledMcpEntry(agent: SupportedAgent, cwd = process.cwd()): Promise<unknown> {
+  const configRoot = await resolveAgentConfigRoot(cwd);
   if (agent === 'claude') {
-    const configPath = path.join(cwd, MCP_CONFIG_FILE);
+    const configPath = path.join(configRoot, MCP_CONFIG_FILE);
     if (!(await pathExists(configPath))) return undefined;
     const parsed: McpConfigFile = JSON.parse(await readText(configPath));
     return parsed.mcpServers?.ctxhub;
   }
 
   if (agent === 'codex') {
-    const configPath = path.join(cwd, CODEX_CONFIG_FILE);
+    const configPath = path.join(configRoot, CODEX_CONFIG_FILE);
     if (!(await pathExists(configPath))) return undefined;
     const parsed = parse(await readText(configPath)) as CodexConfigFile;
     return parsed.mcp_servers?.ctxhub;

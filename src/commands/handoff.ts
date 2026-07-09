@@ -1,6 +1,6 @@
 import path from 'node:path';
 import chalk from 'chalk';
-import { CACHE_DIR, loadConfig } from '../config/config.js';
+import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
 import type { SearchResult } from '../config/types.js';
 import { createContextPack } from '../context/pack.js';
 import { runGit } from '../git/git.js';
@@ -17,7 +17,7 @@ export type HandoffOptions = {
 type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
 
 export async function handoffCommand(topic: string, opts: HandoffOptions = {}) {
-  const config = await loadConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
   if (opts.repo && !config.repositories.some(repo => repo.name === opts.repo)) {
     throw new Error(`Repository not found: ${opts.repo}. Run: ctxhub repo list`);
   }
@@ -25,7 +25,7 @@ export async function handoffCommand(topic: string, opts: HandoffOptions = {}) {
   const limit = Number(opts.limit ?? 8);
   const pack = await createContextPack(opts.repo ? `${topic} ${opts.repo}` : topic, limit);
   const changed = opts.fromPr ? await collectChangedFiles(opts.base ?? 'origin/main') : {};
-  const outputPath = path.resolve(process.cwd(), opts.out ?? defaultHandoffPath(topic));
+  const outputPath = opts.out ? path.resolve(process.cwd(), opts.out) : path.resolve(workspaceRoot, defaultHandoffPath(topic));
 
   await writeText(outputPath, buildHandoffMarkdown({
     topic,
@@ -98,11 +98,11 @@ export function slugify(value: string): string {
 }
 
 async function collectChangedFiles(base: string): Promise<Record<string, string[]>> {
-  const config = await loadConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
   const changed = new Map<string, string[]>();
 
   for (const repo of config.repositories) {
-    const repoPath = path.resolve(process.cwd(), repo.path);
+    const repoPath = path.resolve(workspaceRoot, repo.path);
     try {
       const files = (await runGit(['diff', '--name-only', `${base}...HEAD`], repoPath)).split('\n').filter(Boolean);
       if (files.length) changed.set(repo.name, files);

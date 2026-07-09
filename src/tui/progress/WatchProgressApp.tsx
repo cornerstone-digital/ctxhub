@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, render } from 'ink';
 import { indexWorkspace } from '../../indexing/indexer.js';
-import { loadConfig } from '../../config/config.js';
+import { loadWorkspaceConfig } from '../../config/config.js';
 import { RepoStatusList, type RepoStatus } from './RepoStatusList.js';
 import { applyIndexProgress } from './applyIndexProgress.js';
 import type { IndexFn } from './IndexProgressApp.js';
@@ -103,8 +103,8 @@ export function WatchProgressApp({ repoNames, cwd, intervalMs, indexFn = indexWo
 }
 
 export async function runWatchWithProgress(cwd: string, intervalMs: number): Promise<void> {
-  const config = await loadConfig(cwd);
+  const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
   const repoNames = config.repositories.map(repo => repo.name);
-  const instance = render(React.createElement(WatchProgressApp, { repoNames, cwd, intervalMs }));
+  const instance = render(React.createElement(WatchProgressApp, { repoNames, cwd: workspaceRoot, intervalMs }));
   await instance.waitUntilExit();
 }

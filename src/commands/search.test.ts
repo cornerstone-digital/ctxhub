@@ -68,6 +68,33 @@ test('openCommand accepts the short id printed by searchCommand', () => {
   });
 });
 
+test('search and open work from inside a configured child repository', () => {
+  return withWorkspace(async cwd => {
+    process.chdir(path.join(cwd, 'app'));
+
+    const searchLines = await captureLog(() => searchCommand('authentication', {}));
+    assert.ok(searchLines.some(line => line.includes('app')));
+    assert.ok(searchLines.some(line => line.includes('README.md')));
+
+    const shortId = searchLines.join('\n').match(/open: ctxhub open ([a-f0-9]{12})/)?.[1];
+    assert.ok(shortId, 'expected search output to include a short open id');
+
+    const openLines = await captureLog(() => openCommand(shortId));
+    assert.ok(openLines.some(line => line.includes('Auth details live here.')));
+  });
+});
+
+test('indexWorkspace called from inside a child repository still updates the parent workspace index', () => {
+  return withWorkspace(async cwd => {
+    process.chdir(path.join(cwd, 'app'));
+    await writeFile(path.join(cwd, 'app', 'nested.md'), '# Nested\n\nIndexed from the child cwd.\n');
+
+    await indexWorkspace(process.cwd());
+    const lines = await captureLog(() => searchCommand('child cwd', {}));
+    assert.ok(lines.some(line => line.includes('nested.md')));
+  });
+});
+
 test('searchCommand throws a clear error with no query and no --interactive', () => {
   return withWorkspace(async () => {
     await assert.rejects(

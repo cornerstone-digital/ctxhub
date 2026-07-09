@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import path from 'node:path';
-import { loadConfig, saveConfig, findConfigPath, INDEX_DIR, CACHE_DIR, MEMORY_DIR } from '../config/config.js';
+import { loadWorkspaceConfig, saveConfig, findConfigPath, INDEX_DIR, CACHE_DIR, MEMORY_DIR } from '../config/config.js';
 import { defaultConfig } from '../config/defaultConfig.js';
 import { ensureDir, pathExists } from '../utils/fs.js';
 import { detectDrift } from '../utils/drift.js';
@@ -28,8 +28,8 @@ export async function doctorCommand(opts: DoctorFixOptions = {}) {
     return;
   }
 
-  const config = await loadConfig();
-  const checks = buildDoctorChecks(config, configPath);
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const checks = buildDoctorChecks(config, configPath, workspaceRoot);
 
   if (shouldUseInteractive(opts)) {
     const lines = await runDoctorChecklist(checks);
@@ -46,7 +46,7 @@ export async function doctorCommand(opts: DoctorFixOptions = {}) {
   const actions: FixAction[] = [];
 
   for (const dir of [INDEX_DIR, CACHE_DIR, MEMORY_DIR]) {
-    const fullPath = path.join(process.cwd(), dir);
+    const fullPath = path.join(workspaceRoot, dir);
     if (await pathExists(fullPath)) continue;
     actions.push({ description: `Create missing directory ${dir}`, apply: () => ensureDir(fullPath) });
   }

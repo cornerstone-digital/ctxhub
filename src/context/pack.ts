@@ -3,10 +3,10 @@ import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { attachFreshness } from './freshness.js';
 
 export async function createContextPack(query: string, limit = 8, cwd = process.cwd()) {
-  const { loadConfig } = await import('../config/config.js');
-  const config = await loadConfig(cwd);
-  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
-  const memory = createMemoryAdapter(config.memory.provider, config.memory.path, cwd);
+  const { loadWorkspaceConfig } = await import('../config/config.js');
+  const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
+  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+  const memory = createMemoryAdapter(config.memory.provider, config.memory.path, workspaceRoot);
   const [searchResults, architectureResults, memoryStatus, indexStatus] = await Promise.all([
     index.search(query, limit),
     index.search(`architecture diagram mermaid ${query}`, limit),
@@ -14,8 +14,8 @@ export async function createContextPack(query: string, limit = 8, cwd = process.
     index.status()
   ]);
 
-  const search = await attachFreshness(config, searchResults, cwd);
-  const architecture = (await attachFreshness(config, architectureResults, cwd))
+  const search = await attachFreshness(config, searchResults, workspaceRoot);
+  const architecture = (await attachFreshness(config, architectureResults, workspaceRoot))
     .filter(result => result.kind === 'architecture-diagram');
 
   return {

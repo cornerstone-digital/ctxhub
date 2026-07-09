@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, render, useApp } from 'ink';
 import { indexWorkspace, type IndexProgressEvent, type IndexResult } from '../../indexing/indexer.js';
-import { loadConfig } from '../../config/config.js';
+import { loadWorkspaceConfig } from '../../config/config.js';
 import { RepoStatusList, type RepoStatus } from './RepoStatusList.js';
 import { applyIndexProgress } from './applyIndexProgress.js';
 
@@ -62,7 +62,7 @@ export function IndexProgressApp({ repoNames, cwd, force, indexFn = indexWorkspa
 }
 
 export async function runIndexWithProgress(cwd: string, force: boolean): Promise<{ result: IndexResult; repos: RepoStatus[] }> {
-  const config = await loadConfig(cwd);
+  const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
   const repoNames = config.repositories.map(repo => repo.name);
 
   let settledRepos: RepoStatus[] = repoNames.map(name => ({ name, state: 'queued' }));
@@ -72,7 +72,7 @@ export async function runIndexWithProgress(cwd: string, force: boolean): Promise
   const instance = render(
     React.createElement(IndexProgressApp, {
       repoNames,
-      cwd,
+      cwd: workspaceRoot,
       force,
       onSettled: (repos, result) => {
         settledRepos = repos;

@@ -2,7 +2,7 @@
 description: Search across every repo in this multi-repo workspace — including ones not currently open — before answering questions about how existing code or services work, architecture, which repo owns what, or why a past decision was made. Provides search, architecture_search, architecture_map, memory_status, and repo_list.
 ---
 
-This workspace uses `ctxhub` (see `ctxhub.yaml` / `.ctxhub/config.yaml`) to index documentation and source across *all* of its configured repos, not just the one you happen to have open.
+This workspace uses `ctxhub` (see `ctxhub.yaml` / `.ctxhub/config.yaml`) to index documentation and source across *all* of its configured repos, not just the one you happen to have open. ctxhub discovers the nearest config by walking upward from the current directory, so it still works when the agent is launched from inside one configured repo within a larger workspace.
 
 ## When to use this
 

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import type { RepoConfig } from '../config/types.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { pathExists, readText } from '../utils/fs.js';
@@ -22,13 +22,13 @@ export type DriftFinding = {
 };
 
 export async function graphCommand(opts: { json?: boolean; drift?: boolean; failOnDrift?: boolean; plain?: boolean; interactive?: boolean } = {}) {
-  const config = await loadConfig();
-  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table);
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
   const diagrams = (await index.search('architecture diagram mermaid', 100)).filter(result => result.kind === 'architecture-diagram');
   const packages: GraphPackage[] = [];
 
   for (const repo of config.repositories) {
-    const packagePath = path.resolve(process.cwd(), repo.path, 'package.json');
+    const packagePath = path.resolve(workspaceRoot, repo.path, 'package.json');
     if (await pathExists(packagePath)) {
       const parsed = JSON.parse(await readText(packagePath)) as { name?: string; dependencies?: Record<string, string> };
       packages.push({ repo: repo.name, package: parsed.name, dependencies: Object.keys(parsed.dependencies ?? {}) });

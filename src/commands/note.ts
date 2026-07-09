@@ -1,6 +1,6 @@
 import path from 'node:path';
 import chalk from 'chalk';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import { pathExists, writeText } from '../utils/fs.js';
 
 export const NOTES_DIR = 'agent-notes';
@@ -37,7 +37,7 @@ Not for this: anything personal/session-specific that doesn't need review -- use
 }
 
 export async function noteAddCommand(repoName: string, title: string, opts: { agent?: string } = {}) {
-  const config = await loadConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
   const repo = config.repositories.find(r => r.name === repoName);
   if (!repo) {
     throw new Error(`Repository not found: ${repoName}. Run: ctxhub repo list`);
@@ -46,7 +46,7 @@ export async function noteAddCommand(repoName: string, title: string, opts: { ag
   const slug = slugify(title);
   const date = todayIsoDate();
   const fileName = `${date}-${slug}.md`;
-  const notePath = path.join(process.cwd(), repo.path, NOTES_DIR, fileName);
+  const notePath = path.join(workspaceRoot, repo.path, NOTES_DIR, fileName);
 
   if (await pathExists(notePath)) {
     throw new Error(`${notePath} already exists.`);

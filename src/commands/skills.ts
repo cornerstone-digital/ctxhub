@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import { readText, writeText } from '../utils/fs.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 
 export const SUPPORTED_SKILL_AGENTS = ['claude', 'codex', 'copilot', 'cursor'] as const;
 export type SkillAgent = (typeof SUPPORTED_SKILL_AGENTS)[number];
@@ -78,7 +79,7 @@ export async function skillsInstallCommand(agents: string[] = []) {
     }
   }
 
-  const cwd = process.cwd();
+  const cwd = await loadWorkspaceConfig().then(workspace => workspace.workspaceRoot).catch(() => process.cwd());
   for (const agent of targets) {
     for (const { id, source, target } of SKILL_TEMPLATES.filter(t => t.agent === agent)) {
       const destination = target(cwd);

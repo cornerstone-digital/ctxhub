@@ -20,3 +20,5 @@ The text typed after `/ctxhub-search` **is** the search query. Assume you always
 2. Otherwise, run: `ctxhub search --plain "<query>"` on the command line.
 3. Report which repo and file each result came from, with the relevant snippet — don't just paste raw tool output.
 4. If nothing relevant comes back, say so plainly rather than guessing an answer from unrelated context; suggest `ctxhub sync --plain` if the results seem like they might be stale.
+
+The CLI and MCP server discover the nearest ctxhub config by walking upward from the current directory, so this works even when the agent was launched inside a configured child repo rather than at the workspace root.

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import type { CtxhubConfig } from '../config/types.js';
 import { getCurrentCommit } from '../git/git.js';
 import { getPackageVersion } from '../utils/version.js';
@@ -28,8 +28,8 @@ export async function createContextPackArtifact(
   opts: { includeAbsolutePaths?: boolean; cwd?: string } = {}
 ): Promise<ContextPackArtifact> {
   const cwd = opts.cwd ?? process.cwd();
-  const config = await loadConfig(cwd);
-  const repoHeads = await collectRepoHeads(config, cwd);
+  const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
+  const repoHeads = await collectRepoHeads(config, workspaceRoot);
 
   return {
     schemaVersion: 1,
@@ -37,7 +37,7 @@ export async function createContextPackArtifact(
     exportedAt: new Date().toISOString(),
     query: pack.query,
     workspace: pack.workspace,
-    cwd: opts.includeAbsolutePaths ? cwd : undefined,
+    cwd: opts.includeAbsolutePaths ? workspaceRoot : undefined,
     repoHeads,
     pack: opts.includeAbsolutePaths ? pack : stripAbsolutePaths(pack)
   };
@@ -48,8 +48,9 @@ export async function replayFreshnessForArtifact(
   cwd = process.cwd()
 ): Promise<ReplayFreshness[]> {
   let config: CtxhubConfig;
+  let workspaceRoot: string;
   try {
-    config = await loadConfig(cwd);
+    ({ config, workspaceRoot } = await loadWorkspaceConfig(cwd));
   } catch {
     return Object.entries(artifact.repoHeads).map(([repo, exportedCommit]) => ({
       repo,
@@ -59,7 +60,7 @@ export async function replayFreshnessForArtifact(
     }));
   }
 
-  const currentHeads = await collectRepoHeads(config, cwd);
+  const currentHeads = await collectRepoHeads(config, workspaceRoot);
   return Object.entries(artifact.repoHeads).map(([repo, exportedCommit]) => {
     const currentCommit = currentHeads[repo];
     return {

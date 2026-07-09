@@ -4,7 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import yaml from 'js-yaml';
-import { findConfigPath, initConfig, loadConfig, LOCAL_CONFIG_PATH, PROJECT_CONFIG_PATH, saveConfig } from './config.js';
+import {
+  findConfigPath,
+  initConfig,
+  loadConfig,
+  loadWorkspaceConfig,
+  LOCAL_CONFIG_PATH,
+  PROJECT_CONFIG_PATH,
+  saveConfig,
+  workspaceRootForConfig
+} from './config.js';
 import { defaultConfig } from './defaultConfig.js';
 
 async function withTempCwd(run: (cwd: string) => Promise<void>) {
@@ -25,6 +34,36 @@ test('findConfigPath prefers ctxhub.yaml over .ctxhub/config.yaml', () => {
     const found = await findConfigPath(cwd);
     assert.equal(found, path.join(cwd, LOCAL_CONFIG_PATH));
   });
+});
+
+test('findConfigPath crawls upward from nested repository folders', () => {
+  return withTempCwd(async cwd => {
+    await writeFile(path.join(cwd, LOCAL_CONFIG_PATH), 'version: 1\n');
+    const nested = path.join(cwd, 'repos', 'app', 'src');
+    await mkdir(nested, { recursive: true });
+
+    const found = await findConfigPath(nested);
+    assert.equal(found, path.join(cwd, LOCAL_CONFIG_PATH));
+  });
+});
+
+test('loadWorkspaceConfig returns the config path and workspace root', () => {
+  return withTempCwd(async cwd => {
+    await initConfig('my-ws', cwd);
+    const nested = path.join(cwd, 'app');
+    await mkdir(nested);
+
+    const workspace = await loadWorkspaceConfig(nested);
+    assert.equal(workspace.config.workspace.name, 'my-ws');
+    assert.equal(workspace.configPath, path.join(cwd, PROJECT_CONFIG_PATH));
+    assert.equal(workspace.workspaceRoot, cwd);
+  });
+});
+
+test('workspaceRootForConfig treats ctxhub.yaml and .ctxhub/config.yaml as workspace configs', () => {
+  const cwd = path.join(os.tmpdir(), 'ctxhub-config-root');
+  assert.equal(workspaceRootForConfig(path.join(cwd, LOCAL_CONFIG_PATH)), cwd);
+  assert.equal(workspaceRootForConfig(path.join(cwd, PROJECT_CONFIG_PATH)), cwd);
 });
 
 test('loadConfig merges a partial config over defaults', () => {
@@ -80,6 +119,18 @@ test('initConfig creates the workspace directories and a project config', () => 
 
     const config = await loadConfig(cwd);
     assert.equal(config.workspace.name, 'my-ws');
+  });
+});
+
+test('initConfig does not overwrite a parent config when run from a nested folder', () => {
+  return withTempCwd(async cwd => {
+    await initConfig('parent', cwd);
+    const nested = path.join(cwd, 'nested');
+    await mkdir(nested);
+    await initConfig('child', nested);
+
+    assert.equal((await loadConfig(cwd)).workspace.name, 'parent');
+    assert.equal((await loadConfig(nested)).workspace.name, 'child');
   });
 });
 

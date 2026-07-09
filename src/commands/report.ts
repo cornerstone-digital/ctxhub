@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
-import { CACHE_DIR, loadConfig } from '../config/config.js';
+import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { attachFreshness } from '../context/freshness.js';
 import { writeText } from '../utils/fs.js';
@@ -11,8 +11,8 @@ const RECENT_LIMIT = 40;
 
 export async function reportCommand(opts: { output?: string; open?: boolean; plain?: boolean; interactive?: boolean } = {}) {
   const cwd = process.cwd();
-  const config = await loadConfig(cwd);
-  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
+  const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
+  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
   const [status, diagramResults, recentDocs] = await Promise.all([
     index.status(),
     index.search('architecture diagram mermaid', 100),
@@ -25,10 +25,10 @@ export async function reportCommand(opts: { output?: string; open?: boolean; pla
     score: 0,
     snippet: doc.content.replace(/\s+/g, ' ').trim().slice(0, 240)
   }));
-  const recent = await attachFreshness(config, recentAsResults, cwd);
+  const recent = await attachFreshness(config, recentAsResults, workspaceRoot);
   const stale = recent.filter(result => result.freshness?.stale);
 
-  const output = path.resolve(cwd, opts.output ?? path.join(CACHE_DIR, 'report.html'));
+  const output = opts.output ? path.resolve(cwd, opts.output) : path.resolve(workspaceRoot, CACHE_DIR, 'report.html');
 
   const items = [
     ...architecture.map(item => ({

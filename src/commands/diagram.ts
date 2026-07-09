@@ -1,6 +1,6 @@
 import path from 'node:path';
 import chalk from 'chalk';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import { pathExists, writeText } from '../utils/fs.js';
 
 const DEFAULT_DIAGRAM_DIR = path.join('docs', 'architecture');
@@ -34,7 +34,7 @@ export async function diagramAddCommand(
   title: string,
   opts: { agent?: string; dir?: string; type?: string } = {}
 ) {
-  const config = await loadConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
   const repo = config.repositories.find(r => r.name === repoName);
   if (!repo) {
     throw new Error(`Repository not found: ${repoName}. Run: ctxhub repo list`);
@@ -43,7 +43,7 @@ export async function diagramAddCommand(
   const date = todayIsoDate();
   const fileName = `${date}-${slugify(title)}.mmd`;
   const diagramDir = opts.dir ?? DEFAULT_DIAGRAM_DIR;
-  const diagramPath = path.join(process.cwd(), repo.path, diagramDir, fileName);
+  const diagramPath = path.join(workspaceRoot, repo.path, diagramDir, fileName);
 
   if (await pathExists(diagramPath)) {
     throw new Error(`${diagramPath} already exists.`);

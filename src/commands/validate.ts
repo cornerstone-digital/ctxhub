@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fg from 'fast-glob';
 import chalk from 'chalk';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import { pathExists, readText } from '../utils/fs.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 
@@ -10,13 +10,13 @@ const markdownLinkPattern = /\[[^\]]+\]\(([^)]+)\)/g;
 const mermaidDeclarationPattern = /\b(flowchart|graph|sequenceDiagram|classDiagram|erDiagram|stateDiagram|stateDiagram-v2|C4Context|C4Container|C4Component)\b/;
 
 export async function validateDocsCommand(opts: { json?: boolean; strictDiagrams?: boolean; plain?: boolean; interactive?: boolean } = {}) {
-  const config = await loadConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
   const issues: ValidationIssue[] = [];
   const knownComponents = new Set(config.repositories.map(repo => repo.name.toLowerCase()));
   let scanned = 0;
 
   for (const repo of config.repositories) {
-    const repoPath = path.resolve(process.cwd(), repo.path);
+    const repoPath = path.resolve(workspaceRoot, repo.path);
     if (!(await pathExists(repoPath))) continue;
     const files = await fg(['**/*.md', '**/*.mmd', '**/*.mermaid'], {
       cwd: repoPath,

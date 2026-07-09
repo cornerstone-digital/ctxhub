@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import ora from 'ora';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import { indexWorkspace, type IndexResult } from '../indexing/indexer.js';
 import { runConfiguredHook } from '../utils/hooks.js';
 import { runIndexWithProgress } from '../tui/progress/IndexProgressApp.js';
@@ -33,6 +33,6 @@ export async function indexCommand(opts: { force?: boolean; interactive?: boolea
     printSummary(result);
   }
 
-  const config = await loadConfig();
+  const { config } = await loadWorkspaceConfig();
   await runConfiguredHook(config, 'postIndex');
 }

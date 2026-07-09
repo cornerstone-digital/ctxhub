@@ -28,7 +28,7 @@ export const CHECK_LABELS: Record<string, string> = {
 
 // Order matches the original sequential doctorCommand implementation exactly, so the
 // non-TTY (plain console.log) rendering path stays byte-for-byte identical.
-export function buildDoctorChecks(config: CtxhubConfig, configPath: string): DoctorCheck[] {
+export function buildDoctorChecks(config: CtxhubConfig, configPath: string, workspaceRoot = process.cwd()): DoctorCheck[] {
   return [
     {
       id: 'node',
@@ -90,7 +90,7 @@ export function buildDoctorChecks(config: CtxhubConfig, configPath: string): Doc
       id: 'index-directory',
       run: async () => {
         try {
-          await ensureDir(path.join(process.cwd(), INDEX_DIR));
+          await ensureDir(path.join(workspaceRoot, INDEX_DIR));
           return [{ status: 'ok', message: 'Index directory writable' }];
         } catch (error) {
           return [{ status: 'error', message: `Index directory not writable: ${(error as Error).message}` }];
@@ -101,7 +101,7 @@ export function buildDoctorChecks(config: CtxhubConfig, configPath: string): Doc
       id: 'index-provider',
       run: async () => {
         try {
-          const index = createIndexProvider(config.index.provider, config.index.path, config.index.table);
+          const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
           await index.status();
           return [{ status: 'ok', message: `Index provider available: ${config.index.provider}` }];
         } catch (error) {
@@ -113,7 +113,7 @@ export function buildDoctorChecks(config: CtxhubConfig, configPath: string): Doc
       id: 'memory-provider',
       run: async () => {
         try {
-          const memory = createMemoryAdapter(config.memory.provider, config.memory.path);
+          const memory = createMemoryAdapter(config.memory.provider, config.memory.path, workspaceRoot);
           await memory.status();
           return [{ status: 'ok', message: `Memory provider available: ${config.memory.provider}` }];
         } catch (error) {
@@ -126,14 +126,15 @@ export function buildDoctorChecks(config: CtxhubConfig, configPath: string): Doc
       run: async () => {
         const lines: CheckLine[] = [];
         for (const repo of config.repositories) {
-          const exists = await pathExists(repo.path);
+          const repoPath = path.resolve(workspaceRoot, repo.path);
+          const exists = await pathExists(repoPath);
           if (!exists) {
             lines.push({ status: 'error', message: `${repo.name}: path missing ${repo.path}` });
             continue;
           }
 
-          const git = await isGitRepo(repo.path);
-          const commit = git ? await getCurrentCommit(repo.path) : undefined;
+          const git = await isGitRepo(repoPath);
+          const commit = git ? await getCurrentCommit(repoPath) : undefined;
           lines.push(
             git
               ? { status: 'ok', message: `${repo.name}: ${commit?.slice(0, 7) ?? 'no commit'}` }

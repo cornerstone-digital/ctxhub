@@ -2,7 +2,7 @@ import path from 'node:path';
 import fg from 'fast-glob';
 import type { IndexedChunk, RepoConfig } from '../config/types.js';
 import { loadManifest, manifestKey, saveManifest } from './manifest.js';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from './providers.js';
 import { pathExists, readText } from '../utils/fs.js';
 import { sha256 } from '../utils/hash.js';
@@ -35,15 +35,15 @@ export async function indexWorkspace(
   force = false,
   onProgress?: (event: IndexProgressEvent) => void
 ): Promise<IndexResult> {
-  const config = await loadConfig(cwd);
-  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
-  const manifest = await loadManifest(config.workspace.name, cwd);
+  const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
+  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+  const manifest = await loadManifest(config.workspace.name, workspaceRoot);
 
   const result: IndexResult = { scanned: 0, indexed: 0, skipped: 0, deleted: 0 };
   const seenKeys = new Set<string>();
 
   for (const repo of config.repositories) {
-    const repoPath = path.resolve(cwd, repo.path);
+    const repoPath = path.resolve(workspaceRoot, repo.path);
     if (!(await pathExists(repoPath))) {
       onProgress?.({ type: 'repo-missing', repo: repo.name });
       continue;
@@ -129,6 +129,6 @@ export async function indexWorkspace(
     }
   }
 
-  await saveManifest(manifest, cwd);
+  await saveManifest(manifest, workspaceRoot);
   return result;
 }

@@ -1,7 +1,8 @@
+import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { createContextPack } from '../context/pack.js';
@@ -12,6 +13,10 @@ import { getPackageVersion } from '../utils/version.js';
 
 function textResult(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
+}
+
+async function workspace(cwd: string) {
+  return loadWorkspaceConfig(cwd);
 }
 
 export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean } = {}): McpServer {
@@ -33,8 +38,8 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       }
     },
     async ({ query, limit }) => {
-      const config = await loadConfig(cwd);
-      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
+      const { config, workspaceRoot } = await workspace(cwd);
+      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const results = await index.search(query, limit ?? 5);
       return textResult(results);
     }
@@ -63,8 +68,8 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       }
     },
     async ({ id }) => {
-      const config = await loadConfig(cwd);
-      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
+      const { config, workspaceRoot } = await workspace(cwd);
+      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const document = await index.getDocument(id);
       return textResult(document ?? { error: `Chunk not found: ${id}` });
     }
@@ -92,8 +97,8 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       }
     },
     async ({ repo, path, line, before, after, mode }) => {
-      const config = await loadConfig(cwd);
-      return textResult(await getFileContext(config, repo, path, { line, before, after, mode }, cwd));
+      const { config, workspaceRoot } = await workspace(cwd);
+      return textResult(await getFileContext(config, repo, path, { line, before, after, mode }, workspaceRoot));
     }
   );
 
@@ -108,9 +113,9 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       inputSchema: {}
     },
     async () => {
-      const config = await loadConfig(cwd);
-      const memory = createMemoryAdapter(config.memory.provider, config.memory.path, cwd);
-      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
+      const { config, workspaceRoot } = await workspace(cwd);
+      const memory = createMemoryAdapter(config.memory.provider, config.memory.path, workspaceRoot);
+      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const [memoryStatus, indexStatus] = await Promise.all([memory.status(), index.status()]);
       return textResult({ memory: memoryStatus, index: indexStatus });
     }
@@ -139,10 +144,10 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
         }
       },
       async ({ noPull }) => {
-        const config = await loadConfig(cwd);
+        const { config, workspaceRoot } = await workspace(cwd);
         if (!noPull) {
           for (const repo of config.repositories) {
-            await pullRepo(repo.path).catch(() => undefined);
+            await pullRepo(path.resolve(workspaceRoot, repo.path)).catch(() => undefined);
           }
         }
         return textResult(await indexWorkspace(cwd));
@@ -163,8 +168,8 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       }
     },
     async ({ query, limit }) => {
-      const config = await loadConfig(cwd);
-      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
+      const { config, workspaceRoot } = await workspace(cwd);
+      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const results = (await index.search(`architecture diagram mermaid ${query}`, limit ?? 10))
         .filter(result => result.kind === 'architecture-diagram')
         .slice(0, limit ?? 5);
@@ -184,8 +189,8 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       }
     },
     async ({ query }) => {
-      const config = await loadConfig(cwd);
-      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
+      const { config, workspaceRoot } = await workspace(cwd);
+      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const results = (await index.search(query ? `architecture diagram mermaid ${query}` : 'architecture diagram mermaid', 50))
         .filter(result => result.kind === 'architecture-diagram');
       const components = [...new Set(results.flatMap(result => result.components ?? []))].sort();
@@ -215,7 +220,7 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       inputSchema: {}
     },
     async () => {
-      const config = await loadConfig(cwd);
+      const { config } = await workspace(cwd);
       return textResult(config.repositories);
     }
   );

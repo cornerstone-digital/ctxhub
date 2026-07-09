@@ -2,7 +2,7 @@ import path from 'node:path';
 import { chmod } from 'node:fs/promises';
 import chalk from 'chalk';
 import fg from 'fast-glob';
-import { loadConfig, saveConfig } from '../config/config.js';
+import { loadWorkspaceConfig, saveConfig } from '../config/config.js';
 import type { CtxhubConfig } from '../config/types.js';
 import { getRepoName, isGitRepo } from '../git/git.js';
 import { pathExists, writeText } from '../utils/fs.js';
@@ -16,7 +16,7 @@ export type DiscoveredRepo = {
 };
 
 export async function repoAddCommand(name: string, repoPath: string) {
-  const config = await loadConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
   if (config.repositories.some(r => r.name === name)) {
     throw new Error(`Repository already exists: ${name}`);
   }
@@ -27,14 +27,15 @@ export async function repoAddCommand(name: string, repoPath: string) {
   }
 
   const git = await isGitRepo(absolutePath);
-  config.repositories.push({ name, path: repoPath, git });
+  const configPath = path.relative(workspaceRoot, absolutePath) || '.';
+  config.repositories.push({ name, path: configPath, git });
   await saveConfig(config);
-  console.log(chalk.green(`Added repo ${name} -> ${repoPath}`));
+  console.log(chalk.green(`Added repo ${name} -> ${configPath}`));
   console.log(git ? chalk.gray('Git repository detected') : chalk.yellow('Path added, but it is not a Git repository'));
 }
 
 export async function repoListCommand() {
-  const config = await loadConfig();
+  const { config } = await loadWorkspaceConfig();
   if (!config.repositories.length) {
     console.log(chalk.yellow('No repositories configured.'));
     return;
@@ -47,8 +48,9 @@ export async function repoListCommand() {
 }
 
 export async function repoDiscoverCommand(root = '.', opts: { interactive?: boolean; plain?: boolean } = {}) {
-  const config = await loadConfig();
-  const discovered = await discoverRepositories(root, config);
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const discoveryRoot = path.resolve(process.cwd(), root);
+  const discovered = await discoverRepositoriesFromRoot(discoveryRoot, config, workspaceRoot);
   const newRepos = discovered.filter(repo => repo.state === 'new');
   const skipped = discovered.length - newRepos.length;
 
@@ -82,10 +84,15 @@ export async function repoDiscoverCommand(root = '.', opts: { interactive?: bool
 }
 
 export async function discoverRepositories(root: string, config: CtxhubConfig): Promise<DiscoveredRepo[]> {
+  return discoverRepositoriesFromRoot(root, config, root);
+}
+
+async function discoverRepositoriesFromRoot(root: string, config: CtxhubConfig, workspaceRoot: string): Promise<DiscoveredRepo[]> {
   const gitDirs = await fg('**/.git', { cwd: root, onlyDirectories: true, ignore: ['**/node_modules/**', '**/dist/**'] });
   return gitDirs.map(gitDir => {
-    const repoPath = path.dirname(path.join(root, gitDir));
-    const name = getRepoName(repoPath);
+    const absoluteRepoPath = path.dirname(path.join(root, gitDir));
+    const repoPath = path.relative(workspaceRoot, absoluteRepoPath) || '.';
+    const name = getRepoName(absoluteRepoPath);
     return {
       name,
       path: repoPath,
@@ -106,13 +113,13 @@ export function postCommitHookScript(workspaceRoot: string, cliEntryPath: string
 }
 
 export async function repoHookCommand(name: string, opts: { force?: boolean } = {}) {
-  const config = await loadConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
   const repo = config.repositories.find(r => r.name === name);
   if (!repo) {
     throw new Error(`Repository not found: ${name}`);
   }
 
-  const repoAbsolutePath = path.resolve(process.cwd(), repo.path);
+  const repoAbsolutePath = path.resolve(workspaceRoot, repo.path);
   if (!(await isGitRepo(repoAbsolutePath))) {
     throw new Error(`${name} is not a Git repository: ${repo.path}`);
   }
@@ -122,7 +129,7 @@ export async function repoHookCommand(name: string, opts: { force?: boolean } = 
     throw new Error(`${hookPath} already exists. Use --force to overwrite.`);
   }
 
-  const script = postCommitHookScript(process.cwd(), process.argv[1], name);
+  const script = postCommitHookScript(workspaceRoot, process.argv[1], name);
   await writeText(hookPath, script);
   await chmod(hookPath, 0o755);
 

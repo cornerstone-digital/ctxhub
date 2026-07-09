@@ -63,7 +63,7 @@ Run this once in the folder containing your multi-repo workspace (a parent direc
 - The index stays current however you set it up during onboarding: an automatic `post-commit` git hook per repo, or a manual `ctxhub sync` (which also pulls each repo first; use `ctxhub sync --no-pull` when you only want to re-index).
 - Learned something worth remembering? Two different paths depending on who it's for — see [Two kinds of agent memory](#two-kinds-of-agent-memory): personal/session notes go to MemPalace (already wired up by `ctxhub agent <name>` if configured), team-shared notes go through `ctxhub note add <repo> "<title>"` and a normal PR.
 
-**Worked example**, inside a Claude Code session at the workspace root, no CLI commands typed:
+**Worked example**, inside a Claude Code session at the workspace root or inside any configured child repo, no CLI commands typed:
 
 > **You**: How does the webhook receiver authenticate before invoking the notifications service?
 >
@@ -102,7 +102,7 @@ ctxhub skills install
 - `.ctxhub/cache/`
 - `.ctxhub/memory/`
 
-Config is discovered from `ctxhub.yaml` first, then `.ctxhub/config.yaml`.
+Config is discovered by walking upward from the current directory. At each directory, ctxhub checks `ctxhub.yaml` first, then `.ctxhub/config.yaml`; the directory containing that config becomes the workspace root for repo paths, index files, reports, hooks, skills, and MCP agent config. This means you can run `ctxhub search`, `ctxhub index`, or an agent-launched `ctxhub mcp` from inside `my-workspace/some-repo/` and it will still use the parent workspace index. `ctxhub init` is the exception: it intentionally creates a new config in the exact directory where you run it.
 
 By default, `ctxhub search` uses the LanceDB-backed project index. MemPalace is configured separately as the durable agent memory layer so Claude/Codex/MCP clients can recall project decisions and session history without mixing that data into the source/document index.
 
@@ -195,8 +195,8 @@ ctxhub eval --json            # CI-friendly eval payload
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
 - `ctxhub doctor [--fix] [--dry-run] [--fix-skills] [--fix-agent <name>]`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version. In a real terminal it renders a live checklist before printing the final lines; use `--plain` for script-friendly output. `--fix` applies safe, low-risk repairs (missing `.ctxhub` directories, default `privacy.redactPatterns`); `--dry-run` previews those changes without writing anything; `--fix-skills`/`--fix-agent <name>` are separate opt-in flags for the more invasive fixes (reinstalling stale skill files, refreshing an agent's MCP config), since those overwrite files you may have installed deliberately.
 - `ctxhub mcp`: start an MCP server (stdio) exposing read-only context tools for AI agents (`--allow-index` adds opt-in mutating index/sync tools).
-- `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config). Also wires up MemPalace's own MCP server alongside ctxhub's when configured and available.
-- `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
+- `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) at the discovered workspace root and launch it (`--no-launch` to only write the config). Also wires up MemPalace's own MCP server alongside ctxhub's when configured and available.
+- `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` at the discovered workspace root (default: all four).
 - `ctxhub note add <repo> "<title>" [--agent <name>]`: scaffold a dated, consistently-formatted note file under `<repo>/agent-notes/` for anything worth a teammate seeing in a PR (see [Two kinds of agent memory](#two-kinds-of-agent-memory)).
 - `ctxhub diagram add <repo> "<title>" [--agent <name>]`: scaffold a dated Mermaid `.mmd` architecture diagram under `<repo>/docs/architecture/` for reviewable team architecture context.
 - `ctxhub graph [--json|--drift]`: summarize workspace components and relationships from indexed diagrams plus package metadata; `--drift` flags missing or unknown architecture references and `--fail-on-drift` makes those findings CI-failing.
@@ -208,6 +208,8 @@ The default config excludes `.env` files and redacts common secret-looking value
 ## MCP server
 
 `ctxhub mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server over stdio, so MCP-native clients (Claude Desktop, Claude Code, Cursor, etc.) can query the workspace index as structured tools instead of shelling out and parsing terminal output.
+
+The server uses the same upward config discovery as the CLI. If an agent launches it while the current working directory is `my-workspace/some-repo`, ctxhub climbs to `my-workspace/ctxhub.yaml` or `my-workspace/.ctxhub/config.yaml`, then resolves all configured repo/index paths from that workspace root.
 
 Tools exposed:
 
@@ -245,6 +247,8 @@ Indexed TS/JS/JSX source is chunked by top-level function/method/class instead o
 ## Launching an agent
 
 `ctxhub agent <claude|codex|copilot>` writes (or merges into) that agent's MCP config to register the `ctxhub` MCP server, then launches the agent in the current directory so it picks the server up immediately. Pass `--no-launch` to only write the config without starting the agent — useful in CI, or if you'd rather launch it yourself.
+
+When a ctxhub config is discoverable above the current directory, project-scoped agent config is written at that workspace root. For example, running `ctxhub agent claude --no-launch` from `my-workspace/api-service` updates `my-workspace/.mcp.json`, not `my-workspace/api-service/.mcp.json`. Launching the agent from the child repo still works because `ctxhub mcp` also climbs back to the workspace config.
 
 If `memory.provider: mempalace` (the default) and the `mempalace` CLI is actually installed, this also wires up MemPalace's own MCP server (`mempalace-mcp`) alongside ctxhub's, in the same config file — see [Two kinds of agent memory](#two-kinds-of-agent-memory) for why. Skipped silently if MemPalace isn't installed, or if `memory.provider` is `local-json`.
 
@@ -305,6 +309,8 @@ Architecture diagrams use the same team-shared path. `ctxhub diagram add <repo> 
 - **`ctxhub-search`** — explicit, on-demand search. In Claude Code and Codex this is invoked directly as `/ctxhub-search <query>`, with `$ARGUMENTS` handling in the skill body so the typed query is unambiguous rather than left to the model's interpretation — the same pattern spec-kit's own commands use. Codex may show this via a `/skills` picker or `$ctxhub-search` rather than an identical `/name` syntax; worth checking your Codex version.
 
 This complements the MCP server (which grants tool access) with usage guidance (which nudges *when* and *how* to use it), and still helps agents that don't have the MCP server wired up, since it also documents the plain CLI commands. Run with no arguments to install both skills for all four agents; name specific agents (e.g. `ctxhub skills install claude cursor`) to limit it.
+
+Skills are project-scoped files. If a ctxhub config is discoverable above your current directory, `ctxhub skills install` writes them at that workspace root, so running it from `my-workspace/api-service` installs `my-workspace/.claude/skills/...`, `my-workspace/.agents/skills/...`, and the equivalent prompt files. No symlinks are needed for that project-scoped layout. If your agent runtime is configured to load only a separate global skills directory, install or link the same template files there as an environment-specific extra step.
 
 The templates themselves live in this repo under [`skills/`](./skills/) and are plain, static files — copy them in by hand instead of running the command if you'd rather not install the CLI at all:
 

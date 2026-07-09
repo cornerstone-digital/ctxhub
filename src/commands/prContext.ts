@@ -1,16 +1,16 @@
 import path from 'node:path';
 import chalk from 'chalk';
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import { runGit } from '../git/git.js';
 import { createContextPack } from '../context/pack.js';
 
 export async function prContextCommand(opts: { base?: string; json?: boolean; limit?: string } = {}) {
-  const config = await loadConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
   const changed = new Map<string, string[]>();
   const base = opts.base ?? 'origin/main';
 
   for (const repo of config.repositories) {
-    const repoPath = path.resolve(process.cwd(), repo.path);
+    const repoPath = path.resolve(workspaceRoot, repo.path);
     try {
       const files = (await runGit(['diff', '--name-only', `${base}...HEAD`], repoPath)).split('\n').filter(Boolean);
       if (files.length) changed.set(repo.name, files);

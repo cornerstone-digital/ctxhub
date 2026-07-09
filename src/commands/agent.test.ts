@@ -5,7 +5,7 @@ import path from 'node:path';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { parse, stringify } from 'smol-toml';
 import { agentLaunchCommand, launchAgentBinary, writeClaudeMcpConfig, writeCodexMcpConfig, writeCopilotMcpConfig } from './agent.js';
-import { readText } from '../utils/fs.js';
+import { pathExists, readText } from '../utils/fs.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { isMempalaceAvailable } from '../memory/LocalJsonMemory.js';
 
@@ -65,6 +65,20 @@ test('writeClaudeMcpConfig is idempotent once the ctxhub entry is already correc
 
     const second = await writeClaudeMcpConfig(dir);
     assert.equal(second.changed, false);
+  });
+});
+
+test('writeClaudeMcpConfig writes to the discovered workspace root from a child repo', () => {
+  return withTempDir(async dir => {
+    await initConfig('agent-ws', dir);
+    const child = path.join(dir, 'app');
+    await mkdir(child);
+
+    const result = await writeClaudeMcpConfig(child);
+
+    assert.equal(result.path, path.join(dir, '.mcp.json'));
+    assert.equal(await pathExists(path.join(dir, '.mcp.json')), true);
+    assert.equal(await pathExists(path.join(child, '.mcp.json')), false);
   });
 });
 

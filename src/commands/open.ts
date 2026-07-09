@@ -1,10 +1,10 @@
-import { loadConfig } from '../config/config.js';
+import { loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import type { IndexedDocument } from '../config/types.js';
 
 export async function openCommand(id: string, opts: { json?: boolean } = {}) {
-  const config = await loadConfig();
-  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table);
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
   const document = await resolveDocument(id, index);
   if (!document) throw new Error(`Chunk not found: ${id}`);
 

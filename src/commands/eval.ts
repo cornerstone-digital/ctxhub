@@ -1,6 +1,6 @@
 import path from 'node:path';
 import chalk from 'chalk';
-import { CACHE_DIR, loadConfig } from '../config/config.js';
+import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
 import type { SearchResult } from '../config/types.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
@@ -34,7 +34,8 @@ const DEFAULT_EVAL_PATH = path.join(CACHE_DIR, 'eval.json');
 const EVAL_RUNS_DIR = path.join(CACHE_DIR, 'evals');
 
 export async function evalCommand(opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean } = {}) {
-  const filePath = path.resolve(process.cwd(), opts.file ?? DEFAULT_EVAL_PATH);
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const filePath = opts.file ? path.resolve(process.cwd(), opts.file) : path.resolve(workspaceRoot, DEFAULT_EVAL_PATH);
   if (opts.init || !(await pathExists(filePath))) {
     await writeText(filePath, JSON.stringify({ cases: [{ query: 'authentication flow', expected: [{ path: 'README.md' }] }] }, null, 2));
     console.log(chalk.green(`Created ${path.relative(process.cwd(), filePath)}`));
@@ -43,11 +44,10 @@ export async function evalCommand(opts: { file?: string; init?: boolean; json?: 
   }
 
   const suite = JSON.parse(await readText(filePath)) as EvalSuite;
-  const config = await loadConfig();
-  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table);
+  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
   const run = await evaluateSuite(suite, (query, limit) => index.search(query, limit), filePath);
-  const historyPath = await writeEvalHistory(run);
-  const reportPath = opts.report ? await writeEvalReport(run) : undefined;
+  const historyPath = await writeEvalHistory(run, workspaceRoot);
+  const reportPath = opts.report ? await writeEvalReport(run, workspaceRoot) : undefined;
 
   if (opts.json) {
     console.log(JSON.stringify({ ...run, historyPath, reportPath }, null, 2));
@@ -164,20 +164,20 @@ function printEvalRun(run: EvalRunResult): void {
   console.log(`${chalk.bold('Result:')} ${run.summary.passed}/${run.summary.total} passed`);
 }
 
-async function writeEvalHistory(run: EvalRunResult): Promise<string> {
+async function writeEvalHistory(run: EvalRunResult, workspaceRoot = process.cwd()): Promise<string> {
   const stamp = run.generatedAt.replace(/[:.]/g, '-');
-  const historyPath = path.resolve(process.cwd(), EVAL_RUNS_DIR, `${stamp}.json`);
-  const latestPath = path.resolve(process.cwd(), EVAL_RUNS_DIR, 'latest.json');
+  const historyPath = path.resolve(workspaceRoot, EVAL_RUNS_DIR, `${stamp}.json`);
+  const latestPath = path.resolve(workspaceRoot, EVAL_RUNS_DIR, 'latest.json');
   const content = `${JSON.stringify(run, null, 2)}\n`;
   await writeText(historyPath, content);
   await writeText(latestPath, content);
   return historyPath;
 }
 
-async function writeEvalReport(run: EvalRunResult): Promise<string> {
+async function writeEvalReport(run: EvalRunResult, workspaceRoot = process.cwd()): Promise<string> {
   const stamp = run.generatedAt.replace(/[:.]/g, '-');
-  const reportPath = path.resolve(process.cwd(), EVAL_RUNS_DIR, `${stamp}.md`);
-  const latestPath = path.resolve(process.cwd(), EVAL_RUNS_DIR, 'latest.md');
+  const reportPath = path.resolve(workspaceRoot, EVAL_RUNS_DIR, `${stamp}.md`);
+  const latestPath = path.resolve(workspaceRoot, EVAL_RUNS_DIR, 'latest.md');
   const content = renderEvalMarkdown(run);
   await writeText(reportPath, content);
   await writeText(latestPath, content);
