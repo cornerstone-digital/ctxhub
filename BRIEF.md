@@ -82,7 +82,8 @@ index:
 | `ssd memory clear` | Clears the local index after confirmation (`--force` to skip). External MemPalace stores are left untouched — MemPalace manages its own memory lifecycle. |
 | `ssd doctor` | Checks Node version, Git installed, config present, repo paths valid, index directory writable, and memory/index provider availability. |
 | `ssd mcp` | Starts an MCP server (stdio transport) exposing `search`, `memory_status`, and `repo_list` as tools, so MCP-native agents (Claude Desktop, Cursor, etc.) can query the workspace index without shelling out to the CLI. |
-| `ssd agent <name>` | Writes/merges `.mcp.json` in the workspace root registering the `ssd` MCP server, then launches the named agent (`claude`) in the current directory. `--no-launch` writes the config only. |
+| `ssd agent <name>` | Writes/merges the MCP config for `claude`, `codex`, or `copilot` registering the `ssd` MCP server, then launches the named agent in the current directory. `--no-launch` writes the config only. |
+| `ssd skills install [agents...]` | Installs an ssd usage skill/prompt file for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four) — chat-native guidance to check the index before answering questions about the codebase. |
 
 ## Architecture: index vs. memory
 
@@ -109,12 +110,26 @@ Two mechanisms keep the index current without manual `ssd index` runs:
 
 ## Agent launch integration
 
-`ssd agent <claude|codex>` (`src/commands/agent.ts`) writes/merges that agent's project-level MCP config to register the `ssd` MCP server, then launches the agent with `stdio: 'inherit'` so it runs interactively in the current terminal. `--no-launch` writes the config without launching. Both writers preserve any other keys/servers already present and skip the write entirely if the `ssd` entry is already correct (`AgentConfigResult.changed`).
+`ssd agent <claude|codex|copilot>` (`src/commands/agent.ts`) writes/merges that agent's MCP config to register the `ssd` MCP server, then launches the agent with `stdio: 'inherit'` so it runs interactively in the current terminal. `--no-launch` writes the config without launching. All writers preserve any other keys/servers already present and skip the write entirely if the `ssd` entry is already correct (`AgentConfigResult.changed`).
 
-- **`claude`** merges `{ mcpServers: { ssd: { command: 'ssd', args: ['mcp'] } } }` into `.mcp.json` (JSON, via `JSON.parse`/`JSON.stringify`).
-- **`codex`** merges `[mcp_servers.ssd]` into `.codex/config.toml` (TOML, via the `smol-toml` package — pure JS, no native binary, chosen after the `@lancedb/lancedb` install-fragility episode). Verified against OpenAI's own docs before building: Codex only loads project-scoped `.codex/config.toml` for projects it *trusts* (untrusted projects skip it entirely — there's an open upstream issue, [openai/codex#13025](https://github.com/openai/codex/issues/13025), about this not always working even when expected), and the built-in `codex mcp add` subcommand only writes the user-level `~/.codex/config.toml`, not project scope — hence `ssd agent codex` filling that gap. It prints a reminder about the trust requirement after writing, since SSD can't grant that trust itself.
+- **`claude`** merges `{ mcpServers: { ssd: { command: 'ssd', args: ['mcp'] } } }` into `.mcp.json` (JSON, project-scoped, via `JSON.parse`/`JSON.stringify`).
+- **`codex`** merges `[mcp_servers.ssd]` into `.codex/config.toml` (TOML, project-scoped, via the `smol-toml` package — pure JS, no native binary, chosen after the `@lancedb/lancedb` install-fragility episode). Verified against OpenAI's own docs before building: Codex only loads project-scoped `.codex/config.toml` for projects it *trusts* (untrusted projects skip it entirely — there's an open upstream issue, [openai/codex#13025](https://github.com/openai/codex/issues/13025), about this not always working even when expected), and the built-in `codex mcp add` subcommand only writes the user-level `~/.codex/config.toml`, not project scope — hence `ssd agent codex` filling that gap. It prints a reminder about the trust requirement after writing, since SSD can't grant that trust itself.
+- **`copilot`** merges `{ mcpServers: { ssd: { type: 'local', command: 'ssd', args: ['mcp'], tools: ['*'] } } }` into `~/.copilot/mcp-config.json` (or `$COPILOT_HOME/mcp-config.json`). Verified via GitHub's own docs before building: this is **user-level only** — a community blog claimed a repo-level `.copilot/mcp-config.json`, but GitHub's official docs don't confirm any project-scoped file for the Copilot CLI (the only other Copilot surfaces are the unrelated VS Code extension's `.vscode/mcp.json` with a `"servers"` key, and the GitHub.com cloud coding agent's web-UI-only config — neither fits a CLI launch flow), so the write deliberately targets the one place that's actually documented, and prints a note about the scope difference.
 
-Neither writer preserves comments/formatting on rewrite — the same tradeoff already accepted for `ssd.yaml` via `js-yaml`.
+Neither JSON nor TOML writer preserves comments/formatting on rewrite — the same tradeoff already accepted for `ssd.yaml` via `js-yaml`.
+
+## Installable skills
+
+`ssd skills install [agents...]` (`src/commands/skills.ts`) writes a static "how to use ssd in this workspace" skill/prompt file per agent, complementing the MCP server: MCP grants tool access, the skill nudges *when* to use it (and documents the plain CLI as a fallback for agents without the MCP server wired up). Defaults to all four supported agents when none are named; validates all requested agent names before writing anything.
+
+Researched each agent's actual convention rather than assuming one shared format:
+
+- **`claude`**: `.claude/skills/ssd/SKILL.md` — frontmatter `name`/`description` (both required; `name` must match the folder name).
+- **`codex`**: `.agents/skills/ssd/SKILL.md` — same frontmatter shape as Claude's. Codex deprecated its old `~/.codex/prompts/*.md` custom-prompts mechanism in favor of this SKILL.md convention, which happens to be close enough to Claude's that the two share one file body.
+- **`copilot`**: `.github/prompts/ssd.prompt.md` — frontmatter has `description` only (no `name`; the filename is the identifier).
+- **`cursor`**: `.cursor/commands/ssd.md` — plain Markdown, no frontmatter at all.
+
+Unlike the MCP config writers above, each target here is a dedicated file namespaced by the skill name (`ssd`), not a shared config file with other entries to preserve — so there's no merge logic, just a plain overwrite on each install.
 
 ## Git utilities
 
@@ -127,7 +142,7 @@ Terminal output uses `chalk` for ticks/crosses/warnings and `ora` spinners for l
 ## Quality
 
 - TypeScript strict mode; `npm run build` type-checks with `tsc` and excludes `*.test.ts` from the published `dist/`.
-- `npm test` runs the Node test suite (config loading/merging, git helpers against real temp repos, Markdown chunking, the manifest, `LocalJsonMemory`, the MCP server via an in-memory client/transport pair, hook execution, the `repo hook` git-hook installer, and the `.mcp.json`/`.codex/config.toml` merge logic for `ssd agent`).
+- `npm test` runs the Node test suite (config loading/merging, git helpers against real temp repos, Markdown chunking, the manifest, `LocalJsonMemory`, the MCP server via an in-memory client/transport pair, hook execution, the `repo hook` git-hook installer, the `.mcp.json`/`.codex/config.toml`/`~/.copilot/mcp-config.json` merge logic for `ssd agent`, and the per-agent file output of `ssd skills install`).
 - Errors are actionable (e.g. "No SSD config found... Run: ssd init") rather than raw stack traces.
 
 ## Extension points
@@ -138,6 +153,8 @@ Status of the extension points named in the original brief:
 - [x] Post-pull/post-commit hooks — `hooks.postPull`/`hooks.postIndex` config, plus `ssd repo hook <name>` for a real Git `post-commit` hook.
 - [x] Claude launch integration — `ssd agent claude`.
 - [x] Codex launch integration — `ssd agent codex`, see above.
+- [x] Copilot launch integration — `ssd agent copilot`, see above (not in the original brief, added after discussion).
+- [x] Installable skills for coding agents (`ssd skills install`) — not in the original brief, added after discussion.
 - [ ] AI-generated documentation validation.
 
 Not planned: a MemPalace provider for CLI *write* operations, or an embeddings/vector-DB index provider. Both were deliberately decided against rather than merely deferred — see "Architecture: index vs. memory" and the note under "Agent launch integration" above.

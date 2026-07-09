@@ -37,6 +37,7 @@ ssd memory status
 ssd doctor
 ssd mcp
 ssd agent claude
+ssd skills install
 ```
 
 `ssd init` creates:
@@ -97,7 +98,8 @@ hooks:
 - `ssd memory clear`: clear the SSD index after confirmation; external MemPalace stores are left to MemPalace.
 - `ssd doctor`: check Node, Git, config, repo paths, index directory, and memory provider.
 - `ssd mcp`: start an MCP server (stdio) exposing `search`, `memory_status`, and `repo_list` as tools for AI agents.
-- `ssd agent <name>`: write/merge this workspace's MCP config for `claude` (`.mcp.json`) or `codex` (`.codex/config.toml`) and launch it (`--no-launch` to only write the config).
+- `ssd agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config).
+- `ssd skills install [agents...]`: install a chat-native "how to use ssd" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
 
 ## MCP server
 
@@ -127,9 +129,9 @@ Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.js
 
 ## Launching an agent
 
-`ssd agent <claude|codex>` writes (or merges into) that agent's project-level MCP config to register the `ssd` MCP server, then launches the agent in the current directory so it picks the server up immediately. Pass `--no-launch` to only write the config without starting the agent — useful in CI, or if you'd rather launch it yourself.
+`ssd agent <claude|codex|copilot>` writes (or merges into) that agent's MCP config to register the `ssd` MCP server, then launches the agent in the current directory so it picks the server up immediately. Pass `--no-launch` to only write the config without starting the agent — useful in CI, or if you'd rather launch it yourself.
 
-**Claude** — merges into `.mcp.json`:
+**Claude** — merges into `.mcp.json` (project-scoped):
 
 ```json
 {
@@ -139,7 +141,7 @@ Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.js
 }
 ```
 
-**Codex** — merges into `.codex/config.toml`:
+**Codex** — merges into `.codex/config.toml` (project-scoped):
 
 ```toml
 [mcp_servers.ssd]
@@ -149,7 +151,32 @@ args = ["mcp"]
 
 Codex only loads project-scoped `.codex/config.toml` for projects it trusts (untrusted projects skip it entirely — see [openai/codex#13025](https://github.com/openai/codex/issues/13025)); `ssd agent codex` prints a reminder of this after writing the config, since there's no way for SSD to grant that trust on Codex's behalf.
 
-Both merges preserve any other keys or servers already in the file and are idempotent — running the command again when nothing needs to change is a no-op, and TOML/JSON values round-trip correctly, though comments and formatting in a hand-edited file are not preserved on rewrite (the same tradeoff this project already accepts for its own `ssd.yaml` via `js-yaml`).
+**Copilot** (the `copilot` CLI) — merges into `~/.copilot/mcp-config.json` (or `$COPILOT_HOME/mcp-config.json`):
+
+```json
+{
+  "mcpServers": {
+    "ssd": { "type": "local", "command": "ssd", "args": ["mcp"], "tools": ["*"] }
+  }
+}
+```
+
+This one is **user-level, not project-scoped** — GitHub doesn't document a supported project-scoped file for the Copilot CLI (only the unrelated VS Code extension's `.vscode/mcp.json`, and the GitHub.com cloud coding agent's web-UI-only config). It still works per-project in practice, since the `ssd` server always uses whichever directory `copilot` is launched from. `ssd agent copilot` prints a note about this scope difference.
+
+All merges preserve any other keys or servers already in the file and are idempotent — running the command again when nothing needs to change is a no-op, and TOML/JSON values round-trip correctly, though comments and formatting in a hand-edited file are not preserved on rewrite (the same tradeoff this project already accepts for its own `ssd.yaml` via `js-yaml`).
+
+## Installable skills
+
+`ssd skills install [agents...]` drops a small "how to use ssd in this workspace" skill/prompt file into one or more coding agents' own conventions, so the agent knows to check the index *before* answering questions about this codebase — this complements the MCP server (which grants tool access) with usage guidance (which nudges *when* to use it), and still helps agents that don't have the MCP server wired up, since it also documents the plain CLI commands. Run with no arguments to install for all four; name specific agents (e.g. `ssd skills install claude cursor`) to limit it.
+
+| Agent | File | Format |
+| --- | --- | --- |
+| `claude` | `.claude/skills/ssd/SKILL.md` | frontmatter: `name`, `description` |
+| `codex` | `.agents/skills/ssd/SKILL.md` | same frontmatter shape as Claude's (Codex's skills format is compatible) |
+| `copilot` | `.github/prompts/ssd.prompt.md` | frontmatter: `description` |
+| `cursor` | `.cursor/commands/ssd.md` | plain Markdown, no frontmatter |
+
+Each is a dedicated file SSD owns (namespaced by the `ssd` skill/command name), so re-running the install command simply regenerates it — there's no merge concern here the way there is for the shared MCP config files above.
 
 ## Hooks
 
