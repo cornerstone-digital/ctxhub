@@ -10,7 +10,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [ ] Interactive workspace viewer
 - [ ] Rich Mermaid validation
 - [x] Architecture drift detection
-- [ ] Agent handoff bundles
+- [x] Agent handoff bundles
 - [ ] Config doctor fix mode
 - [ ] Search quality dashboard
 - [ ] Source-aware context expansion
@@ -201,6 +201,8 @@ Acceptance criteria:
 - Warnings do not fail by default; add `--fail-on-drift` for CI.
 
 ## 7. Agent Handoff Bundles
+
+**Status:** Done
 
 **Command:** `ctxhub handoff <topic>`
 

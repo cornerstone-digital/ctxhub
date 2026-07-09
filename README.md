@@ -158,6 +158,7 @@ privacy:
 - `ctxhub replay <file>`: replay an exported context pack artifact and compare recorded repo HEADs against the current workspace.
 - `ctxhub open <id>`: print a full indexed chunk returned by search or a context pack.
 - `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch.
+- `ctxhub handoff <topic> [--from-pr]`: create a Markdown handoff bundle under `.ctxhub/cache/handoffs/` for another agent or teammate.
 - `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development.
 - `ctxhub report [-o <path>]`: generate a small HTML report of workspace status, repos, and indexed architecture diagrams.
 - `ctxhub memory status`: show MemPalace memory status and LanceDB index status.

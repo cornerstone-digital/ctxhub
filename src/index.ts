@@ -16,6 +16,7 @@ import { noteAddCommand } from './commands/note.js';
 import { diagramAddCommand } from './commands/diagram.js';
 import { packCommand } from './commands/pack.js';
 import { replayCommand } from './commands/replay.js';
+import { handoffCommand } from './commands/handoff.js';
 import { evalCommand } from './commands/eval.js';
 import { validateDocsCommand } from './commands/validate.js';
 import { graphCommand } from './commands/graph.js';
@@ -137,6 +138,17 @@ program
   .option('--json', 'Print JSON')
   .description('Build a context pack for files changed on the current branch')
   .action(prContextCommand);
+
+program
+  .command('handoff')
+  .argument('<topic>', 'Topic or task to hand off')
+  .option('--repo <name>', 'Limit handoff sections to a configured repo')
+  .option('--out <path>', 'Output markdown path')
+  .option('--from-pr', 'Include changed files from the current branch')
+  .option('--base <ref>', 'Base git ref for --from-pr', 'origin/main')
+  .option('-l, --limit <limit>', 'Max context results', '8')
+  .description('Create a markdown handoff bundle for another agent or teammate')
+  .action(handoffCommand);
 
 const memory = program.command('memory').description('Manage memory/index store');
 
