@@ -21,3 +21,11 @@ Also treat the index as possibly stale after the user mentions pulling new chang
 - Otherwise, run the CLI directly: `ctxhub search "<query>"`, `ctxhub memory status`, `ctxhub repo list`.
 - Run `ctxhub sync` (or ask the user to) if search results look stale — it pulls configured repos and re-indexes changed files.
 - Don't run `ctxhub index`, `ctxhub sync`, or `ctxhub memory clear` without the user's intent; these mutate the workspace's index/repos.
+
+## Remembering things long-term
+
+This index is a read-only mirror of the workspace's actual repo content — it isn't a place to store your own notes, decisions, or session history. If you learn something worth remembering across sessions (a decision, a workaround, a gotcha) and MemPalace's MCP server is connected, write it there instead (`mempalace_add_drawer`, `mempalace_checkpoint`, etc.) — don't try to stuff it into ctxhub's index.
+
+## Sharing something with the team
+
+Different from the above: if what you learned is worth a teammate seeing and reviewing, not just remembering yourself, write it as a note in the relevant repo instead of MemPalace. Run `ctxhub note add <repo> "<title>" --agent <your-name>` — it scaffolds a dated, consistently-formatted file under `<repo>/agent-notes/`. It's git-tracked, so it shows up in the normal PR diff for review, and ctxhub indexes it like any other doc once merged. Use `ctxhub repo list` if you need the exact repo name.

@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { parse, stringify } from 'smol-toml';
 import { pathExists, readText, writeText } from '../utils/fs.js';
+import { loadConfig } from '../config/config.js';
+import { isMempalaceAvailable } from '../memory/LocalJsonMemory.js';
 
 export const MCP_CONFIG_FILE = '.mcp.json';
 export const CODEX_CONFIG_FILE = path.join('.codex', 'config.toml');
@@ -17,22 +19,53 @@ export type AgentConfigResult = { path: string; changed: boolean; note?: string 
 export const CLAUDE_CODEX_MCP_ENTRY = { command: 'ctxhub', args: ['mcp'] };
 export const COPILOT_MCP_ENTRY = { type: 'local', command: 'ctxhub', args: ['mcp'], tools: ['*'] };
 
+const MEMPALACE_NOTE =
+  'Also wired up MemPalace\'s MCP server (mempalace-mcp) alongside ctxhub\'s — that\'s where an agent should ' +
+  'write durable notes/decisions (mempalace_add_drawer, mempalace_checkpoint, etc.), not ctxhub\'s own index, ' +
+  'which stays a read-only mirror of this workspace\'s actual repo content.';
+
+// MemPalace ships its own full MCP tool surface (search + write: mempalace_add_drawer,
+// mempalace_checkpoint, mempalace_diary_write, etc.) via a separate `mempalace-mcp` binary.
+// ctxhub doesn't reimplement agent note-taking -- it just wires MemPalace's server in
+// alongside its own when it's the configured memory provider and actually available.
+async function getMempalaceMcpEntry(cwd: string): Promise<{ command: string; args: string[] } | undefined> {
+  const config = await loadConfig(cwd).catch(() => undefined);
+  if (config?.memory.provider !== 'mempalace') return undefined;
+  if (!(await isMempalaceAvailable())) return undefined;
+  return { command: 'mempalace-mcp', args: [] };
+}
+
+function mergeEntries(
+  existing: Record<string, unknown> | undefined,
+  entries: Record<string, unknown>
+): { merged: Record<string, unknown>; changed: boolean } {
+  let changed = false;
+  const merged = { ...existing };
+  for (const [name, entry] of Object.entries(entries)) {
+    if (JSON.stringify(merged[name]) !== JSON.stringify(entry)) {
+      changed = true;
+      merged[name] = entry;
+    }
+  }
+  return { merged, changed };
+}
+
 type McpConfigFile = { mcpServers?: Record<string, unknown> } & Record<string, unknown>;
 
 export async function writeClaudeMcpConfig(cwd = process.cwd()): Promise<AgentConfigResult> {
   const configPath = path.join(cwd, MCP_CONFIG_FILE);
   const existing: McpConfigFile = (await pathExists(configPath)) ? JSON.parse(await readText(configPath)) : {};
-  const changed = JSON.stringify(existing.mcpServers?.ctxhub) !== JSON.stringify(CLAUDE_CODEX_MCP_ENTRY);
 
+  const mempalace = await getMempalaceMcpEntry(cwd);
+  const entries: Record<string, unknown> = { ctxhub: CLAUDE_CODEX_MCP_ENTRY };
+  if (mempalace) entries.mempalace = mempalace;
+
+  const { merged: mergedServers, changed } = mergeEntries(existing.mcpServers, entries);
   if (changed) {
-    const merged: McpConfigFile = {
-      ...existing,
-      mcpServers: { ...existing.mcpServers, ctxhub: CLAUDE_CODEX_MCP_ENTRY }
-    };
-    await writeText(configPath, `${JSON.stringify(merged, null, 2)}\n`);
+    await writeText(configPath, `${JSON.stringify({ ...existing, mcpServers: mergedServers }, null, 2)}\n`);
   }
 
-  return { path: configPath, changed };
+  return { path: configPath, changed, note: mempalace ? MEMPALACE_NOTE : undefined };
 }
 
 type CodexConfigFile = { mcp_servers?: Record<string, unknown> } & Record<string, unknown>;
@@ -44,17 +77,18 @@ const CODEX_TRUST_NOTE =
 export async function writeCodexMcpConfig(cwd = process.cwd()): Promise<AgentConfigResult> {
   const configPath = path.join(cwd, CODEX_CONFIG_FILE);
   const existing: CodexConfigFile = (await pathExists(configPath)) ? (parse(await readText(configPath)) as CodexConfigFile) : {};
-  const changed = JSON.stringify(existing.mcp_servers?.ctxhub) !== JSON.stringify(CLAUDE_CODEX_MCP_ENTRY);
 
+  const mempalace = await getMempalaceMcpEntry(cwd);
+  const entries: Record<string, unknown> = { ctxhub: CLAUDE_CODEX_MCP_ENTRY };
+  if (mempalace) entries.mempalace = mempalace;
+
+  const { merged: mergedServers, changed } = mergeEntries(existing.mcp_servers, entries);
   if (changed) {
-    const merged: CodexConfigFile = {
-      ...existing,
-      mcp_servers: { ...existing.mcp_servers, ctxhub: CLAUDE_CODEX_MCP_ENTRY }
-    };
-    await writeText(configPath, stringify(merged));
+    await writeText(configPath, stringify({ ...existing, mcp_servers: mergedServers }));
   }
 
-  return { path: configPath, changed, note: CODEX_TRUST_NOTE };
+  const notes = [CODEX_TRUST_NOTE, ...(mempalace ? [MEMPALACE_NOTE] : [])];
+  return { path: configPath, changed, note: notes.join(' ') };
 }
 
 const COPILOT_SCOPE_NOTE =
@@ -66,20 +100,21 @@ export function copilotConfigPath(): string {
   return path.join(process.env.COPILOT_HOME || path.join(os.homedir(), '.copilot'), 'mcp-config.json');
 }
 
-export async function writeCopilotMcpConfig(): Promise<AgentConfigResult> {
+export async function writeCopilotMcpConfig(cwd = process.cwd()): Promise<AgentConfigResult> {
   const configPath = copilotConfigPath();
   const existing: McpConfigFile = (await pathExists(configPath)) ? JSON.parse(await readText(configPath)) : {};
-  const changed = JSON.stringify(existing.mcpServers?.ctxhub) !== JSON.stringify(COPILOT_MCP_ENTRY);
 
+  const mempalace = await getMempalaceMcpEntry(cwd);
+  const entries: Record<string, unknown> = { ctxhub: COPILOT_MCP_ENTRY };
+  if (mempalace) entries.mempalace = { type: 'local', ...mempalace, tools: ['*'] };
+
+  const { merged: mergedServers, changed } = mergeEntries(existing.mcpServers, entries);
   if (changed) {
-    const merged: McpConfigFile = {
-      ...existing,
-      mcpServers: { ...existing.mcpServers, ctxhub: COPILOT_MCP_ENTRY }
-    };
-    await writeText(configPath, `${JSON.stringify(merged, null, 2)}\n`);
+    await writeText(configPath, `${JSON.stringify({ ...existing, mcpServers: mergedServers }, null, 2)}\n`);
   }
 
-  return { path: configPath, changed, note: COPILOT_SCOPE_NOTE };
+  const notes = [COPILOT_SCOPE_NOTE, ...(mempalace ? [MEMPALACE_NOTE] : [])];
+  return { path: configPath, changed, note: notes.join(' ') };
 }
 
 export async function readInstalledMcpEntry(agent: SupportedAgent, cwd = process.cwd()): Promise<unknown> {

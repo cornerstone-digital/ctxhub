@@ -6,6 +6,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { parse, stringify } from 'smol-toml';
 import { agentLaunchCommand, launchAgentBinary, writeClaudeMcpConfig, writeCodexMcpConfig, writeCopilotMcpConfig } from './agent.js';
 import { readText } from '../utils/fs.js';
+import { initConfig, loadConfig, saveConfig } from '../config/config.js';
+import { isMempalaceAvailable } from '../memory/LocalJsonMemory.js';
 
 async function withTempDir(run: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-agent-'));
@@ -189,6 +191,47 @@ test('agentLaunchCommand codex with --no-launch writes .codex/config.toml and pr
     } finally {
       process.chdir(originalCwd);
     }
+  });
+});
+
+test('writeClaudeMcpConfig also wires up MemPalace when it is the configured provider, iff MemPalace is actually available', () => {
+  return withTempDir(async dir => {
+    await initConfig('ws', dir); // defaultConfig.memory.provider is 'mempalace'
+    const mempalaceAvailable = await isMempalaceAvailable();
+
+    const { note } = await writeClaudeMcpConfig(dir);
+    const written = JSON.parse(await readText(path.join(dir, '.mcp.json')));
+
+    if (mempalaceAvailable) {
+      assert.deepEqual(written.mcpServers.mempalace, { command: 'mempalace-mcp', args: [] });
+      assert.match(note ?? '', /MemPalace/);
+    } else {
+      assert.equal(written.mcpServers.mempalace, undefined);
+      assert.equal(note, undefined);
+    }
+  });
+});
+
+test('writeClaudeMcpConfig does not add a MemPalace entry when the workspace uses local-json memory', () => {
+  return withTempDir(async dir => {
+    await initConfig('ws', dir);
+    const config = await loadConfig(dir);
+    config.memory.provider = 'local-json';
+    await saveConfig(config, dir);
+
+    const { note } = await writeClaudeMcpConfig(dir);
+    const written = JSON.parse(await readText(path.join(dir, '.mcp.json')));
+    assert.equal(written.mcpServers.mempalace, undefined);
+    assert.equal(note, undefined);
+  });
+});
+
+test('writeClaudeMcpConfig skips MemPalace wiring gracefully when there is no ctxhub config at all', () => {
+  return withTempDir(async dir => {
+    const { note } = await writeClaudeMcpConfig(dir);
+    const written = JSON.parse(await readText(path.join(dir, '.mcp.json')));
+    assert.equal(written.mcpServers.mempalace, undefined);
+    assert.equal(note, undefined);
   });
 });
 

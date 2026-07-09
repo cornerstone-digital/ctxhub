@@ -12,6 +12,7 @@ import { mcpCommand } from './commands/mcp.js';
 import { agentLaunchCommand, SUPPORTED_AGENTS } from './commands/agent.js';
 import { skillsInstallCommand, SUPPORTED_SKILL_AGENTS } from './commands/skills.js';
 import { onboardCommand } from './commands/onboard.js';
+import { noteAddCommand } from './commands/note.js';
 import { checkForDriftOnce } from './utils/driftCheck.js';
 import { getPackageVersion } from './utils/version.js';
 
@@ -121,6 +122,16 @@ skills
   .argument('[agents...]', `Agents to install for (default: all — ${SUPPORTED_SKILL_AGENTS.join(', ')})`)
   .description('Install ctxhub skill/prompt files (ambient guidance + explicit search) for one or more coding agents')
   .action(skillsInstallCommand);
+
+const note = program.command('note').description('Scaffold git-tracked, team-shared notes for a repo');
+
+note
+  .command('add')
+  .argument('<repo>', 'Repository name (see: ctxhub repo list)')
+  .argument('<title>', 'Note title')
+  .option('--agent <name>', 'Name of the agent creating this note')
+  .description('Create a dated, consistently-formatted note file under <repo>/agent-notes/')
+  .action(noteAddCommand);
 
 program.exitOverride();
 

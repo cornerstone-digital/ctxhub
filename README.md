@@ -10,6 +10,7 @@
 - [Commands](#commands)
 - [MCP server](#mcp-server)
 - [Launching an agent](#launching-an-agent)
+- [Two kinds of agent memory](#two-kinds-of-agent-memory)
 - [Installable skills](#installable-skills)
 - [Detecting stale skills and agent configs](#detecting-stale-skills-and-agent-configs)
 - [Hooks](#hooks)
@@ -57,6 +58,7 @@ Run this once in the folder containing your multi-repo workspace (a parent direc
 - Ask Claude Code, Codex, or Copilot a question about the codebase as normal. The installed `ctxhub` skill nudges the agent to check the index first when the answer might live in a *different* repo than the one you have open, without you needing to remember ctxhub exists.
 - Want a search right now, on demand? `/ctxhub-search <query>` in Claude Code or Codex triggers it explicitly (see [Installable skills](#installable-skills)).
 - The index stays current however you set it up during onboarding: an automatic `post-commit` git hook per repo, or a manual `ctxhub sync` (which also pulls each repo first).
+- Learned something worth remembering? Two different paths depending on who it's for — see [Two kinds of agent memory](#two-kinds-of-agent-memory): personal/session notes go to MemPalace (already wired up by `ctxhub agent <name>` if configured), team-shared notes go through `ctxhub note add <repo> "<title>"` and a normal PR.
 
 **Worked example**, inside a Claude Code session at the workspace root, no CLI commands typed:
 
@@ -148,8 +150,9 @@ hooks:
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
 - `ctxhub doctor`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version.
 - `ctxhub mcp`: start an MCP server (stdio) exposing `search`, `memory_status`, and `repo_list` as tools for AI agents.
-- `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config).
+- `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config). Also wires up MemPalace's own MCP server alongside ctxhub's when configured and available.
 - `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
+- `ctxhub note add <repo> "<title>" [--agent <name>]`: scaffold a dated, consistently-formatted note file under `<repo>/agent-notes/` for anything worth a teammate seeing in a PR (see [Two kinds of agent memory](#two-kinds-of-agent-memory)).
 
 ## MCP server
 
@@ -180,6 +183,8 @@ Example client config (e.g. `claude_desktop_config.json` or a project's `.mcp.js
 ## Launching an agent
 
 `ctxhub agent <claude|codex|copilot>` writes (or merges into) that agent's MCP config to register the `ctxhub` MCP server, then launches the agent in the current directory so it picks the server up immediately. Pass `--no-launch` to only write the config without starting the agent — useful in CI, or if you'd rather launch it yourself.
+
+If `memory.provider: mempalace` (the default) and the `mempalace` CLI is actually installed, this also wires up MemPalace's own MCP server (`mempalace-mcp`) alongside ctxhub's, in the same config file — see [Two kinds of agent memory](#two-kinds-of-agent-memory) for why. Skipped silently if MemPalace isn't installed, or if `memory.provider` is `local-json`.
 
 **Claude** — merges into `.mcp.json` (project-scoped):
 
@@ -214,6 +219,19 @@ Codex only loads project-scoped `.codex/config.toml` for projects it trusts (unt
 This one is **user-level, not project-scoped** — GitHub doesn't document a supported project-scoped file for the Copilot CLI (only the unrelated VS Code extension's `.vscode/mcp.json`, and the GitHub.com cloud coding agent's web-UI-only config). It still works per-project in practice, since the `ctxhub` server always uses whichever directory `copilot` is launched from. `ctxhub agent copilot` prints a note about this scope difference.
 
 All merges preserve any other keys or servers already in the file and are idempotent — running the command again when nothing needs to change is a no-op, and TOML/JSON values round-trip correctly, though comments and formatting in a hand-edited file are not preserved on rewrite (the same tradeoff this project already accepts for its own `ctxhub.yaml` via `js-yaml`).
+
+## Two kinds of agent memory
+
+ctxhub's own index is deliberately **read-only** — a mirror of this workspace's actual repo content, refreshed from git via `ctxhub sync`/the post-commit hook. It's not a place for an agent to stash its own notes, and that's on purpose: mixing "official repo content" with "agent scratch notes" in the same search results would make both worse. Two separate, purpose-built paths exist instead, for two different needs:
+
+| | **MemPalace** (personal/session memory) | **`ctxhub note add`** (team-shared notes) |
+| --- | --- | --- |
+| For | Things worth remembering across your own sessions — a decision, a workaround, a gotcha | Things worth a teammate seeing and reviewing |
+| Where it lives | `~/.mempalace/` (local, per-user, not git-tracked) | `<repo>/agent-notes/<date>-<slug>.md` (git-tracked, in the repo itself) |
+| How it's written | MemPalace's own MCP tools (`mempalace_add_drawer`, `mempalace_checkpoint`, `mempalace_diary_write`, and 16 others) — wired up automatically by `ctxhub agent <name>` alongside ctxhub's own server, when `memory.provider: mempalace` and MemPalace is installed | `ctxhub note add <repo> "<title>" --agent <name>` scaffolds a dated, consistently-formatted stub; the agent fills in the body with its own file-edit tool |
+| Visibility | Not shared with the team, not indexed by ctxhub | Shows up in the normal PR diff for review; once merged, ctxhub indexes it like any other doc (it already matches the default `**/*.md` include glob) |
+
+ctxhub doesn't reimplement either of these — MemPalace already has a mature, write-capable MCP surface, and "write a markdown file" is something every agent can already do with its own file tools. ctxhub's job is just making the two paths unambiguous: which one to use, and where the shared one is looked for/indexed.
 
 ## Installable skills
 
