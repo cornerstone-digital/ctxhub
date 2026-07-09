@@ -17,6 +17,11 @@ export type IndexResult = {
   deleted: number;
 };
 
+export type IndexProgressEvent =
+  | { type: 'repo-start'; repo: string }
+  | { type: 'repo-missing'; repo: string }
+  | { type: 'repo-done'; repo: string; scanned: number; indexed: number; skipped: number };
+
 function repoInclude(repo: RepoConfig, globalInclude: string[]): string[] {
   return repo.include?.length ? repo.include : globalInclude;
 }
@@ -25,7 +30,11 @@ function repoExclude(repo: RepoConfig, globalExclude: string[]): string[] {
   return repo.exclude?.length ? repo.exclude : globalExclude;
 }
 
-export async function indexWorkspace(cwd = process.cwd(), force = false): Promise<IndexResult> {
+export async function indexWorkspace(
+  cwd = process.cwd(),
+  force = false,
+  onProgress?: (event: IndexProgressEvent) => void
+): Promise<IndexResult> {
   const config = await loadConfig(cwd);
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
   const manifest = await loadManifest(config.workspace.name, cwd);
@@ -35,7 +44,13 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
 
   for (const repo of config.repositories) {
     const repoPath = path.resolve(cwd, repo.path);
-    if (!(await pathExists(repoPath))) continue;
+    if (!(await pathExists(repoPath))) {
+      onProgress?.({ type: 'repo-missing', repo: repo.name });
+      continue;
+    }
+
+    onProgress?.({ type: 'repo-start', repo: repo.name });
+    const repoCounts = { scanned: 0, indexed: 0, skipped: 0 };
 
     const files = await fg(repoInclude(repo, config.knowledge.include), {
       cwd: repoPath,
@@ -48,6 +63,7 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
 
     for (const filePath of files) {
       result.scanned++;
+      repoCounts.scanned++;
       const absolutePath = path.join(repoPath, filePath);
       const raw = await readText(absolutePath);
       const hash = sha256(raw);
@@ -58,6 +74,7 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
       const existing = manifest.files[key];
       if (!force && existing?.hash === hash) {
         result.skipped++;
+        repoCounts.skipped++;
         continue;
       }
 
@@ -98,7 +115,10 @@ export async function indexWorkspace(cwd = process.cwd(), force = false): Promis
         chunkIds: chunks.map(c => c.id)
       };
       result.indexed++;
+      repoCounts.indexed++;
     }
+
+    onProgress?.({ type: 'repo-done', repo: repo.name, ...repoCounts });
   }
 
   for (const [key, entry] of Object.entries(manifest.files)) {

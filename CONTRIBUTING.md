@@ -22,13 +22,13 @@ Tests use Node's built-in test runner (`node:test`), not a separate framework �
 
 When adding a command or module, add a colocated `*.test.ts` next to it. Modules take an explicit `cwd` parameter (defaulting to `process.cwd()`) specifically so tests can run against temp directories without mocking the filesystem.
 
-Ink components under `src/tui/` are tested with `ink-testing-library` (`render` from that package, not `ink`'s own `render`), which fakes stdin/stdout so tests don't need a real TTY — see `src/tui/SearchApp.test.tsx` for the pattern (write simulated keystrokes to `stdin`, await the debounce/async work, assert on `lastFrame()`). `GuidedApp.test.tsx` follows the same pattern for the guided menu, with an injectable `run(argv)` prop so tests can assert on the exact argv a wizard flow builds without spawning a real subprocess.
+Ink components under `src/tui/` are tested with `ink-testing-library` (`render` from that package, not `ink`'s own `render`), which fakes stdin/stdout so tests don't need a real TTY — see `src/tui/SearchApp.test.tsx` for the pattern (write simulated keystrokes to `stdin`, wait for the rendered frame you expect rather than sleeping a fixed amount, assert on `lastFrame()`). `GuidedApp.test.tsx`, `OnboardApp.test.tsx`, and the progress view tests follow the same pattern, with injectable dependencies/callbacks so tests can assert on the exact argv or command effects without spawning real subprocesses.
 
 The guided menu itself is generated from the same `buildProgram()` Commander tree that powers the raw CLI (`src/tui/guided/commandTree.ts`'s `extractGuidedCommands`/`buildArgv`), so adding or changing a command in `src/cli/program.ts` automatically shows up there too — no separate registration needed. `commandTree.test.ts` runs its extraction against the real `buildProgram()` output as a regression guard (every top-level command must have a category, `mcp` stays excluded), so it'll fail loudly if a new command silently falls through uncategorized.
 
 Note on testing interactive Ink apps against a *real* pty (e.g. via `expect`) rather than `ink-testing-library`: Ink treats a burst of multiple characters arriving in a single stdin read (with no escape byte) as potential pasted text, so a scripted tool that writes a whole string faster than the process can drain it (most `expect` `send` calls, without an intervening `expect`/flush) can merge a typed string with a following Enter into one non-key "paste-like" event instead of discrete keystrokes. This essentially never happens with real human typing speed; if you need to drive guided mode via a real pty for a manual check, force a read/flush between sends (e.g. `expect -timeout 1 timeout {}` after each `send`) or it'll look like Enter "does nothing."
 
-Exception: `onboard.ts` is a thin interactive wizard over already-tested command functions (`init`, `repoDiscoverCommand`, `repoHookCommand`, `agentLaunchCommand`, `skillsInstallCommand`, `indexCommand`) — its `@inquirer/prompts` `checkbox` step needs raw keypress handling that doesn't degrade cleanly to piped stdin, so it's covered by manually driving the CLI rather than an automated test. If you change its orchestration logic, verify by actually running `ctxhub onboard` in a scratch directory.
+`ctxhub onboard` is split into a testable orchestration function (`src/tui/onboardFlow.ts`) and a thin Ink bridge (`src/tui/OnboardApp.tsx`). Put branching/setup behavior in the orchestration layer where it can be covered with injected dependencies; keep the Ink component focused on prompt rendering and key handling.
 
 Before opening a PR:
 
@@ -45,7 +45,7 @@ CI (`.github/workflows/ci.yml`) runs the same three, plus `npm audit --audit-lev
 - TypeScript strict mode. No `any` without a good reason. ESLint (`typescript-eslint`'s recommended rules, flat config in `eslint.config.js`) enforces the mechanical parts of this; `eslint-config-prettier` is included so adding a formatter later won't fight it, though none is wired up yet.
 - No comments explaining *what* code does — names should make that obvious. Comments are for non-obvious *why* (a workaround, a subtle constraint, a decision that would otherwise look arbitrary).
 - Don't add abstractions, config options, or error handling for cases that can't happen. Match the existing level of directness in a given file rather than generalizing ahead of need.
-- Terminal output uses `chalk` (✓/✗/! prefixes) and `ora` spinners for long-running steps — match the existing style rather than introducing a new output convention.
+- Terminal output uses `chalk` (✓/✗/! prefixes) for durable output. Long-running commands use Ink progress views when stdout is a TTY and `ora` spinners as the non-TTY/plain fallback; keep that split when adding new progress-heavy commands.
 
 ## Adding a provider
 

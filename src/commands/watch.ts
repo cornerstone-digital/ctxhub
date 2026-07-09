@@ -1,8 +1,15 @@
 import chalk from 'chalk';
 import { indexWorkspace } from '../indexing/indexer.js';
+import { runWatchWithProgress } from '../tui/progress/WatchProgressApp.js';
 
 export async function watchCommand(opts: { interval?: string } = {}) {
   const intervalMs = Number(opts.interval ?? 30) * 1000;
+
+  if (process.stdout.isTTY) {
+    await runWatchWithProgress(process.cwd(), intervalMs);
+    return;
+  }
+
   console.log(chalk.green(`Watching workspace; indexing every ${intervalMs / 1000}s. Press Ctrl+C to stop.`));
 
   async function run() {

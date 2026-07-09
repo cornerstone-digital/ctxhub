@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { indexWorkspace } from './indexer.js';
+import { indexWorkspace, type IndexProgressEvent } from './indexer.js';
 import { createIndexProvider } from './providers.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 
@@ -33,6 +33,21 @@ async function withWorkspace(run: (cwd: string) => Promise<void>) {
     await rm(cwd, { recursive: true, force: true });
   }
 }
+
+test('indexWorkspace reports repo-start/repo-done/repo-missing progress events in order', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.repositories.push({ name: 'gone', path: './does-not-exist', git: false });
+    await saveConfig(config, cwd);
+
+    const events: IndexProgressEvent[] = [];
+    await indexWorkspace(cwd, false, event => events.push(event));
+
+    assert.deepEqual(events[0], { type: 'repo-start', repo: 'app' });
+    assert.deepEqual(events[1], { type: 'repo-done', repo: 'app', scanned: 1, indexed: 1, skipped: 0 });
+    assert.deepEqual(events[2], { type: 'repo-missing', repo: 'gone' });
+  });
+});
 
 test('indexWorkspace tags source-code chunks with symbol metadata that search results carry through', () => {
   return withWorkspace(async cwd => {

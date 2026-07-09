@@ -16,6 +16,16 @@ function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function waitForFrame(lastFrame: () => string | undefined, pattern: RegExp, timeoutMs = 1500): Promise<string> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const frame = lastFrame() ?? '';
+    if (pattern.test(frame)) return frame;
+    await wait(25);
+  }
+  return lastFrame() ?? '';
+}
+
 async function withIndexedWorkspace(run: (cwd: string) => Promise<void>) {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-tui-'));
   try {
@@ -47,9 +57,8 @@ test('SearchApp renders live search results as the query is typed', () => {
 
     try {
       stdin.write('auth');
-      await wait(300);
 
-      const frame = lastFrame() ?? '';
+      const frame = await waitForFrame(lastFrame, /README\.md/);
       assert.match(frame, /app/);
       assert.match(frame, /README\.md/);
     } finally {

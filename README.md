@@ -53,13 +53,13 @@ npm run ctxhub -- --help
 ctxhub onboard
 ```
 
-Run this once in the folder containing your multi-repo workspace (a parent directory holding several git repos, or a single repo). It sets up the index, wires up the MCP server and skills for whichever agents you use, and optionally a git hook to keep the index fresh — see [Quick Start](#quick-start) below for the manual, step-by-step equivalent if you'd rather not use the wizard.
+Run this once in the folder containing your multi-repo workspace (a parent directory holding several git repos, or a single repo). It opens a live terminal wizard, sets up the index, wires up the MCP server and skills for whichever agents you use, and optionally a git hook to keep the index fresh — see [Quick Start](#quick-start) below for the manual, step-by-step equivalent if you'd rather not use the wizard.
 
 **Day to day: you mostly don't touch the CLI.** That's the point of the MCP server and skills — once set up:
 
 - Ask Claude Code, Codex, or Copilot a question about the codebase as normal. The installed `ctxhub` skill nudges the agent to check the index first when the answer might live in a *different* repo than the one you have open, without you needing to remember ctxhub exists.
 - Want a search right now, on demand? `/ctxhub-search <query>` in Claude Code or Codex triggers it explicitly (see [Installable skills](#installable-skills)).
-- The index stays current however you set it up during onboarding: an automatic `post-commit` git hook per repo, or a manual `ctxhub sync` (which also pulls each repo first).
+- The index stays current however you set it up during onboarding: an automatic `post-commit` git hook per repo, or a manual `ctxhub sync` (which also pulls each repo first; use `ctxhub sync --no-pull` when you only want to re-index).
 - Learned something worth remembering? Two different paths depending on who it's for — see [Two kinds of agent memory](#two-kinds-of-agent-memory): personal/session notes go to MemPalace (already wired up by `ctxhub agent <name>` if configured), team-shared notes go through `ctxhub note add <repo> "<title>"` and a normal PR.
 
 **Worked example**, inside a Claude Code session at the workspace root, no CLI commands typed:
@@ -154,14 +154,14 @@ This is purely additive: every `ctxhub <command> ...` invocation works exactly a
 
 - `ctxhub menu`: launch the interactive guided menu (see [Guided mode](#guided-mode) above) — also the default when you run bare `ctxhub` with no arguments in a terminal.
 - `ctxhub init`: create workspace config and local ctxhub directories.
-- `ctxhub onboard`: interactive setup wizard — init, repo discovery, hooks, memory provider, agents, skills, and an initial index, in one guided flow.
+- `ctxhub onboard`: live terminal setup wizard — init, repo discovery, hooks, memory provider, agents, skills, and an initial index, in one guided flow. Requires a real terminal; use the [Quick Start](#quick-start) commands for non-interactive scripts.
 - `ctxhub repo add <name> <path>`: add a repo, validate the path, and detect Git.
 - `ctxhub repo list`: print configured repos.
 - `ctxhub repo discover [path]`: find Git repositories below a folder and add them.
 - `ctxhub repo hook <name>`: install a `post-commit` Git hook in that repo which re-indexes the workspace in the background after each commit (`-f/--force` to overwrite an existing hook).
 - `ctxhub ci init [--with-eval]`: create a GitHub Actions workflow that runs build, `ctxhub validate docs`, and optionally `ctxhub eval` on pull requests.
-- `ctxhub index`: index changed workspace files.
-- `ctxhub sync`: pull configured repos and re-index changed files.
+- `ctxhub index`: index changed workspace files. In a real terminal it shows per-repo progress, then prints the durable summary.
+- `ctxhub sync [--no-pull]`: pull configured repos and re-index changed files. In a real terminal it shows separate pull and index progress; `--no-pull` skips the Git pull phase.
 - `ctxhub search <query>`: search the LanceDB project index. Add `-i`/`--interactive` (query becomes optional) for a live terminal UI — type to search-as-you-type, arrow keys to move, enter to view the full chunk, esc to go back/quit.
 - `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, and suggested reading order. Add `--out <file>` to save a portable replay artifact.
 - `ctxhub explain <query>`: create a citation-first explanation scaffold from indexed context without inventing uncited claims.
@@ -169,11 +169,11 @@ This is purely additive: every `ctxhub <command> ...` invocation works exactly a
 - `ctxhub open <id>`: print a full indexed chunk returned by search or a context pack.
 - `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch.
 - `ctxhub handoff <topic> [--from-pr]`: create a Markdown handoff bundle under `.ctxhub/cache/handoffs/` for another agent or teammate.
-- `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development.
+- `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development, with a live per-repo progress view in a real terminal.
 - `ctxhub report [-o <path>]`: generate a self-contained, browsable HTML report of workspace status, repos, architecture diagrams, and the most recently indexed chunks, with a client-side search box and stale-result highlighting (no server, no external assets).
 - `ctxhub memory status`: show MemPalace memory status and LanceDB index status.
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
-- `ctxhub doctor [--fix] [--dry-run] [--fix-skills] [--fix-agent <name>]`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version. `--fix` applies safe, low-risk repairs (missing `.ctxhub` directories, default `privacy.redactPatterns`); `--dry-run` previews those changes without writing anything; `--fix-skills`/`--fix-agent <name>` are separate opt-in flags for the more invasive fixes (reinstalling stale skill files, refreshing an agent's MCP config), since those overwrite files you may have installed deliberately.
+- `ctxhub doctor [--fix] [--dry-run] [--fix-skills] [--fix-agent <name>]`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version. In a real terminal it renders a live checklist before printing the final lines. `--fix` applies safe, low-risk repairs (missing `.ctxhub` directories, default `privacy.redactPatterns`); `--dry-run` previews those changes without writing anything; `--fix-skills`/`--fix-agent <name>` are separate opt-in flags for the more invasive fixes (reinstalling stale skill files, refreshing an agent's MCP config), since those overwrite files you may have installed deliberately.
 - `ctxhub mcp`: start an MCP server (stdio) exposing read-only context tools for AI agents (`--allow-index` adds opt-in mutating index/sync tools).
 - `ctxhub agent <name>`: write/merge the MCP config for `claude` (`.mcp.json`), `codex` (`.codex/config.toml`), or `copilot` (`~/.copilot/mcp-config.json`) and launch it (`--no-launch` to only write the config). Also wires up MemPalace's own MCP server alongside ctxhub's when configured and available.
 - `ctxhub skills install [agents...]`: install a chat-native "how to use ctxhub" skill/prompt for `claude`, `codex`, `copilot`, and/or `cursor` (default: all four).
