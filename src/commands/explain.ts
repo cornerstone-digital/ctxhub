@@ -5,7 +5,7 @@ import { createContextPack } from '../context/pack.js';
 import { llmDisabledNotice, runAgentPrompt, type RunAgentResult } from '../llm/runAgent.js';
 import { notify } from '../utils/notify.js';
 import { buildPromptPreamble, loadPersona, loadPolicyText } from '../personas/persona.js';
-import { resolveExecutionProfile } from '../execution/executionProfile.js';
+import { resolveExecutionProfile, runAgentPromptFnForProfile } from '../execution/executionProfile.js';
 
 export type ExplainEvidence = {
   ref: string;
@@ -87,13 +87,17 @@ export async function createExplainResult(
   const persona = personaName ? await loadPersona(workspaceRoot, personaName) : undefined;
   const preamble = buildPromptPreamble(policyText, persona);
 
+  // docs/control-plane.md Phase 7: a 'direct-api' profile skips harness CLIs and the agent/model
+  // override below entirely, calling its configured gateway instead -- runAgentPromptFnForProfile
+  // picks the right function once, up front, so the rest of this call site doesn't need to branch.
+  const executionOverride = profile && profile.runtime !== 'direct-api' ? { agent: profile.runtime, model: profile.model } : {};
   const { answer, llmNotice } = await resolveAnswer(
     query,
     evidence,
     effectiveConfig,
-    opts.runAgentPromptFn ?? runAgentPrompt,
+    opts.runAgentPromptFn ?? runAgentPromptFnForProfile(profile),
     preamble,
-    { agent: profile?.runtime, model: profile?.model }
+    executionOverride
   );
 
   return {

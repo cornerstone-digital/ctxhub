@@ -287,14 +287,38 @@ prerequisite for every later phase without requiring any of them to exist.
       `draftedNoteTemplate` exactly, while the original pending JSON record remained in the
       non-git-tracked queue untouched.
 
-### Phase 7 — Gateway adapters (OpenRouter, Bedrock, generic OpenAI-compatible, etc.)
+### Phase 7 — Gateway adapters (shipped: the generic OpenAI-compatible adapter)
 
-- [ ] Fully decoupled from Phases 1–6; only relevant to users who want direct model-provider
-      access without any harness CLI installed. Priority order per the brief: generic
-      OpenAI-compatible (covers LiteLLM/Portkey/Ollama/enterprise proxies via one `baseUrl`),
-      OpenRouter (OSS onboarding), AWS Bedrock (enterprise/VF3), Anthropic direct. LiteLLM,
-      Portkey, Cloudflare AI Gateway, vLLM Semantic Router stay optional/later per the brief's own
-      prioritization — nothing here changes that assessment.
+- [x] Fully decoupled from Phases 1–6; only relevant to users who want direct model-provider
+      access without any harness CLI installed. Built the brief's own top-priority adapter first:
+      **one generic OpenAI-compatible adapter** (`src/gateway/openaiCompatible.ts`, Node's built-in
+      `fetch`, no new dependency) covers OpenRouter, LiteLLM, Portkey, Ollama, and enterprise
+      proxies through a single `baseUrl` -- exactly the brief's own reasoning for prioritizing it
+      first. AWS Bedrock and Anthropic-direct adapters are **not built** in this pass -- each needs
+      its own request/auth shape (SigV4 for Bedrock, a different message format for Anthropic's
+      native Messages API), a real scoping decision deferred until there's an actual need (the VF3
+      Bedrock case explicitly still needs real input, per the Open Questions below), not something
+      to guess at speculatively. LiteLLM/Portkey/Cloudflare AI Gateway/vLLM Semantic Router stay
+      optional/later per the brief's own prioritization — nothing here changes that assessment
+      (LiteLLM/Portkey/Ollama are in practice already covered by the generic adapter above, since
+      all three speak the OpenAI-compatible protocol).
+- [x] `ExecutionProfile.runtime` gained a `'direct-api'` option alongside the four harness names,
+      plus an optional `gateway: { baseUrl, apiKeyEnv? }` field (`src/config/types.ts`) -- the API
+      key itself is never stored in config, only the name of an environment variable holding it,
+      so a workspace's `ctxhub.yaml` (which may be git-tracked) never carries a secret.
+      `runAgentPromptFnForProfile` (`src/execution/executionProfile.ts`) picks, once up front,
+      between the real `runAgentPrompt` (harness CLIs) and a gateway-calling wrapper -- callers
+      (`ctxhub explain --profile`, Captains) don't need to branch per call.
+- [x] Unit tests: `src/gateway/openaiCompatible.test.ts` (request shape, trailing-slash handling,
+      Authorization header from a named env var, HTTP-error/empty-content/timeout error mapping),
+      `src/execution/executionProfile.test.ts` (profile-to-function selection,
+      `config.llm.enabled` still respected, missing-gateway/missing-model error messages).
+- [x] Live verification, genuinely external this time (not just against a harness CLI): started a
+      real local Ollama server, pulled a small real model (`qwen2.5:0.5b`), configured a
+      `direct-api` execution profile pointing at Ollama's own OpenAI-compatible endpoint
+      (`http://localhost:11434/v1`), and ran `ctxhub explain --profile local-ollama` against a real
+      indexed workspace -- got back a real, evidence-cited synthesized answer with **no harness
+      CLI involved at all**, proving the direct-API path genuinely works end to end.
 
 ## Explicitly out of scope for now
 
@@ -308,8 +332,20 @@ prerequisite for every later phase without requiring any of them to exist.
   boundary, not a sequencing choice.
 - **Full Mission Control section list** (workspace canvas, captain chat, activity feed, reviews,
   knowledge graph, approvals queue) — each of these belongs to whichever phase supplies its real
-  backing data (Captains, Execution Profiles, MCP Gateway); building UI chrome ahead of that data
-  existing was explicitly avoided in Phase 3's scoping above.
+  backing data; building UI chrome ahead of that data existing was explicitly avoided in Phase 3's
+  scoping above. Phase 6 now has a real approvals queue (`ctxhub captain approvals`/`promote`),
+  but only as a CLI, not yet surfaced in the Fleet view UI — a natural, small follow-up once Phase
+  3's UI is revisited.
+- **AWS Bedrock and Anthropic-direct gateway adapters** — each needs its own request/auth shape
+  (SigV4 signing for Bedrock, a different message format for Anthropic's native Messages API), not
+  something to build speculatively ahead of a concrete need. The generic OpenAI-compatible adapter
+  already covers most of Phase 7's practical value (OpenRouter, LiteLLM, Portkey, Ollama,
+  enterprise proxies); Bedrock specifically waits on real input about VF3's actual AWS setup (see
+  Open Questions).
+- **A guided `ctxhub provider add openrouter` onboarding wizard** — the brief sketched this as a
+  paste-a-key-and-go flow. The underlying capability (a `direct-api` execution profile with
+  `gateway.baseUrl`/`gateway.apiKeyEnv`) works today via plain config; the wizard itself is a thin
+  UX layer on top that wasn't built in this pass.
 
 ## Open questions still requiring a decision from the user, not derivable from the codebase
 

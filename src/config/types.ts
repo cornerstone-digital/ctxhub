@@ -53,11 +53,21 @@ export type CtxhubConfig = {
 export type ExecutionProfile = {
   // Defaults the framing persona when a command's `--as <persona>` isn't separately given.
   persona?: string;
-  runtime: LlmAgentName;
+  // 'direct-api' (docs/control-plane.md Phase 7) skips harness CLIs entirely, calling `gateway`
+  // instead -- for users who want direct model-provider access with no harness CLI installed.
+  runtime: LlmAgentName | 'direct-api';
   // Only claude/codex are verified to accept a --model flag today (see src/llm/runAgent.ts);
   // set on copilot/cursor profiles is accepted but currently has no effect on the invocation.
+  // Required (and the only thing that matters) when runtime is 'direct-api'.
   model?: string;
   tags?: string[];
+  // Only used when runtime is 'direct-api'. One generic OpenAI-compatible shape covers OpenRouter,
+  // LiteLLM, Portkey, Ollama, and enterprise proxies through a single baseUrl (src/gateway/openaiCompatible.ts).
+  gateway?: {
+    baseUrl: string;
+    // Name of an environment variable holding the API key -- never the key itself in config.
+    apiKeyEnv?: string;
+  };
 };
 
 export type IndexProviderName = 'local-json' | 'lancedb';

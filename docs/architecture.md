@@ -224,3 +224,18 @@ non-git-tracked pending-runs queue (`~/.ctxhub/captains/<task>/<runId>.json`, li
 a real, team-visible artifact is `ctxhub captain promote <task> <runId> <repo>`, which reuses
 `note.ts`'s existing `draftedNoteTemplate` unmodified — the same "AI draft, review before merge"
 shape `note add --draft` already produces, not a second promoted-content format.
+
+## Gateway adapters
+
+`src/gateway/openaiCompatible.ts` implements Phase 7's top-priority adapter: one generic
+OpenAI-compatible client (Node's built-in `fetch`, no new dependency) that in practice covers
+OpenRouter, LiteLLM, Portkey, Ollama, and enterprise proxies through a single `baseUrl`, since all
+of them speak the same protocol. `ExecutionProfile.runtime` (`src/config/types.ts`) can be
+`'direct-api'` instead of a harness name, paired with a `gateway: { baseUrl, apiKeyEnv? }` field —
+`apiKeyEnv` names an environment variable holding the API key, never the key itself, so a
+workspace's `ctxhub.yaml` never carries a secret even if it's git-tracked.
+`runAgentPromptFnForProfile` (`src/execution/executionProfile.ts`) resolves, once per call site,
+between the real `runAgentPrompt` (harness CLIs) and a gateway-calling wrapper closed over the
+profile's `gateway`/`model` — callers never need to branch per invocation. AWS Bedrock and
+Anthropic-direct adapters aren't built; each needs a genuinely different auth/request shape
+(SigV4, the native Messages API) that wasn't worth guessing at speculatively.
