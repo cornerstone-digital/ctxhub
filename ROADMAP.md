@@ -46,6 +46,7 @@
 ## Planned
 
 - AI-generated documentation validation
+- Control plane (`docs/control-plane.md` is the review of the proposed Workspace Registry / Mission Control / Fleet Captain vision and the phased adoption plan -- planning-only so far, nothing in it has been built) -- starts with a low-risk Workspace Registry (`~/.ctxhub/registry.json`, plain CRUD, no daemon required), then a small detached-process control-plane service reusing `ctxhub watch --detach`'s existing pattern, then a Fleet-view-only Mission Control web UI and Execution Profiles (extending the already-shipped persona system). Fleet/Workspace Captains and gateway adapters (OpenRouter, Bedrock, etc.) are sequenced last and flagged as the parts most worth re-confirming are wanted, since they're the closest this vision gets to "a new agent product" rather than a context/control layer.
 
 ## Not planned
 
