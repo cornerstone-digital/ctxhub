@@ -273,8 +273,8 @@ export async function reportCommand(
 </section>
 
 <script id="ctxhub-report-data" type="application/json">${JSON.stringify(items).replaceAll('</', '<\\/')}</script>
-<script id="ctxhub-report-graph" type="application/json">${JSON.stringify(graph).replaceAll('</', '<\/')}</script>
-<script id="ctxhub-report-timeline" type="application/json">${JSON.stringify(reportTimeline).replaceAll('</', '<\/')}</script>
+<script id="ctxhub-report-graph" type="application/json">${JSON.stringify(graph).replaceAll('</', '<\\/')}</script>
+<script id="ctxhub-report-timeline" type="application/json">${JSON.stringify(reportTimeline).replaceAll('</', '<\\/')}</script>
 <script>
 (function () {
   var items = JSON.parse(document.getElementById('ctxhub-report-data').textContent);
@@ -436,13 +436,13 @@ export async function reportCommand(
       .map(function (event) {
         shown++;
         return '<li class="timeline-item">' +
-          '<div class="meta">' + escapeHtml(event.label) + '<\/div>' +
-          '<div>' + escapeHtml(event.detail) + '<\/div>' +
-          '<\/li>';
+          '<div class="meta">' + escapeHtml(event.label) + '</div>' +
+          '<div>' + escapeHtml(event.detail) + '</div>' +
+          '</li>';
       })
       .join('');
     if (!shown) {
-      timelineItems.innerHTML = '<li class="timeline-item"><div>No timeline events match the current filter.<\/div><\/li>';
+      timelineItems.innerHTML = '<li class="timeline-item"><div>No timeline events match the current filter.</div></li>';
     }
   }
 
@@ -453,7 +453,7 @@ export async function reportCommand(
     });
 
     if (!selected) {
-      graphPanel.innerHTML = '<h3>Graph details<\/h3><p>Select a repo, file, or component node to inspect linked knowledge.<\/p>';
+      graphPanel.innerHTML = '<h3>Graph details</h3><p>Select a repo, file, or component node to inspect linked knowledge.</p>';
       return;
     }
 
@@ -464,14 +464,14 @@ export async function reportCommand(
     });
 
     graphPanel.innerHTML = [
-      '<h3>' + escapeHtml(selected.data.label) + '<\/h3>',
-      '<p><strong>Type:<\/strong> ' + escapeHtml(selected.data.type) + (selected.data.stale ? ' <span class="badge stale">stale<\/span>' : '') + '<\/p>',
-      selected.data.repo ? '<p><strong>Repo:<\/strong> ' + escapeHtml(selected.data.repo) + '<\/p>' : '',
-      selected.data.path ? '<p><strong>Path:<\/strong> ' + escapeHtml(selected.data.path) + '<\/p>' : '',
-      selected.data.title ? '<p><strong>Title:<\/strong> ' + escapeHtml(selected.data.title) + '<\/p>' : '',
-      selected.data.snippet ? '<p><strong>Snippet:<\/strong> ' + escapeHtml(selected.data.snippet) + '<\/p>' : '',
-      '<p><strong>Neighbors:<\/strong><\/p>',
-      neighbors.length ? '<ul>' + neighbors.map(function (value) { return '<li>' + escapeHtml(value) + '<\/li>'; }).join('') + '<\/ul>' : '<p>None<\/p>'
+      '<h3>' + escapeHtml(selected.data.label) + '</h3>',
+      '<p><strong>Type:</strong> ' + escapeHtml(selected.data.type) + (selected.data.stale ? ' <span class="badge stale">stale</span>' : '') + '</p>',
+      selected.data.repo ? '<p><strong>Repo:</strong> ' + escapeHtml(selected.data.repo) + '</p>' : '',
+      selected.data.path ? '<p><strong>Path:</strong> ' + escapeHtml(selected.data.path) + '</p>' : '',
+      selected.data.title ? '<p><strong>Title:</strong> ' + escapeHtml(selected.data.title) + '</p>' : '',
+      selected.data.snippet ? '<p><strong>Snippet:</strong> ' + escapeHtml(selected.data.snippet) + '</p>' : '',
+      '<p><strong>Neighbors:</strong></p>',
+      neighbors.length ? '<ul>' + neighbors.map(function (value) { return '<li>' + escapeHtml(value) + '</li>'; }).join('') + '</ul>' : '<p>None</p>'
     ].join('');
   }
 

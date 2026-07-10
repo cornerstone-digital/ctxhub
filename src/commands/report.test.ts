@@ -90,6 +90,37 @@ test('reportCommand writes an HTML report with status, repos, architecture, and 
   });
 });
 
+test('reportCommand escapes a literal </script> sequence inside embedded JSON so it cannot prematurely close the script tag', () => {
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    const output = path.join(cwd, 'report.html');
+    await captureLog(() => reportCommand(
+      { output, memoryQuery: 'graphql' },
+      {
+        readMempalaceSummary: async () => ({ available: true, items: [] }),
+        // A memory hit whose text happens to contain a literal "</script>" -- e.g. a note
+        // showing an HTML/JS snippet. Before the fix, this landed unescaped inside the
+        // ctxhub-report-graph <script type="application/json"> block and would have prematurely
+        // ended it as far as the HTML parser is concerned.
+        searchMempalaceFn: async () => ({
+          query: 'graphql',
+          results: [{ wing: 'app', room: 'decisions', source_file: 'notes.md', text: 'example: </script><script>alert(1)</script>' }]
+        }),
+        timelineMempalaceFn: async () => ({ entity: undefined, count: 0, timeline: [] })
+      }
+    ));
+
+    const html = await readText(output);
+    // The raw, unescaped sequence must never appear between the graph script tag and its close --
+    // every literal "</" from source data must have been turned into "<\/" first.
+    const graphBlock = html.match(/<script id="ctxhub-report-graph"[^>]*>([\s\S]*?)<\/script>/)?.[1] ?? '';
+    assert.ok(!graphBlock.includes('</script>'), 'embedded JSON must not contain an unescaped </script> sequence');
+    assert.match(graphBlock, /<\\\/script>/, 'the literal </script> from source data should be escaped to <\\/script>');
+    // And it must still round-trip as valid JSON once the browser parses it.
+    assert.doesNotThrow(() => JSON.parse(graphBlock.replaceAll('<\\/', '</')));
+  });
+});
+
 test('buildReportGraphData links repos to files and architecture components', () => {
   const graph = buildReportGraphData(
     [{ name: 'app', path: './app' }],

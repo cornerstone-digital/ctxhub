@@ -236,6 +236,40 @@ export async function writeDiaryMempalace(
   ) as Promise<MempalaceWriteResult>;
 }
 
+// Some internal MemPalace modules we call into (e.g. `mempalace.mcp_server`, which is written
+// to run as a stdio MCP server) redirect stdout for protocol hygiene, so the JSON payload our
+// script prints can land on stderr instead -- mixed in with log lines like "Embedding function
+// initialized...". `mempalace.searcher` has no such redirection, so its output stays clean on
+// stdout. Rather than assume one stream, try both wholesale first (handles clean single-stream
+// output, including multi-line JSON), then fall back to scanning every line of both streams and
+// keeping the last one that parses -- the JSON print is always the final statement in every
+// script, so it's always the last valid-JSON line even when preceded by unrelated log noise.
+export function extractJsonPayload(stdout: string, stderr: string): unknown {
+  for (const candidate of [stdout.trim(), stderr.trim()]) {
+    if (!candidate) continue;
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Not parseable as a whole -- fall through to line-by-line scanning below.
+    }
+  }
+
+  let lastParsed: unknown;
+  let found = false;
+  for (const line of [...stdout.split('\n'), ...stderr.split('\n')]) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      lastParsed = JSON.parse(trimmed);
+      found = true;
+    } catch {
+      // Not a JSON line -- e.g. a log message; keep scanning.
+    }
+  }
+
+  return found ? lastParsed : undefined;
+}
+
 async function runMempalaceJson(payload: Record<string, unknown>, config: CtxhubConfig, workspaceRoot: string, script: string): Promise<unknown> {
   const python = await resolveMempalacePython();
   if (!python) {
@@ -252,11 +286,8 @@ async function runMempalaceJson(payload: Record<string, unknown>, config: Ctxhub
   if (result.exitCode !== 0) {
     return { error: combined || `MemPalace call failed with exit ${result.exitCode}` };
   }
-  try {
-    return JSON.parse(result.stdout);
-  } catch {
-    return { error: 'MemPalace returned invalid JSON output.' };
-  }
+  const parsed = extractJsonPayload(result.stdout, result.stderr);
+  return parsed === undefined ? { error: 'MemPalace returned invalid JSON output.' } : parsed;
 }
 
 async function runMempalaceCommand(args: string[], config: CtxhubConfig, workspaceRoot: string): Promise<CliResult> {

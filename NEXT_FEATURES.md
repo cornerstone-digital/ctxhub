@@ -2,31 +2,230 @@
 
 This is the practical implementation queue for ctxhub ideas that would make the tool more useful for both developers and agents. Each item is intentionally shaped so it can become one focused PR.
 
-## Progress
+## Active Queue
 
-- [x] Cited explain command
-- [x] CI workflow templates
-- [x] Context pack export and replay
-- [x] Interactive workspace viewer
-- [x] Rich Mermaid validation
-- [x] Architecture drift detection
-- [x] Agent handoff bundles
-- [x] Config doctor fix mode
-- [x] Search quality dashboard
-- [x] Source-aware context expansion
-- [x] LLM-backed features infrastructure + LLM-backed explain (opt-in, see README's "LLM-backed features")
-- [x] Context compaction (dedup, token-budget trimming, already-seen delta mode, file summaries)
-- [x] Agent-backed skill/doc test reports
-- [x] Onboarding orientation narrator
-- [x] Cross-repo contract-break PR reviewer
-- [x] Architecture/doc drift repair suggestions
-- [x] PR/handoff description synthesis (scoped to `ctxhub handoff`)
-- [x] Auto-drafted note/diagram content
-- [x] Tailored onboarding globs for new repos
-- [x] Eval golden-query expansion
-- [x] Standalone `ctxhub ask`
-- [x] Natural-language query rewriting in front of search
-- [x] LLM-authored file summaries at index time
+- [ ] Report-first memory workspace UX
+- [ ] Memory provenance and backlinks
+- [ ] Graph interaction and navigation polish
+- [ ] MCP write-surface parity for durable memory
+- [ ] Memory workflow automation and promotion paths
+
+## Suggested Order
+
+1. Report-first memory workspace UX
+2. Memory provenance and backlinks
+3. Graph interaction and navigation polish
+4. MCP write-surface parity for durable memory
+5. Memory workflow automation and promotion paths
+
+The first three make the existing graph/memory surface feel like one coherent product instead of a
+set of adjacent capabilities. The final two tighten the developer/agent write path so durable
+memory is easier to use consistently and easier to explain.
+
+## Next Wave Details
+
+The items below describe the current active backlog in more depth. The main opportunity is no
+longer raw capability coverage; it is turning the existing pieces into a more coherent, daily-use
+workspace console for both developers and agents.
+
+## 22. Report-First Memory Workspace UX
+
+**Status:** Not started
+
+**Command:** extend `ctxhub report`
+
+Highest business-case clarity in the current next wave: the features now exist, but the report is
+still closer to an artifact than to a workspace console a human would keep open all day.
+
+Developer value:
+
+- Makes the report the obvious place to browse repo context, durable memory, graph structure, and
+  timelines without jumping between commands.
+- Reduces the "I know the feature exists but I don't remember the flag/tool shape" problem.
+
+Agent value:
+
+- Gives agents a more legible human mirror of the same underlying repo/memory state they already
+  retrieve through MCP.
+- Makes handoff/debug sessions easier because a user can inspect the same memory/query/timeline
+  state visually.
+
+Implementation notes:
+
+- Treat `ctxhub report` as the human control plane rather than just a generated summary page.
+- Add in-page controls for memory query, wing, room, and timeline entity instead of requiring the
+  user to pre-bake those values into CLI flags.
+- Preserve the static, self-contained HTML constraint unless a clearly better local-only option
+  emerges.
+
+Acceptance criteria:
+
+- A user can filter memory hits and timeline scope from within the report itself.
+- A user can move between list, graph, and timeline views without losing their current filter
+  context.
+- No network listener or paid dependency is introduced.
+
+## 23. Memory Provenance And Backlinks
+
+**Status:** Not started
+
+**Command:** extend `ctxhub report`, `ctxhub memory search`, and memory-related MCP payloads
+
+The business case here is trust: once memory and graph views exist, the next thing users ask is
+"where did this come from, and why should I trust it?"
+
+Developer value:
+
+- Every durable memory hit becomes easier to evaluate because source file, writer, timestamp,
+  memory type, and related repo artifacts are visible.
+- Makes memory safer to use in reviews or debugging because uncertain provenance is obvious.
+
+Agent value:
+
+- Agents can reason about whether a memory item is a diary note, a durable drawer, a checkpoint,
+  or a repo note rather than treating all text as equally authoritative.
+- Better provenance supports future ranking/tie-break decisions without inventing confidence.
+
+Implementation notes:
+
+- Normalize provenance fields across report items, graph nodes, `memory_search`, and timeline
+  events.
+- Surface explicit links between repo notes, architecture docs, source files, and memory items when
+  they mention the same repo/path/wing/room.
+- Keep it read-only: this is a metadata and navigation improvement, not a new storage engine.
+
+Acceptance criteria:
+
+- Memory hits and timeline events expose consistent provenance fields wherever they appear.
+- The report graph can show explicit cross-links between memory and repo artifacts when evidence
+  exists.
+- Users can tell whether a fact came from MemPalace, a git-tracked note, a diagram, or indexed
+  source/doc context.
+
+## 24. Graph Interaction And Navigation Polish
+
+**Status:** Not started
+
+**Command:** extend `ctxhub report`
+
+The current graph proves the model; the next business case is making it genuinely useful rather
+than merely inspectable.
+
+Developer value:
+
+- Makes it faster to focus on one repo, one memory wing, or one architecture neighborhood.
+- Turns the graph into a navigation aid instead of a static visualization.
+
+Agent value:
+
+- Supports more precise human-guided debugging of what an agent saw or missed.
+- Creates a clearer shared view during pair-debugging or handoff sessions.
+
+Implementation notes:
+
+- Add pin/focus behavior for a selected node and its immediate neighborhood.
+- Add graph-side filters for node classes (repo/file/component/memory wing/memory room/memory hit).
+- Add better detail panels for edges and a compact way to jump from a selected node to a related
+  command or file path.
+
+Acceptance criteria:
+
+- A user can focus the graph on a node neighborhood without visually losing the rest of the page.
+- A user can hide low-signal node classes when investigating one slice of the workspace.
+- Selected nodes and edges expose enough metadata to support the next action, not just inspection.
+
+## 25. MCP Write-Surface Parity For Durable Memory
+
+**Status:** Not started
+
+**MCP:** extend `ctxhub mcp`
+
+The business question here is consistency: today users have `ctxhub memory add`/`diary`, while
+agents have raw MemPalace MCP write tools and ctxhub MCP read tools. That split works, but it is
+not yet one coherent surface.
+
+Developer value:
+
+- Gives teams one stable tool family to document and teach, rather than mixing ctxhub read tools
+  with raw MemPalace write names.
+- Makes future auditing/telemetry of memory operations easier because the calls flow through one
+  visible surface.
+
+Agent value:
+
+- Reduces cognitive overhead: agents can use one ctxhub-shaped memory surface for read and write.
+- Makes wing/room-aware memory filing easier to standardize in skills and system prompts.
+
+Implementation notes:
+
+- Consider adding thin MCP wrappers for the existing `ctxhub memory add` and `ctxhub memory diary`
+  passthroughs rather than exposing a second memory engine.
+- Keep the wrappers honest and explicit: they should forward into MemPalace and say so.
+- Decide whether these tools stay always-on or remain an opt-in/mutating surface like index/sync.
+
+Acceptance criteria:
+
+- Agents can file durable memory through ctxhub-shaped MCP tools without losing wing/room control.
+- The wrappers are clearly documented as passthroughs to MemPalace, not a second storage system.
+- The read/write split between ctxhub and MemPalace becomes simpler, not more confusing.
+
+**2026-07-10 update:** before building this, a real bug was found and fixed in the underlying
+passthroughs this item would wrap. `timelineMempalace`/`addDrawerMempalace`/`writeDiaryMempalace`
+all route through `mempalace.mcp_server`'s internal functions, which redirect stdout for
+MCP-protocol hygiene -- so their JSON result (and often extra log noise) landed on stderr instead,
+and `runMempalaceJson()` only ever parsed stdout. All three silently failed with "MemPalace
+returned invalid JSON output" on every real call; only `searchMempalace` worked (it calls
+`mempalace.searcher` directly, a module without that redirection). Fixed in
+`src/memory/mempalaceCli.ts` via `extractJsonPayload()`: try each whole stream first, then fall
+back to scanning every line of both streams and keeping the last one that parses as JSON (the
+`print(json.dumps(...))` call is always the final statement in every script). Verified against a
+real MemPalace palace -- `timelineMempalace` now returns real data instead of the error. Whatever
+builds #25 should specifically re-verify the write paths (`add`/`diary`) live too, since this
+session's fix was only re-verified against the read-only timeline path to avoid writing more test
+data into a real palace.
+
+## 26. Memory Workflow Automation And Promotion Paths
+
+**Status:** Not started
+
+**Command:** extend `ctxhub memory`, `ctxhub note`, and `ctxhub handoff`
+
+This is the highest leverage follow-up after the primitives: users should not have to manually
+decide every time whether something belongs in a drawer, a diary, a repo note, or both.
+
+Developer value:
+
+- Reduces friction around capturing useful knowledge in the right place.
+- Helps teams promote durable memory into reviewable repo notes when it graduates from private
+  memory to shared documentation.
+
+Agent value:
+
+- Gives agents a safer workflow for checkpointing, storing decisions, and later promoting them to
+  codebase-facing notes or diagrams.
+- Reduces repeated re-synthesis of the same insight across sessions.
+
+Implementation notes:
+
+- Add higher-level flows on top of the existing memory and note primitives:
+  - save a session checkpoint from current context
+  - suggest a wing/room for a memory write
+  - promote a memory item into a git-tracked repo note
+  - summarize several diary/checkpoint entries into one shared artifact
+- Keep the current split intact: MemPalace remains durable/private by default, repo notes remain
+  shared/reviewable by default.
+
+Acceptance criteria:
+
+- A user or agent can move a useful insight from ephemeral work into durable memory with fewer
+  manual decisions.
+- A user or agent can promote durable memory into a repo note without copy/paste churn.
+- The workflow makes the boundary between private memory and team-shared notes clearer, not blurrier.
+
+## Completed Archive
+
+Everything below this point is shipped. Keep it as design history, implementation notes, and
+acceptance-criteria reference rather than as the active to-do list.
 
 ## 1. Cited Explain Command
 
@@ -348,7 +547,8 @@ doctor check) and the flagship that proved it end-to-end (LLM-backed `ctxhub exp
 gates its LLM path behind `config.llm.enabled`, always falls back to a non-LLM behavior when
 disabled/unavailable/timed out, and never invents information beyond what it was given. Sequenced
 roughly by validated confidence and value (see `SUBAGENTS_BRAINSTORM.md`'s scorecard), not by file
-order. None of these are built yet.
+order. Items 11-21 below are now implemented; the sections remain here as a shipped record and as
+design context for the next wave.
 
 ## 11. Agent-Backed Skill/Doc Test Reports
 
@@ -757,19 +957,4 @@ file is large enough to be worth it, ctxhub asks `runAgentPrompt` for a short pr
 in the redacted file content. Disabled/unavailable/failed calls fall straight back to the previous
 heading/symbol-list summary, so the default indexing path stays unchanged.
 
-## Suggested Order
 
-1. CI workflow templates
-2. Context pack export and replay
-3. Architecture drift detection
-4. Rich Mermaid validation
-5. Cited explain command
-6. Agent handoff bundles
-7. Search quality dashboard
-8. Interactive workspace viewer
-9. Config doctor fix mode
-10. Source-aware context expansion
-
-The first four strengthen trust in the index and architecture docs. The next three make ctxhub more useful in daily agent workflows. The final three are larger polish/maturity pieces.
-
-The LLM-backed backlog (11-21) is sequenced separately above by validated confidence, not mixed into this list — see `SUBAGENTS_BRAINSTORM.md` for the full scorecard and reasoning.

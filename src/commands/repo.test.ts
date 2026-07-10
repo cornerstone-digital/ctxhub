@@ -148,8 +148,8 @@ test('renderRepoGlobSuggestionDiff renders a repo-entry config diff without muta
     { include: ['README.md'], exclude: ['dist/**'], rationale: [] }
   );
 
-  assert.match(diff, /\+    include:/);
-  assert.match(diff, /\+      - README\.md/);
-  assert.match(diff, /\+    exclude:/);
-  assert.match(diff, /\+      - dist\/\*\*/);
+  assert.match(diff, /\+ {4}include:/);
+  assert.match(diff, /\+ {6}- README\.md/);
+  assert.match(diff, /\+ {4}exclude:/);
+  assert.match(diff, /\+ {6}- dist\/\*\*/);
 });
