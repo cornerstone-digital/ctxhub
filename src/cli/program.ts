@@ -185,7 +185,9 @@ export function buildProgram(): Command {
     .option('--from-pr', 'Include changed files from the current branch')
     .option('--base <ref>', 'Base git ref for --from-pr', 'origin/main')
     .option('-l, --limit <limit>', 'Max context results', '8')
-    .description('Create a markdown handoff bundle for another agent or teammate')
+    .option('--llm', 'Force a synthesized summary for this call, even if disabled in config')
+    .option('--no-llm', 'Force skipping the synthesized summary for this call, even if enabled in config')
+    .description('Create a markdown handoff bundle for another agent or teammate, with an LLM-synthesized summary when llm.enabled')
     .action(handoffCommand);
 
   const memory = program.command('memory').description('Manage memory/index store');
@@ -253,7 +255,8 @@ export function buildProgram(): Command {
     .argument('<repo>', 'Repository name (see: ctxhub repo list)')
     .argument('<title>', 'Note title')
     .option('--agent <name>', 'Name of the agent creating this note')
-    .description('Create a dated, consistently-formatted note file under <repo>/agent-notes/')
+    .option('--draft', 'Ask the configured agent CLI to draft the note body from recent commits and indexed context')
+    .description('Create a dated, consistently-formatted note file under <repo>/agent-notes/, optionally with an AI draft when llm.enabled')
     .action(noteAddCommand);
 
   const diagram = program.command('diagram').description('Scaffold git-tracked Mermaid architecture diagrams for a repo');
@@ -265,7 +268,8 @@ export function buildProgram(): Command {
     .option('--agent <name>', 'Name of the agent creating this diagram')
     .option('--dir <path>', 'Directory under the repo', 'docs/architecture')
     .option('--type <type>', 'Mermaid diagram type', 'flowchart')
-    .description('Create a dated .mmd architecture diagram under <repo>/docs/architecture/')
+    .option('--draft', 'Ask the configured agent CLI to draft the Mermaid content from recent commits and indexed context')
+    .description('Create a dated .mmd architecture diagram under <repo>/docs/architecture/, optionally with an AI draft when llm.enabled')
     .action(diagramAddCommand);
 
   program

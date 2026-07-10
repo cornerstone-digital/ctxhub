@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { noteAddCommand } from './note.js';
+import { noteAddCommand, synthesizeNoteDraft } from './note.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
+import { defaultConfig } from '../config/defaultConfig.js';
+import type { CtxhubConfig } from '../config/types.js';
 import { readText, pathExists } from '../utils/fs.js';
 
 async function withWorkspace(run: (cwd: string) => Promise<void>) {
@@ -24,6 +26,10 @@ async function withWorkspace(run: (cwd: string) => Promise<void>) {
     process.chdir(originalCwd);
     await rm(cwd, { recursive: true, force: true });
   }
+}
+
+function config(overrides: Partial<CtxhubConfig['llm']> = {}): CtxhubConfig {
+  return { ...defaultConfig, llm: { ...defaultConfig.llm, ...overrides } };
 }
 
 test('noteAddCommand creates a dated, slugified note file under <repo>/agent-notes/', () => {
@@ -62,4 +68,56 @@ test('noteAddCommand refuses to overwrite an existing note with the same title a
     await noteAddCommand('app', 'Duplicate title');
     await assert.rejects(() => noteAddCommand('app', 'Duplicate title'), /already exists/);
   });
+});
+
+test('synthesizeNoteDraft reports the disabled notice and no content when llm.enabled is false', async () => {
+  const result = await synthesizeNoteDraft({
+    repoName: 'app',
+    title: 'Runtime topology',
+    agent: 'claude',
+    date: '2026-07-10',
+    evidence: ['app:README.md'],
+    recentCommits: ['abc123 feat: add runtime docs']
+  }, config({ enabled: false }));
+
+  assert.equal(result.content, undefined);
+  assert.match(result.llmNotice ?? '', /llm\.enabled: true/);
+});
+
+test('synthesizeNoteDraft returns AI-drafted content when the LLM call succeeds', async () => {
+  const result = await synthesizeNoteDraft(
+    {
+      repoName: 'app',
+      title: 'Runtime topology',
+      agent: 'claude',
+      date: '2026-07-10',
+      evidence: ['app:README.md'],
+      recentCommits: ['abc123 feat: add runtime docs']
+    },
+    config({ enabled: true }),
+    async () => ({ ok: true, text: 'This change routes traffic through app:README.md.' })
+  );
+
+  assert.match(result.content ?? '', /^---\nagent: claude\ndate: 2026-07-10\ndraft: ai-pending-review\n---/);
+  assert.match(result.content ?? '', /AI draft: review every claim and edit before merge/);
+  assert.match(result.content ?? '', /This change routes traffic through app:README\.md\./);
+  assert.equal(result.llmNotice, undefined);
+});
+
+test('synthesizeNoteDraft falls back with a clear notice when the LLM call fails', async () => {
+  const result = await synthesizeNoteDraft(
+    {
+      repoName: 'app',
+      title: 'Runtime topology',
+      agent: 'claude',
+      date: '2026-07-10',
+      evidence: ['app:README.md'],
+      recentCommits: ['abc123 feat: add runtime docs']
+    },
+    config({ enabled: true }),
+    async () => ({ ok: false, reason: 'timeout' })
+  );
+
+  assert.equal(result.content, undefined);
+  assert.match(result.llmNotice ?? '', /unavailable \(timeout\)/);
 });

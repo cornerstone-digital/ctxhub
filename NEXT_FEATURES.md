@@ -20,8 +20,8 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Onboarding orientation narrator
 - [x] Cross-repo contract-break PR reviewer
 - [x] Architecture/doc drift repair suggestions
-- [ ] PR/handoff description synthesis
-- [ ] Auto-drafted note/diagram content
+- [x] PR/handoff description synthesis (scoped to `ctxhub handoff`)
+- [x] Auto-drafted note/diagram content
 - [ ] Tailored onboarding globs for new repos
 - [ ] Eval golden-query expansion
 - [ ] Standalone `ctxhub ask`
@@ -511,7 +511,7 @@ findings tracing back to the same diagram file correctly deduped to one suggesti
 
 ## 15. PR/Handoff Description Synthesis
 
-**Status:** Not started
+**Status:** Done (scoped to `ctxhub handoff`)
 
 **Command:** extend `ctxhub handoff` / `ctxhub pr-context`
 
@@ -533,12 +533,21 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Synthesized description cites only files/evidence already present in the bundle.
-- `--json` output includes the synthesized text as an additional field, not a replacement.
+- Synthesized description cites only files/evidence already present in the bundle. ✓ (prompt
+  explicitly instructs "cite only these repo:path pairs, never invent one," same discipline as
+  the explain flagship and the onboarding narrator.)
+- Adds a new `## Summary` section to the handoff markdown, alongside the existing structured
+  sections, not replacing any of them. ✓
+
+Scoped to `ctxhub handoff` only, not `ctxhub pr-context` -- pr-context already got its own
+LLM-backed feature in #13 (cross-repo contract-risk review), and adding a second, different kind
+of synthesis on top of that felt like scope creep rather than a clearly distinct need. No `--json`
+flag exists on `ctxhub handoff` today (it always writes a markdown file), so that half of the
+original acceptance criterion didn't apply as written.
 
 ## 16. Auto-Drafted Note/Diagram Content
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub note add` / `ctxhub diagram add`
 
@@ -561,8 +570,15 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Drafted content is clearly marked as AI-drafted pending human review (front-matter or comment).
-- Falls back to today's exact empty template when disabled or `--draft` isn't passed.
+- Drafted content is clearly marked as AI-drafted pending human review (front-matter or comment). ✓
+  (`note add --draft` writes `draft: ai-pending-review` plus an HTML review comment; `diagram add
+  --draft` writes a top-of-file Mermaid comment telling reviewers to verify every node/edge/label.)
+- Falls back to today's exact empty template when disabled or `--draft` isn't passed. ✓
+
+Implemented as an opt-in `--draft` flag on both commands, feeding recent repo commits plus the top
+indexed ctxhub evidence to `runAgentPrompt`. Failures and disabled LLMs do not block file creation:
+they print a clear notice and write the original static scaffold instead. Focused tests cover the
+disabled, success, and fallback branches for both note and diagram synthesis.
 
 ## 17. Tailored Onboarding Globs for New Repos
 

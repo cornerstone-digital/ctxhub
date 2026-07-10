@@ -1,10 +1,11 @@
 import path from 'node:path';
 import chalk from 'chalk';
 import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
-import type { SearchResult } from '../config/types.js';
+import type { CtxhubConfig, SearchResult } from '../config/types.js';
 import { createContextPack } from '../context/pack.js';
 import { runGit } from '../git/git.js';
 import { writeText } from '../utils/fs.js';
+import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 
 export type HandoffOptions = {
   repo?: string;
@@ -12,12 +13,14 @@ export type HandoffOptions = {
   fromPr?: boolean;
   base?: string;
   limit?: string;
+  llm?: boolean;
 };
 
 type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
 
 export async function handoffCommand(topic: string, opts: HandoffOptions = {}) {
-  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const { config: loadedConfig, workspaceRoot } = await loadWorkspaceConfig();
+  const config: CtxhubConfig = opts.llm === undefined ? loadedConfig : { ...loadedConfig, llm: { ...loadedConfig.llm, enabled: opts.llm } };
   if (opts.repo && !config.repositories.some(repo => repo.name === opts.repo)) {
     throw new Error(`Repository not found: ${opts.repo}. Run: ctxhub repo list`);
   }
@@ -27,15 +30,59 @@ export async function handoffCommand(topic: string, opts: HandoffOptions = {}) {
   const changed = opts.fromPr ? await collectChangedFiles(opts.base ?? 'origin/main') : {};
   const outputPath = opts.out ? path.resolve(process.cwd(), opts.out) : path.resolve(workspaceRoot, defaultHandoffPath(topic));
 
+  const { summary, llmNotice } = await synthesizeHandoffSummary({ topic, repo: opts.repo, changed, pack }, config);
+
   await writeText(outputPath, buildHandoffMarkdown({
     topic,
     repo: opts.repo,
     base: opts.fromPr ? opts.base ?? 'origin/main' : undefined,
     changed,
-    pack
+    pack,
+    summary
   }));
 
   console.log(chalk.green(`Created ${path.relative(process.cwd(), outputPath) || outputPath}`));
+  if (llmNotice) console.log(chalk.dim(llmNotice));
+}
+
+export async function synthesizeHandoffSummary(
+  input: { topic: string; repo?: string; changed: Record<string, string[]>; pack: ContextPack },
+  config: CtxhubConfig,
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt
+): Promise<{ summary?: string; llmNotice?: string }> {
+  if (!config.llm.enabled) {
+    return { llmNotice: llmDisabledNotice('a synthesized handoff summary') };
+  }
+
+  const prompt = buildHandoffSummaryPrompt(input);
+  const result = await runAgentPromptFn(config, prompt);
+  if (!result.ok) {
+    return { llmNotice: `Handoff summary synthesis was unavailable (${result.reason}); showing the structured bundle only.` };
+  }
+
+  const summary = result.text.trim();
+  return summary ? { summary } : {};
+}
+
+function buildHandoffSummaryPrompt(input: { topic: string; repo?: string; changed: Record<string, string[]>; pack: ContextPack }): string {
+  const changedBlock = Object.entries(input.changed)
+    .map(([repo, files]) => `${repo}: ${files.join(', ')}`)
+    .join('\n');
+  const evidenceBlock = [...input.pack.architecture, ...input.pack.search]
+    .slice(0, 10)
+    .map(item => `- ${item.repo}:${item.filePath}${item.title ? ` (${item.title})` : ''}`)
+    .join('\n');
+
+  return [
+    `Topic: ${input.topic}${input.repo ? ` (scope: ${input.repo})` : ''}`,
+    '',
+    changedBlock ? `Changed files:\n${changedBlock}\n` : '',
+    `Evidence (cite only these repo:path pairs, never invent one):\n${evidenceBlock || '(none found)'}`,
+    '',
+    'Write a short (3-5 sentence) handoff summary for whoever picks this topic up next: what this ' +
+      'is about and what they should know, citing repo:path for specific claims. If the evidence is ' +
+      'too sparse to say much, say so plainly instead of guessing.'
+  ].join('\n');
 }
 
 export function buildHandoffMarkdown(input: {
@@ -44,6 +91,7 @@ export function buildHandoffMarkdown(input: {
   base?: string;
   changed: Record<string, string[]>;
   pack: ContextPack;
+  summary?: string;
 }): string {
   const suggested = filterByRepo(input.pack.suggestedReadingOrder, input.repo);
   const architecture = filterByRepo(input.pack.architecture, input.repo).slice(0, 8);
@@ -55,7 +103,7 @@ export function buildHandoffMarkdown(input: {
 Generated: ${new Date().toISOString()}
 Workspace: ${input.pack.workspace}
 ${input.repo ? `Scope: ${input.repo}` : 'Scope: workspace'}
-
+${input.summary ? `\n## Summary\n\n${input.summary}\n` : ''}
 ## Status
 
 - Index: ${input.pack.status.index.provider}, ${input.pack.status.index.chunkCount} chunks, last indexed ${input.pack.status.index.lastIndexed ?? 'never'}

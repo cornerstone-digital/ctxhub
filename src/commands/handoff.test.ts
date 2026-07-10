@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHandoffMarkdown, defaultHandoffPath, slugify } from './handoff.js';
+import { buildHandoffMarkdown, defaultHandoffPath, slugify, synthesizeHandoffSummary } from './handoff.js';
+import { defaultConfig } from '../config/defaultConfig.js';
+import type { CtxhubConfig } from '../config/types.js';
 
 const basePack = {
   query: 'auth flow',
@@ -66,4 +68,42 @@ test('buildHandoffMarkdown includes status, changed files, architecture, and con
   assert.match(markdown, /Changed Files vs origin\/main/);
   assert.match(markdown, /docs\/architecture\/runtime\.mmd/);
   assert.match(markdown, /Authentication flow lives here/);
+});
+
+test('buildHandoffMarkdown includes a Summary section only when one is provided', () => {
+  const withoutSummary = buildHandoffMarkdown({ topic: 'auth flow', changed: {}, pack: basePack });
+  assert.ok(!withoutSummary.includes('## Summary'));
+
+  const withSummary = buildHandoffMarkdown({ topic: 'auth flow', changed: {}, pack: basePack, summary: 'Auth lives in api:README.md.' });
+  assert.match(withSummary, /## Summary\n\nAuth lives in api:README\.md\./);
+});
+
+function config(overrides: Partial<CtxhubConfig['llm']> = {}): CtxhubConfig {
+  return { ...defaultConfig, llm: { ...defaultConfig.llm, ...overrides } };
+}
+
+test('synthesizeHandoffSummary reports the disabled notice and no summary when llm.enabled is false', async () => {
+  const result = await synthesizeHandoffSummary({ topic: 'auth flow', changed: {}, pack: basePack }, config({ enabled: false }));
+  assert.equal(result.summary, undefined);
+  assert.match(result.llmNotice ?? '', /llm\.enabled: true/);
+});
+
+test('synthesizeHandoffSummary returns the synthesized text and no notice on success', async () => {
+  const result = await synthesizeHandoffSummary(
+    { topic: 'auth flow', changed: {}, pack: basePack },
+    config({ enabled: true }),
+    async () => ({ ok: true, text: '  Auth lives in api:README.md.  ' })
+  );
+  assert.equal(result.summary, 'Auth lives in api:README.md.');
+  assert.equal(result.llmNotice, undefined);
+});
+
+test('synthesizeHandoffSummary falls back with a clear notice when the LLM call fails', async () => {
+  const result = await synthesizeHandoffSummary(
+    { topic: 'auth flow', changed: {}, pack: basePack },
+    config({ enabled: true }),
+    async () => ({ ok: false, reason: 'timeout' })
+  );
+  assert.equal(result.summary, undefined);
+  assert.match(result.llmNotice ?? '', /unavailable \(timeout\)/);
 });
