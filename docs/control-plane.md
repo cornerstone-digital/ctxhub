@@ -187,17 +187,37 @@ prerequisite for every later phase without requiring any of them to exist.
 - [x] Live verification: started the real service, registered a workspace, confirmed
       `GET /workspaces` returns the exact data the page's `loadFleet()` fetches and renders.
 
-### Phase 4 — Execution Profiles (extends the already-shipped persona system, doesn't replace it)
+### Phase 4 — Execution Profiles (shipped, wired into `explain` as the reference integration)
 
-- [ ] YAML-defined profiles binding a persona (already real, from `agents/personas/*.md`) to a
-      harness + provider + model + tags, per the brief's sketch (`executionProfiles` in
-      workspace config). This is additive config, not a new engine: `--as <persona>` on
-      `explain`/`ask`/`handoff`/`review` already resolves a persona; an execution profile is one
-      more optional layer that says *which* harness/model a given persona should run under when
-      more than one is configured.
-- [ ] No gateway adapters required for this phase — an execution profile whose `runtime` is an
+- [x] `CtxhubConfig.executionProfiles: Record<string, ExecutionProfile>` (`src/config/types.ts`),
+      each entry `{ persona?, runtime: LlmAgentName, model?, tags? }`, defaulting to `{}` so
+      nothing changes for a workspace that doesn't configure any — additive config, not a new
+      engine. `src/execution/executionProfile.ts`'s `resolveExecutionProfile(config, name)` is a
+      deliberately thin lookup; the real behavior lives in how callers combine it with
+      `runAgentPrompt`'s existing mechanism.
+- [x] `runAgentPrompt` (`src/llm/runAgent.ts`) gained `opts.agent`/`opts.model` per-call overrides,
+      taking priority over `config.llm.agent`/auto-detection -- an Execution Profile's `runtime` is
+      never silently swapped for another CLI, same discipline as the existing configured-agent
+      path. `model` is passed through as `--model` for claude and `-m` for codex (both verified
+      against their real `--help` output); copilot/cursor accept the override but don't act on it
+      yet, since their invocations are already best-effort/unverified and guessing a second
+      unverified flag on top of a first isn't worth it.
+- [x] `--profile <name>` wired into `ctxhub explain` as the reference integration (other
+      persona-driven commands -- `ask`/`handoff`/`review` -- can adopt the identical pattern as a
+      fast follow; not done in this pass to keep this commit reviewable). Resolution order:
+      `--as <persona>` always wins for framing when both are given; the profile's own `persona`
+      field is the default when `--as` is omitted; an unknown `--profile` name throws immediately,
+      before any evidence gathering.
+- [x] No gateway adapters required for this phase — an execution profile whose `runtime` is an
       already-configured harness CLI (`claude`, `codex`, `copilot`, `cursor`) works with zero new
       infrastructure, using the exact `runAgentPrompt` mechanism that already exists.
+- [x] Unit tests: `src/execution/executionProfile.test.ts` (resolver), `src/llm/runAgent.test.ts`
+      (agent/model override priority and argument passthrough), `src/commands/explain.test.ts`
+      (unknown-profile rejection, persona-default-from-profile, `--as`-wins-for-framing).
+- [x] Live verification: configured a real `fast-claude` execution profile
+      (`runtime: claude, model: claude-haiku-4-5`) and ran `ctxhub explain ... --profile
+      fast-claude` against the real `claude` CLI -- got a real synthesized, cited answer, proving
+      the model override reaches an actual invocation, not just a mocked one.
 
 ### Phase 5 — Central MCP Gateway
 

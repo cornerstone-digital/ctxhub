@@ -163,6 +163,7 @@ export function buildProgram(): Command {
     .option('--no-llm', 'Force the non-LLM evidence scaffold for this call, even if enabled in config')
     .option('--notify', 'Send a desktop notification when the answer is ready')
     .option('--as <persona>', 'Frame the answer through a persona defined in agents/personas/ (see: ctxhub personas init)')
+    .option('--profile <name>', 'Use a named executionProfiles entry to pick which harness/model runs this call (docs/control-plane.md Phase 4)')
     .description('Create a citation-first explanation from indexed context, LLM-synthesized when llm.enabled')
     .action(explainCommand);
 

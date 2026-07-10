@@ -41,5 +41,6 @@ export const defaultConfig: CtxhubConfig = {
   llm: {
     enabled: false,
     timeoutMs: 120_000
-  }
+  },
+  executionProfiles: {}
 };

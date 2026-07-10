@@ -253,3 +253,65 @@ test('createExplainResult silently proceeds without a persona block when --as na
     assert.match(capturedPrompt, /Policy \(always applies/);
   });
 });
+
+// docs/control-plane.md Phase 4: --profile resolves a named executionProfiles entry.
+test('createExplainResult rejects an unknown --profile name before doing any work', () => {
+  return withWorkspace(async cwd => {
+    await assert.rejects(
+      () => createExplainResult('authentication flow', 8, cwd, { profile: 'not-a-real-profile' }),
+      /No execution profile named "not-a-real-profile"/
+    );
+  });
+});
+
+test('createExplainResult --profile defaults the framing persona from the profile when --as is not given', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    config.executionProfiles = { 'architect-primary': { persona: 'architect', runtime: 'claude', model: 'claude-opus-4' } };
+    await saveConfig(config, cwd);
+    await initAgentsDirectory(cwd);
+
+    let capturedPrompt = '';
+    let capturedOpts: { agent?: string; model?: string } | undefined;
+    await createExplainResult('authentication flow', 8, cwd, {
+      profile: 'architect-primary',
+      runAgentPromptFn: async (_config, prompt, opts) => {
+        capturedPrompt = prompt;
+        capturedOpts = opts;
+        return { ok: true, text: 'answer' };
+      }
+    });
+
+    assert.match(capturedPrompt, /Persona: architect/);
+    assert.deepEqual(capturedOpts, { agent: 'claude', model: 'claude-opus-4' });
+  });
+});
+
+test('createExplainResult --as wins over the profile\'s own persona for framing, while the profile still picks the runtime/model', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    config.executionProfiles = { 'architect-primary': { persona: 'architect', runtime: 'codex', model: 'gpt-5' } };
+    await saveConfig(config, cwd);
+    await initAgentsDirectory(cwd);
+
+    let capturedPrompt = '';
+    let capturedOpts: { agent?: string; model?: string } | undefined;
+    await createExplainResult('authentication flow', 8, cwd, {
+      persona: 'not-a-real-persona',
+      profile: 'architect-primary',
+      runAgentPromptFn: async (_config, prompt, opts) => {
+        capturedPrompt = prompt;
+        capturedOpts = opts;
+        return { ok: true, text: 'answer' };
+      }
+    });
+
+    assert.deepEqual(capturedOpts, { agent: 'codex', model: 'gpt-5' });
+    // --as's own (nonexistent) name is what's actually used for framing, not the profile's
+    // "architect" -- proving --as takes priority in persona resolution, not just that some
+    // persona or other loaded successfully.
+    assert.ok(!capturedPrompt.includes('Persona:'));
+  });
+});

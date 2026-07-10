@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import { detectAvailableAgent, isAgentCliAvailable, llmDisabledNotice, LLM_AGENTS, runAgentPrompt } from './runAgent.js';
 import { defaultConfig } from '../config/defaultConfig.js';
 import type { CtxhubConfig } from '../config/types.js';
@@ -85,4 +86,57 @@ test('runAgentPrompt maps a timeout error to the timeout reason', async () => {
 
 test('LLM_AGENTS lists all four supported agent CLIs', () => {
   assert.deepEqual([...LLM_AGENTS], ['claude', 'codex', 'copilot', 'cursor']);
+});
+
+// docs/control-plane.md Phase 4: an Execution Profile's runtime/model are per-call overrides.
+test("runAgentPrompt's opts.agent overrides config.llm.agent, taking priority", async () => {
+  const execFn = async (_command: string, args: string[]) => {
+    if (args.includes('--version')) return { stdout: '1.0.0', stderr: '' };
+    // Mirrors invokeAgent's real codex path: it reads back whatever `-o <file>` the codex CLI
+    // itself would have written.
+    const outputFile = args[args.indexOf('-o') + 1];
+    await writeFile(outputFile, 'from codex\n', 'utf8');
+    return { stdout: '', stderr: '' };
+  };
+  const result = await runAgentPrompt(config({ enabled: true, agent: 'claude' }), 'prompt', {
+    execFn: execFn as never,
+    agent: 'codex'
+  });
+  assert.deepEqual(result, { ok: true, text: 'from codex' });
+});
+
+test('runAgentPrompt reports no-agent-available with a profile-specific message when opts.agent is not on PATH', async () => {
+  const result = await runAgentPrompt(config({ enabled: true, agent: 'claude' }), 'prompt', {
+    execFn: fakeExec({ claude: async () => ({ stdout: 'ignored', stderr: '' }) }) as never,
+    agent: 'codex'
+  });
+  assert.equal(result.ok, false);
+  assert.equal((result as { reason: string }).reason, 'no-agent-available');
+  assert.match((result as { detail: string }).detail, /Execution profile's runtime "codex"/);
+});
+
+test('runAgentPrompt passes opts.model through as --model for claude', async () => {
+  let capturedArgs: string[] = [];
+  const execFn = (_command: string, args: string[]) => {
+    capturedArgs = args;
+    return Promise.resolve({ stdout: 'ok', stderr: '' });
+  };
+  await runAgentPrompt(config({ enabled: true, agent: 'claude' }), 'prompt', { execFn: execFn as never, model: 'claude-opus-4' });
+  assert.deepEqual(capturedArgs, ['-p', '--output-format', 'text', '--model', 'claude-opus-4']);
+});
+
+test('runAgentPrompt passes opts.model through as -m for codex', async () => {
+  let capturedArgs: string[] = [];
+  const execFn = async (_command: string, args: string[]) => {
+    if (args.includes('--version')) return { stdout: '1.0.0', stderr: '' };
+    capturedArgs = args;
+    // Mirrors invokeAgent's real codex path: it reads back whatever `-o <file>` the codex CLI
+    // itself would have written, so the fake has to actually write that file.
+    const outputFile = args[args.indexOf('-o') + 1];
+    await writeFile(outputFile, 'codex response\n', 'utf8');
+    return { stdout: '', stderr: '' };
+  };
+  await runAgentPrompt(config({ enabled: true, agent: 'codex' }), 'prompt', { execFn: execFn as never, model: 'gpt-5' });
+  assert.ok(capturedArgs.includes('-m'), 'expected -m flag in codex invocation args');
+  assert.ok(capturedArgs.includes('gpt-5'));
 });

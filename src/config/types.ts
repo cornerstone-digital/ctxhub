@@ -43,6 +43,21 @@ export type CtxhubConfig = {
     agent?: LlmAgentName;
     timeoutMs: number;
   };
+  // docs/control-plane.md Phase 4: binds a persona to a specific harness + model, so a workspace
+  // with more than one configured agent CLI can say *which* one a given persona should run under,
+  // instead of always using the single `llm.agent`/auto-detected default. Additive: a profile is
+  // only used when explicitly named (`--profile <name>`); nothing changes for callers that don't.
+  executionProfiles: Record<string, ExecutionProfile>;
+};
+
+export type ExecutionProfile = {
+  // Defaults the framing persona when a command's `--as <persona>` isn't separately given.
+  persona?: string;
+  runtime: LlmAgentName;
+  // Only claude/codex are verified to accept a --model flag today (see src/llm/runAgent.ts);
+  // set on copilot/cursor profiles is accepted but currently has no effect on the invocation.
+  model?: string;
+  tags?: string[];
 };
 
 export type IndexProviderName = 'local-json' | 'lancedb';

@@ -175,3 +175,18 @@ client-side (`fetch('/workspaces')`, then per-workspace `fetch('/workspaces/:nam
 every page load, rather than embedding a snapshot once at generation time the way `ctxhub report`
 does. That's deliberate — the Fleet view is meant to reflect the control plane's current state,
 not a point-in-time report.
+
+## Execution Profiles
+
+`CtxhubConfig.executionProfiles` (`src/config/types.ts`, defaults to `{}`) binds a persona to a
+specific harness + model — `{ persona?, runtime, model?, tags? }` — extending the already-shipped
+persona system (`src/personas/`) rather than adding a new engine.
+`src/execution/executionProfile.ts`'s `resolveExecutionProfile(config, name)` is a deliberately
+thin lookup; the real behavior is in how `runAgentPrompt` (`src/llm/runAgent.ts`) now accepts
+per-call `agent`/`model` overrides, taking priority over `config.llm.agent`/auto-detection with the
+same never-silently-swap discipline the existing configured-agent path already has. `model` is
+passed through as `--model` for claude and `-m` for codex (both verified against real `--help`
+output); copilot/cursor accept the override without acting on it yet, since their invocations are
+already best-effort/unverified. `ctxhub explain --profile <name>` is the reference integration —
+`--as` always wins for framing when both are given, the profile's own `persona` is the default
+otherwise, and other persona-driven commands can adopt the identical pattern incrementally.

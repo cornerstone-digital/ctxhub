@@ -5,6 +5,7 @@ import { createContextPack } from '../context/pack.js';
 import { llmDisabledNotice, runAgentPrompt, type RunAgentResult } from '../llm/runAgent.js';
 import { notify } from '../utils/notify.js';
 import { buildPromptPreamble, loadPersona, loadPolicyText } from '../personas/persona.js';
+import { resolveExecutionProfile } from '../execution/executionProfile.js';
 
 export type ExplainEvidence = {
   ref: string;
@@ -33,8 +34,15 @@ export type ExplainResult = {
   llmNotice?: string;
 };
 
-export async function explainCommand(query: string, opts: { limit?: string; json?: boolean; llm?: boolean; notify?: boolean; as?: string } = {}) {
-  const result = await createExplainResult(query, Number(opts.limit ?? 8), process.cwd(), { llmOverride: opts.llm, persona: opts.as });
+export async function explainCommand(
+  query: string,
+  opts: { limit?: string; json?: boolean; llm?: boolean; notify?: boolean; as?: string; profile?: string } = {}
+) {
+  const result = await createExplainResult(query, Number(opts.limit ?? 8), process.cwd(), {
+    llmOverride: opts.llm,
+    persona: opts.as,
+    profile: opts.profile
+  });
 
   if (opts.notify) notify('ctxhub explain', `Answer ready for: ${query}`);
 
@@ -50,7 +58,7 @@ export async function createExplainResult(
   query: string,
   limit = 8,
   cwd = process.cwd(),
-  opts: { llmOverride?: boolean; runAgentPromptFn?: typeof runAgentPrompt; persona?: string } = {}
+  opts: { llmOverride?: boolean; runAgentPromptFn?: typeof runAgentPrompt; persona?: string; profile?: string } = {}
 ): Promise<ExplainResult> {
   const pack = await createContextPack(query, limit, cwd);
   const architecture = pack.architecture.slice(0, Math.min(4, limit));
@@ -64,13 +72,29 @@ export async function createExplainResult(
   const effectiveConfig: CtxhubConfig =
     opts.llmOverride === undefined ? config : { ...config, llm: { ...config.llm, enabled: opts.llmOverride } };
 
-  // Empty when agents/ doesn't exist or --as isn't given -- see docs/personas.md Phase 1/2 for why
-  // this is additive (never replaces the evidence-format wording already in buildLlmPrompt below).
+  // docs/control-plane.md Phase 4: --profile resolves a named Execution Profile, which defaults
+  // the framing persona (when --as wasn't separately given) and overrides which harness/model
+  // actually runs this call -- --as always wins for framing when both are given.
+  const profile = opts.profile ? resolveExecutionProfile(config, opts.profile) : undefined;
+  if (opts.profile && !profile) {
+    throw new Error(`No execution profile named "${opts.profile}". Configure one under executionProfiles in ctxhub.yaml.`);
+  }
+  const personaName = opts.persona ?? profile?.persona;
+
+  // Empty when agents/ doesn't exist or no persona is resolved -- see docs/personas.md Phase 1/2
+  // for why this is additive (never replaces the evidence-format wording in buildLlmPrompt below).
   const policyText = await loadPolicyText(workspaceRoot);
-  const persona = opts.persona ? await loadPersona(workspaceRoot, opts.persona) : undefined;
+  const persona = personaName ? await loadPersona(workspaceRoot, personaName) : undefined;
   const preamble = buildPromptPreamble(policyText, persona);
 
-  const { answer, llmNotice } = await resolveAnswer(query, evidence, effectiveConfig, opts.runAgentPromptFn ?? runAgentPrompt, preamble);
+  const { answer, llmNotice } = await resolveAnswer(
+    query,
+    evidence,
+    effectiveConfig,
+    opts.runAgentPromptFn ?? runAgentPrompt,
+    preamble,
+    { agent: profile?.runtime, model: profile?.model }
+  );
 
   return {
     query,
@@ -92,14 +116,15 @@ async function resolveAnswer(
   query: string,
   evidence: ExplainEvidence[],
   config: CtxhubConfig,
-  runAgentPromptFn: (config: CtxhubConfig, prompt: string) => Promise<RunAgentResult>,
-  preamble = ''
+  runAgentPromptFn: (config: CtxhubConfig, prompt: string, opts?: { agent?: CtxhubConfig['llm']['agent']; model?: string }) => Promise<RunAgentResult>,
+  preamble = '',
+  executionOverride: { agent?: CtxhubConfig['llm']['agent']; model?: string } = {}
 ): Promise<{ answer: string[]; llmNotice?: string }> {
   if (!evidence.length) {
     return { answer: buildAnswerLines(evidence) };
   }
 
-  const result = await runAgentPromptFn(config, buildLlmPrompt(query, evidence, preamble));
+  const result = await runAgentPromptFn(config, buildLlmPrompt(query, evidence, preamble), executionOverride);
   if (result.ok) {
     const lines = result.text.split('\n').map(line => line.trim()).filter(Boolean);
     return { answer: lines.length ? lines : buildAnswerLines(evidence) };
