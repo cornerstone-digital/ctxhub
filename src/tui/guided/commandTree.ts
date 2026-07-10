@@ -49,6 +49,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   'pr-context': 'Search & Context',
   handoff: 'Search & Context',
   memory: 'Memory',
+  stats: 'Memory',
   agent: 'Agents & Skills',
   skills: 'Agents & Skills',
   note: 'Team notes',

@@ -5,6 +5,7 @@ import { indexCommand } from '../commands/index.js';
 import { searchCommand } from '../commands/search.js';
 import { syncCommand } from '../commands/sync.js';
 import { memoryClearCommand, memoryStatusCommand } from '../commands/memory.js';
+import { statsCommand } from '../commands/stats.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { mcpCommand } from '../commands/mcp.js';
 import { agentLaunchCommand, SUPPORTED_AGENTS } from '../commands/agent.js';
@@ -199,6 +200,12 @@ export function buildProgram(): Command {
     .action(memoryClearCommand);
 
   program
+    .command('stats')
+    .description("Show ctxhub's estimated token savings vs. reading matched files in full")
+    .option('--json', 'Print machine-readable JSON')
+    .action(statsCommand);
+
+  program
     .command('doctor')
     .description('Check workspace health')
     .option('--fix', 'Apply safe, low-risk automatic fixes (missing dirs, default privacy config)')
@@ -215,6 +222,7 @@ export function buildProgram(): Command {
     .command('mcp')
     .description('Start the ctxhub MCP server (stdio) for AI agent tool use')
     .option('--allow-index', 'Expose opt-in mutating index/sync tools over MCP')
+    .option('--restart-on-stale', 'Exit when a newer build is detected on disk (only an effective restart if your MCP host auto-respawns a stopped server)')
     .action(mcpCommand);
 
   program

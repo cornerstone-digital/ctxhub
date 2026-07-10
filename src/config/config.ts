@@ -11,6 +11,7 @@ export const CONFIG_PATH = PROJECT_CONFIG_PATH;
 export const INDEX_DIR = path.join(CTXHUB_DIR, 'index');
 export const CACHE_DIR = path.join(CTXHUB_DIR, 'cache');
 export const MEMORY_DIR = path.join(CTXHUB_DIR, 'memory');
+export const STATS_PATH = path.join(CTXHUB_DIR, 'stats.json');
 
 const CONFIG_CANDIDATES = [LOCAL_CONFIG_PATH, PROJECT_CONFIG_PATH];
 

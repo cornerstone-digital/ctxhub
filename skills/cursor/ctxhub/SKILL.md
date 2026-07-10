@@ -19,9 +19,10 @@ Also treat the index as possibly stale after the user mentions pulling new chang
 
 ## How to use it
 
-- If the `ctxhub` MCP server is connected, prefer its tools: `context_pack`, `search`, `open_chunk`, `get_file_context`, `architecture_search`, `architecture_map`, `memory_status`, `repo_list`, `server_status`.
+- If the `ctxhub` MCP server is connected, prefer its tools: `context_pack`, `search`, `open_chunk`, `get_file_context`, `architecture_search`, `architecture_map`, `memory_status`, `repo_list`, `server_status`, `usage_stats`.
 - For broad questions, use `context_pack` first; it bundles search, architecture, freshness, repo list, and suggested reading order.
 - If a result seems to contradict a recent ctxhub change, or once near the start of a long session, call `server_status`. If `stale: true`, ctxhub was rebuilt after this MCP process started and can't restart itself; tell the user to restart/reconnect the ctxhub MCP server (or restart the agent/harness).
+- If the user asks how much ctxhub is helping or saving them, call `usage_stats` (or run `ctxhub stats`) and report estimated tokens saved vs. reading matched files in full; it's a heuristic, present it as directional.
 - Otherwise, run the CLI directly: `ctxhub search --plain "<query>"`, `ctxhub memory status --plain`, `ctxhub repo list`.
 - Use typed search when intent is clear: `ctxhub search --plain --code "<query>"` for implementation/symbol lookup, `--docs` for README/decision docs, `--architecture` for Mermaid diagrams, and `--notes` for team notes.
 - For precise code edits, use ctxhub to find the right repo/file, then use local file reads and `rg` in that repo for exact method bodies.

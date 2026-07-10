@@ -2,7 +2,7 @@ import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { loadWorkspaceConfig } from '../config/config.js';
+import { loadWorkspaceConfig, STATS_PATH } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { createContextPack } from '../context/pack.js';
@@ -11,6 +11,8 @@ import { indexWorkspace } from '../indexing/indexer.js';
 import { pullRepo } from '../git/git.js';
 import { getPackageVersion } from '../utils/version.js';
 import { checkServerStaleness } from '../utils/serverStatus.js';
+import { estimateTokens } from '../utils/tokenEstimate.js';
+import { estimateBaselineTokensFromFileSizes, readUsageStats, recordToolUsage, summarizeUsageStats } from '../utils/usageStats.js';
 import { SEARCH_FACETS, classifyResult, filterResults, localRgHints, normalizeSearchFacet } from '../context/searchFacets.js';
 
 function textResult(value: unknown) {
@@ -19,6 +21,15 @@ function textResult(value: unknown) {
 
 async function workspace(cwd: string) {
   return loadWorkspaceConfig(cwd);
+}
+
+// Best-effort telemetry backing the `usage_stats` tool/`ctxhub stats` command: records how many
+// tokens a tool call returned vs. the heuristic cost of reading every distinct matched file in
+// full, so agents/users can see roughly how much ctxhub's targeted retrieval is saving over time.
+async function recordUsage(workspaceRoot: string, tool: string, payload: unknown, absolutePaths: Array<string | undefined>) {
+  const tokensReturned = estimateTokens(JSON.stringify(payload));
+  const tokensBaseline = estimateBaselineTokensFromFileSizes(absolutePaths);
+  await recordToolUsage(path.join(workspaceRoot, STATS_PATH), tool, tokensReturned, tokensBaseline);
 }
 
 export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean; startedAt?: number } = {}): McpServer {
@@ -63,7 +74,7 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       const maxResults = limit ?? 5;
       const candidates = await index.search(query, facet === 'all' ? maxResults : Math.max(maxResults * 5, 25));
       const results = filterResults(candidates, facet).slice(0, maxResults);
-      return textResult({
+      const payload = {
         query,
         type: facet,
         resultTypes: countResultTypes(results),
@@ -74,7 +85,9 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
           'For exact method bodies or edits, follow up with get_file_context or local rg in the target repo.',
           'For architecture/topology questions, prefer type="architecture" or architecture_search.'
         ]
-      });
+      };
+      await recordUsage(workspaceRoot, 'search', payload, results.map(result => result.absolutePath));
+      return textResult(payload);
     }
   );
 
@@ -88,7 +101,12 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
         limit: z.number().int().positive().max(50).optional().describe('Max results (default 8)')
       }
     },
-    async ({ query, limit }) => textResult(await createContextPack(query, limit ?? 8, cwd))
+    async ({ query, limit }) => {
+      const pack = await createContextPack(query, limit ?? 8, cwd);
+      const { workspaceRoot } = await workspace(cwd);
+      await recordUsage(workspaceRoot, 'context_pack', pack, [...pack.search, ...pack.architecture].map(result => result.absolutePath));
+      return textResult(pack);
+    }
   );
 
   server.registerTool(
@@ -104,7 +122,9 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       const { config, workspaceRoot } = await workspace(cwd);
       const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const document = await index.getDocument(id);
-      return textResult(document ?? { error: `Chunk not found: ${id}` });
+      const payload = document ?? { error: `Chunk not found: ${id}` };
+      if (document) await recordUsage(workspaceRoot, 'open_chunk', payload, [document.absolutePath]);
+      return textResult(payload);
     }
   );
 
@@ -129,9 +149,13 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
         )
       }
     },
-    async ({ repo, path, line, before, after, mode }) => {
+    async ({ repo, path: filePath, line, before, after, mode }) => {
       const { config, workspaceRoot } = await workspace(cwd);
-      return textResult(await getFileContext(config, repo, path, { line, before, after, mode }, workspaceRoot));
+      const context = await getFileContext(config, repo, filePath, { line, before, after, mode }, workspaceRoot);
+      const repoConfig = config.repositories.find(candidate => candidate.name === repo);
+      const absolutePath = repoConfig ? path.resolve(workspaceRoot, repoConfig.path, filePath) : undefined;
+      await recordUsage(workspaceRoot, 'get_file_context', context, [absolutePath]);
+      return textResult(context);
     }
   );
 
@@ -151,6 +175,24 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const [memoryStatus, indexStatus] = await Promise.all([memory.status(), index.status()]);
       return textResult({ memory: memoryStatus, index: indexStatus });
+    }
+  );
+
+  server.registerTool(
+    'usage_stats',
+    {
+      title: 'ctxhub token savings stats',
+      description:
+        'Report how much ctxhub\'s targeted search/context tools have saved versus reading full files directly, ' +
+        'accumulated across every call in this workspace. Tokens are a heuristic estimate (chars/4); the baseline ' +
+        'assumes the agent would otherwise have read each distinct matched file in full. Call this if the user asks ' +
+        'how much ctxhub is helping, or wants to see its ROI.',
+      inputSchema: {}
+    },
+    async () => {
+      const { workspaceRoot } = await workspace(cwd);
+      const stats = await readUsageStats(path.join(workspaceRoot, STATS_PATH));
+      return textResult(summarizeUsageStats(stats));
     }
   );
 
@@ -206,6 +248,7 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
       const results = (await index.search(`architecture diagram mermaid ${query}`, limit ?? 10))
         .filter(result => result.kind === 'architecture-diagram')
         .slice(0, limit ?? 5);
+      await recordUsage(workspaceRoot, 'architecture_search', results, results.map(result => result.absolutePath));
       return textResult(results);
     }
   );
@@ -228,7 +271,7 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
         .filter(result => result.kind === 'architecture-diagram');
       const components = [...new Set(results.flatMap(result => result.components ?? []))].sort();
       const relationships = [...new Set(results.flatMap(result => result.relationships ?? []))].sort();
-      return textResult({
+      const payload = {
         diagrams: results.map(result => ({
           id: result.id,
           repo: result.repo,
@@ -239,7 +282,9 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
         })),
         components,
         relationships
-      });
+      };
+      await recordUsage(workspaceRoot, 'architecture_map', payload, results.map(result => result.absolutePath));
+      return textResult(payload);
     }
   );
 
@@ -270,8 +315,35 @@ function countResultTypes(results: Array<Parameters<typeof classifyResult>[0]>):
   return counts;
 }
 
-export async function startMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean } = {}): Promise<void> {
-  const server = createCtxhubMcpServer(cwd, opts);
+// How often to poll for a newer build once --restart-on-stale is enabled. Staleness only
+// changes on a rebuild/reinstall, so this doesn't need to be tight -- a stat() call is cheap
+// either way, but there's no reason to spend more of it than a minute's worth of latency.
+const STALE_POLL_MS = 60_000;
+
+export async function startMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean; restartOnStale?: boolean } = {}): Promise<void> {
+  const startedAt = Date.now();
+  const server = createCtxhubMcpServer(cwd, { ...opts, startedAt });
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  const bootStatus = checkServerStaleness(startedAt);
+  console.error(
+    `[ctxhub] MCP server started -- version ${bootStatus.version}, mode ${bootStatus.mode}` +
+      (bootStatus.builtAt ? `, built ${bootStatus.builtAt}` : '')
+  );
+
+  if (opts.restartOnStale) {
+    // ctxhub can't force its host to relaunch it -- exiting only achieves an effective restart
+    // if the host auto-respawns a stopped stdio MCP server. Where it doesn't, this just ends the
+    // connection, so it's opt-in rather than the default behavior.
+    setInterval(() => {
+      if (checkServerStaleness(startedAt).stale) {
+        console.error(
+          '[ctxhub] Detected a newer build on disk -- exiting so the host can relaunch with current code. ' +
+            'If your MCP host does not auto-restart a stopped server, reconnect it manually.'
+        );
+        process.exit(0);
+      }
+    }, STALE_POLL_MS).unref();
+  }
 }

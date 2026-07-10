@@ -66,10 +66,31 @@ test('mcp server lists the read-only ctxhub tools', () => {
         'open_chunk',
         'repo_list',
         'search',
-        'server_status'
+        'server_status',
+        'usage_stats'
       ]);
     })
   );
+});
+
+test('mcp usage_stats tool accumulates token-savings estimates as tools are called', () => {
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    await withConnectedClient(cwd, async client => {
+      const before = firstTextPayload(await client.callTool({ name: 'usage_stats', arguments: {} }) as never) as { totalCalls: number };
+      assert.equal(before.totalCalls, 0);
+
+      await client.callTool({ name: 'search', arguments: { query: 'authenticateRequest' } });
+
+      const after = firstTextPayload(await client.callTool({ name: 'usage_stats', arguments: {} }) as never) as {
+        totalCalls: number;
+        tokensSaved: number;
+        tools: Array<{ tool: string; calls: number }>;
+      };
+      assert.equal(after.totalCalls, 1);
+      assert.ok(after.tools.some(t => t.tool === 'search' && t.calls === 1));
+    });
+  });
 });
 
 test('mcp server_status tool reports staleness based on the entry file mtime vs. process start time', () => {
