@@ -165,6 +165,7 @@ Today, `llm.enabled` gates:
 
 - **`ctxhub explain <query>`** — synthesizes a cited answer from retrieved evidence via your configured agent CLI, instead of the non-LLM evidence scaffold. Never invents a citation — it's instructed to cite only the evidence it was given, and falls back to the scaffold if the LLM call is disabled, unavailable, or times out. Override per-invocation with `--llm`/`--no-llm` regardless of the config default.
 - **`ctxhub eval --agent-report`** — checks whether an agent, given ctxhub's tool descriptions, actually reaches for the tool the skill docs recommend for a set of realistic questions (seeded from the skill's own documented guidance). Writes a Markdown report under `.ctxhub/cache/evals/agent-*.md`. A mismatch is a real finding — it means the agent and the skill docs disagree about what to reach for.
+- **`ctxhub onboard`** — after every other setup step, prints a short workspace orientation summarizing what the workspace is and how its repos relate, grounded only in what ctxhub actually indexed. Skipped (with a value-prop notice) when disabled.
 
 If a command's LLM path is unavailable (disabled, no agent CLI found, timed out), it always falls back to its non-LLM behavior and explains why in the output — it never just silently does less. `ctxhub doctor` reports whether LLM-backed features are enabled, which agent is configured/detected, and whether that agent's CLI is actually reachable on PATH.
 

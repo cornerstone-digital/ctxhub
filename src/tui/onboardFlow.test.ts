@@ -13,6 +13,7 @@ function fakeConfig(overrides: Partial<CtxhubConfig> = {}): CtxhubConfig {
     index: { provider: 'local-json', path: '.ctxhub/index', table: 'chunks', incremental: true, chunkSize: 1800 },
     hooks: {},
     privacy: { redactPatterns: [] },
+    llm: { enabled: false, timeoutMs: 120000 },
     ...overrides
   };
 }
@@ -36,6 +37,8 @@ type Calls = {
   skillsInstallCommand: unknown[][];
   agentLaunchCommand: unknown[][];
   indexCommand: unknown[][];
+  createContextPack: unknown[][];
+  runAgentPrompt: unknown[][];
 };
 
 function fakeDeps(config: CtxhubConfig, overrides: Partial<OnboardDeps> = {}): { deps: OnboardDeps; calls: Calls } {
@@ -46,7 +49,9 @@ function fakeDeps(config: CtxhubConfig, overrides: Partial<OnboardDeps> = {}): {
     execa: [],
     skillsInstallCommand: [],
     agentLaunchCommand: [],
-    indexCommand: []
+    indexCommand: [],
+    createContextPack: [],
+    runAgentPrompt: []
   };
 
   const deps: OnboardDeps = {
@@ -76,6 +81,14 @@ function fakeDeps(config: CtxhubConfig, overrides: Partial<OnboardDeps> = {}): {
     indexCommand: async (...args) => {
       calls.indexCommand.push(args);
     },
+    createContextPack: (async (...args: unknown[]) => {
+      calls.createContextPack.push(args);
+      return { query: 'x', workspace: 'ws', generatedAt: '', repos: [], search: [], architecture: [], resultTypes: {}, suggestedReadingOrder: [], localFollowUpCommands: [], guidance: [] };
+    }) as OnboardDeps['createContextPack'],
+    runAgentPrompt: (async (...args: unknown[]) => {
+      calls.runAgentPrompt.push(args);
+      return { ok: false, reason: 'disabled' };
+    }) as OnboardDeps['runAgentPrompt'],
     ...overrides
   };
 
@@ -211,5 +224,45 @@ test('runOnboardFlow runs an initial index when repos exist and the user says ye
   const lines = await captureLog(() => runOnboardFlow('/tmp/ws', io, deps));
 
   assert.deepEqual(calls.indexCommand, [[{}]]);
+  assert.ok(lines.some(line => line.includes('Onboarding complete.')));
+});
+
+test('runOnboardFlow advertises the orientation summary as available-but-disabled when llm.enabled is false', async () => {
+  const config = fakeConfig({ repositories: [{ name: 'a', path: './a' }] });
+  const { deps, calls } = fakeDeps(config, { findConfigPath: async () => '/tmp/ws/ctxhub.yaml' });
+  const io = { ...directIo(), askConfirm: async () => true };
+
+  const lines = await captureLog(() => runOnboardFlow('/tmp/ws', io, deps));
+
+  assert.equal(calls.createContextPack.length, 0, 'should not build a context pack when disabled');
+  assert.ok(lines.some(line => line.includes('llm.enabled: true')));
+});
+
+test('runOnboardFlow prints a real orientation summary grounded in the context pack when llm.enabled is true', async () => {
+  const config = fakeConfig({ repositories: [{ name: 'a', path: './a' }], llm: { enabled: true, timeoutMs: 120000 } });
+  const { deps, calls } = fakeDeps(config, {
+    findConfigPath: async () => '/tmp/ws/ctxhub.yaml',
+    runAgentPrompt: (async () => ({ ok: true, text: 'This workspace has one repo, a.' })) as OnboardDeps['runAgentPrompt']
+  });
+  const io = { ...directIo(), askConfirm: async () => true };
+
+  const lines = await captureLog(() => runOnboardFlow('/tmp/ws', io, deps));
+
+  assert.equal(calls.createContextPack.length, 1);
+  assert.ok(lines.some(line => line.includes('Workspace orientation')));
+  assert.ok(lines.some(line => line.includes('This workspace has one repo, a.')));
+});
+
+test('runOnboardFlow warns without crashing when the orientation LLM call fails', async () => {
+  const config = fakeConfig({ repositories: [{ name: 'a', path: './a' }], llm: { enabled: true, timeoutMs: 120000 } });
+  const { deps } = fakeDeps(config, {
+    findConfigPath: async () => '/tmp/ws/ctxhub.yaml',
+    runAgentPrompt: (async () => ({ ok: false, reason: 'timeout' })) as OnboardDeps['runAgentPrompt']
+  });
+  const io = { ...directIo(), askConfirm: async () => true };
+
+  const lines = await captureLog(() => runOnboardFlow('/tmp/ws', io, deps));
+
+  assert.ok(lines.some(line => line.includes('unavailable (timeout)')));
   assert.ok(lines.some(line => line.includes('Onboarding complete.')));
 });

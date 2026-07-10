@@ -7,6 +7,9 @@ import { repoDiscoverCommand, repoHookCommand } from '../commands/repo.js';
 import { indexCommand } from '../commands/index.js';
 import { agentLaunchCommand, SUPPORTED_AGENTS } from '../commands/agent.js';
 import { skillsInstallCommand, SUPPORTED_SKILL_AGENTS } from '../commands/skills.js';
+import { createContextPack } from '../context/pack.js';
+import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
+import type { CtxhubConfig } from '../config/types.js';
 
 export type OnboardDeps = {
   findConfigPath: typeof findConfigPath;
@@ -20,6 +23,8 @@ export type OnboardDeps = {
   skillsInstallCommand: typeof skillsInstallCommand;
   agentLaunchCommand: typeof agentLaunchCommand;
   indexCommand: typeof indexCommand;
+  createContextPack: typeof createContextPack;
+  runAgentPrompt: typeof runAgentPrompt;
 };
 
 async function defaultIsCommandAvailable(command: string): Promise<boolean> {
@@ -42,7 +47,9 @@ export const defaultOnboardDeps: OnboardDeps = {
   execa,
   skillsInstallCommand,
   agentLaunchCommand,
-  indexCommand
+  indexCommand,
+  createContextPack,
+  runAgentPrompt
 };
 
 // Bridges the linear onboarding flow to Ink: `suspendTerminal` hands the terminal to
@@ -134,5 +141,55 @@ export async function runOnboardFlow(cwd: string, io: OnboardIO, deps: OnboardDe
     }
   }
 
+  if (config.repositories.length) {
+    if (config.llm.enabled) {
+      await io.suspendTerminal(() => narrateOrientation(cwd, config, deps));
+    } else {
+      console.log(chalk.dim(`\n${llmDisabledNotice('a workspace orientation summary for new team members')}`));
+    }
+  }
+
   console.log(chalk.bold.green('\nOnboarding complete.') + chalk.gray(' Run `ctxhub doctor` any time to check workspace health.'));
+}
+
+// Runs after every other onboarding step so it can cite the just-built index and repo list --
+// a "here's what this workspace is" briefing for whoever gets handed this workspace next,
+// grounded only in evidence ctxhub actually indexed (never invents a repo/file it didn't see).
+async function narrateOrientation(cwd: string, config: CtxhubConfig, deps: OnboardDeps): Promise<void> {
+  console.log(chalk.gray('\nGenerating a workspace orientation summary...'));
+  const pack = await deps.createContextPack('architecture overview and repo ownership', 8, cwd);
+  const result = await deps.runAgentPrompt(config, buildOrientationPrompt(pack));
+
+  if (!result.ok) {
+    console.log(chalk.yellow(`Orientation summary unavailable (${result.reason}); skipping.`));
+    return;
+  }
+
+  console.log(`\n${chalk.bold('Workspace orientation')}`);
+  console.log(result.text.trim());
+}
+
+function buildOrientationPrompt(pack: Awaited<ReturnType<typeof createContextPack>>): string {
+  const repos = pack.repos.map(repo => `- ${repo.name} (${repo.path})`).join('\n') || '(none configured yet)';
+  const architecture = pack.architecture
+    .map(item => `- ${item.repo}:${item.filePath}${item.title ? ` (${item.title})` : ''}\n  ${item.snippet}`)
+    .join('\n') || '(none indexed yet)';
+  const docs = pack.search
+    .slice(0, 5)
+    .map(item => `- ${item.repo}:${item.filePath}${item.title ? ` (${item.title})` : ''}`)
+    .join('\n') || '(none indexed yet)';
+
+  return [
+    'You are orienting a new engineer joining this multi-repo workspace for the first time.',
+    '',
+    `Configured repos:\n${repos}`,
+    '',
+    `Architecture evidence (cite only these repo:path pairs, never invent one that is not listed):\n${architecture}`,
+    '',
+    `Other relevant docs:\n${docs}`,
+    '',
+    'Write a short (4-6 sentence) orientation covering what this workspace is, how the repos relate, ' +
+      'and what a new engineer should look at first. Cite repo:path for any specific claim. If the evidence ' +
+      "is too sparse to say much, say so plainly instead of guessing."
+  ].join('\n');
 }

@@ -24,6 +24,7 @@ function fakeConfig(overrides: Partial<CtxhubConfig> = {}): CtxhubConfig {
     index: { provider: 'local-json', path: '.ctxhub/index', table: 'chunks', incremental: true, chunkSize: 1800 },
     hooks: {},
     privacy: { redactPatterns: [] },
+    llm: { enabled: false, timeoutMs: 120000 },
     ...overrides
   };
 }
@@ -42,7 +43,11 @@ function baseDeps(config: CtxhubConfig, calls: { skillsInstallCommand: unknown[]
       calls.skillsInstallCommand.push(args);
     },
     agentLaunchCommand: async () => undefined,
-    indexCommand: async () => undefined
+    indexCommand: async () => undefined,
+    createContextPack: (async () => ({
+      query: 'x', workspace: 'ws', generatedAt: '', repos: [], search: [], architecture: [], resultTypes: {}, suggestedReadingOrder: [], localFollowUpCommands: [], guidance: []
+    })) as OnboardDeps['createContextPack'],
+    runAgentPrompt: (async () => ({ ok: false, reason: 'disabled' })) as OnboardDeps['runAgentPrompt']
   };
 }
 

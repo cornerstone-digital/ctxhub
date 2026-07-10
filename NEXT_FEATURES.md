@@ -17,7 +17,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] LLM-backed features infrastructure + LLM-backed explain (opt-in, see README's "LLM-backed features")
 - [x] Context compaction (dedup, token-budget trimming, already-seen delta mode, file summaries)
 - [x] Agent-backed skill/doc test reports
-- [ ] Onboarding orientation narrator
+- [x] Onboarding orientation narrator
 - [ ] Cross-repo contract-break PR reviewer
 - [ ] Architecture/doc drift repair suggestions
 - [ ] PR/handoff description synthesis
@@ -396,7 +396,7 @@ Acceptance criteria:
 
 ## 12. Onboarding Orientation Narrator
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub onboard` / new `ctxhub explain --orient`
 
@@ -422,8 +422,18 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Narrative cites real repos/architecture results, never invents ones that don't exist.
-- Onboarding completes successfully with the existing plain summary when LLM synthesis is off.
+- Narrative cites real repos/architecture results, never invents ones that don't exist. ✓
+  (prompt explicitly instructs "cite only these repo:path pairs... never invent one" and hedges
+  when evidence is sparse, mirroring `ctxhub explain`'s citation discipline.)
+- Onboarding completes successfully with the existing plain summary when LLM synthesis is off. ✓
+- Falls back to a clear warning (not a crash) when the LLM call fails/times out. ✓
+
+Implemented in `src/tui/onboardFlow.ts` as the final step before the completion banner, gated on
+`config.llm.enabled` with `llmDisabledNotice` shown when off. Full branch coverage (disabled,
+success, failure) in `onboardFlow.test.ts` via injected `createContextPack`/`runAgentPrompt`
+fakes -- the underlying calls were already verified live against the real `claude` CLI as part of
+the `ctxhub explain` flagship, so this item didn't need a second live-CLI smoke test, just proof
+the new integration glue calls them correctly in each branch.
 
 ## 13. Cross-Repo Contract-Break PR Reviewer
 
