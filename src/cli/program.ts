@@ -298,6 +298,8 @@ export function buildProgram(): Command {
     .option('--fail-on-drift', 'Exit non-zero when drift findings are present')
     .option('--plain', 'Print plain graph output')
     .option('--no-interactive', 'Disable interactive terminal summaries')
+    .option('--llm', 'Force drift-repair suggestions for this call, even if disabled in config')
+    .option('--no-llm', 'Force skipping drift-repair suggestions for this call, even if enabled in config')
     .description('Summarize workspace components and relationships from architecture diagrams and package metadata')
     .action(graphCommand);
 

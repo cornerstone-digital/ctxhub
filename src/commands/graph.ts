@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { loadWorkspaceConfig } from '../config/config.js';
-import type { RepoConfig } from '../config/types.js';
+import type { CtxhubConfig, RepoConfig, SearchResult } from '../config/types.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { pathExists, readText } from '../utils/fs.js';
 import chalk from 'chalk';
 import { shouldUseInteractive } from '../utils/interactive.js';
+import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 
 export type GraphPackage = {
   repo: string;
@@ -21,8 +22,11 @@ export type DriftFinding = {
   relationship?: string;
 };
 
-export async function graphCommand(opts: { json?: boolean; drift?: boolean; failOnDrift?: boolean; plain?: boolean; interactive?: boolean } = {}) {
-  const { config, workspaceRoot } = await loadWorkspaceConfig();
+export async function graphCommand(
+  opts: { json?: boolean; drift?: boolean; failOnDrift?: boolean; plain?: boolean; interactive?: boolean; llm?: boolean } = {}
+) {
+  const { config: loadedConfig, workspaceRoot } = await loadWorkspaceConfig();
+  const config: CtxhubConfig = opts.llm === undefined ? loadedConfig : { ...loadedConfig, llm: { ...loadedConfig.llm, enabled: opts.llm } };
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
   const diagrams = (await index.search('architecture diagram mermaid', 100)).filter(result => result.kind === 'architecture-diagram');
   const packages: GraphPackage[] = [];
@@ -50,7 +54,15 @@ export async function graphCommand(opts: { json?: boolean; drift?: boolean; fail
     diagrams: graph.diagrams,
     packages
   }) : undefined;
-  const payload = drift ? { ...graph, drift } : graph;
+
+  const repair = drift?.length ? await suggestDriftRepairs(diagrams, drift, config) : undefined;
+
+  const payload = {
+    ...graph,
+    ...(drift ? { drift } : {}),
+    ...(repair?.suggestions.length ? { repairSuggestions: repair.suggestions } : {}),
+    ...(repair?.llmNotice ? { llmNotice: repair.llmNotice } : {})
+  };
 
   if (opts.json) {
     console.log(JSON.stringify(payload, null, 2));
@@ -84,6 +96,16 @@ export async function graphCommand(opts: { json?: boolean; drift?: boolean; fail
     }
     if (opts.failOnDrift && drift.length) process.exitCode = 1;
   }
+
+  if (repair?.suggestions.length) {
+    console.log('\n## Suggested Repairs (review before applying -- never auto-applied)');
+    for (const suggestion of repair.suggestions) {
+      console.log(`\n### ${suggestion.repo}:${suggestion.path}`);
+      console.log(chalk.gray(suggestion.note));
+      console.log(suggestion.diff);
+    }
+  }
+  if (repair?.llmNotice) console.log(chalk.dim(`\n${repair.llmNotice}`));
 }
 
 function printGraphSummary(
@@ -205,4 +227,88 @@ function dedupeFindings(findings: DriftFinding[]): DriftFinding[] {
     seen.add(key);
     return true;
   });
+}
+
+export type DriftRepairSuggestion = { repo: string; path: string; diff: string; note: string };
+
+// Only `unknown-component`/`unknown-relationship-endpoint` findings have an existing diagram
+// file to repair -- `unrepresented-repo` findings have no diagram at all (that would be a new
+// file, not a diff), so they're left out of scope here rather than forced into this shape.
+const REPAIRABLE_FINDING_TYPES: DriftFinding['type'][] = ['unknown-component', 'unknown-relationship-endpoint'];
+
+export async function suggestDriftRepairs(
+  diagrams: SearchResult[],
+  findings: DriftFinding[],
+  config: CtxhubConfig,
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt,
+  readFileFn: (path: string) => Promise<string> = readText
+): Promise<{ suggestions: DriftRepairSuggestion[]; llmNotice?: string }> {
+  const repairable = findings.filter(finding => REPAIRABLE_FINDING_TYPES.includes(finding.type) && finding.component);
+  if (!repairable.length) return { suggestions: [] };
+
+  if (!config.llm.enabled) {
+    return { suggestions: [], llmNotice: llmDisabledNotice('architecture drift repair suggestions') };
+  }
+
+  const suggestions: DriftRepairSuggestion[] = [];
+  const handledDiagramIds = new Set<string>();
+
+  for (const finding of repairable) {
+    const diagram = diagrams.find(
+      candidate =>
+        !handledDiagramIds.has(candidate.id) &&
+        ((candidate.components ?? []).includes(finding.component as string) ||
+          (candidate.relationships ?? []).some(relationship => relationship.includes(finding.component as string)))
+    );
+    if (!diagram) continue;
+    handledDiagramIds.add(diagram.id);
+
+    let currentFileContent: string;
+    try {
+      currentFileContent = await readFileFn(diagram.absolutePath);
+    } catch {
+      continue; // File moved/deleted since indexing -- nothing to repair against.
+    }
+
+    const result = await runAgentPromptFn(config, buildDriftRepairPrompt(diagram, finding, currentFileContent));
+    if (!result.ok) continue; // Best-effort per finding; one failure shouldn't drop the rest.
+
+    const proposedContent = result.text.trim();
+    if (!proposedContent || proposedContent === currentFileContent.trim()) continue;
+
+    suggestions.push({
+      repo: diagram.repo,
+      path: diagram.filePath,
+      diff: lineDiff(currentFileContent, proposedContent),
+      note: finding.message
+    });
+  }
+
+  return { suggestions };
+}
+
+function buildDriftRepairPrompt(diagram: SearchResult, finding: DriftFinding, currentFileContent: string): string {
+  return [
+    'This architecture diagram file has a drift issue:',
+    finding.message,
+    '',
+    `Current file content (repo: ${diagram.repo}, path: ${diagram.filePath}):`,
+    currentFileContent,
+    '',
+    'Output ONLY the corrected full file content that fixes this specific issue (e.g. renaming a ' +
+      'component to match an actual repo/package name, or fixing an unknown relationship endpoint). ' +
+      'Preserve everything else in the file unchanged. No explanation, no markdown code fences, no extra text.'
+  ].join('\n');
+}
+
+// A simple line-membership diff, not a true positional unified diff (no LCS/line-matching) --
+// good enough for short Mermaid diagrams, and avoids shelling out to `git diff --no-index`
+// (which exits 1, not 0, whenever there ARE differences -- the normal case here -- which would
+// need special-casing against execa-lite's reject-on-nonzero-exit convention).
+function lineDiff(oldContent: string, newContent: string): string {
+  const oldLines = oldContent.split('\n');
+  const newLines = newContent.split('\n');
+  const removed = oldLines.filter(line => !newLines.includes(line)).map(line => `- ${line}`);
+  const added = newLines.filter(line => !oldLines.includes(line)).map(line => `+ ${line}`);
+  return [...removed, ...added].join('\n');
 }

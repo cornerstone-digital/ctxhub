@@ -19,7 +19,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Agent-backed skill/doc test reports
 - [x] Onboarding orientation narrator
 - [x] Cross-repo contract-break PR reviewer
-- [ ] Architecture/doc drift repair suggestions
+- [x] Architecture/doc drift repair suggestions
 - [ ] PR/handoff description synthesis
 - [ ] Auto-drafted note/diagram content
 - [ ] Tailored onboarding globs for new repos
@@ -472,7 +472,7 @@ in the real diff content, not a guess from file names alone.
 
 ## 14. Architecture/Doc Drift Repair Suggestions
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub graph --drift`
 
@@ -494,8 +494,20 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Suggested diffs are diffs against the real current diagram content, not full rewrites.
-- `--fail-on-drift` (CI) behavior is unaffected — this only adds a suggestion, never blocks.
+- Suggested diffs are diffs against the real current diagram content, not full rewrites. ✓ (a
+  simple line-membership diff, not a true positional unified diff -- good enough for short
+  Mermaid files; see the code comment on `lineDiff` in `graph.ts` for why `git diff --no-index`
+  wasn't used instead: it exits 1 whenever there ARE differences, the normal case here, which
+  would need special-casing against execa-lite's reject-on-nonzero convention.)
+- `--fail-on-drift` (CI) behavior is unaffected — this only adds a suggestion, never blocks. ✓
+- Scoped to `unknown-component`/`unknown-relationship-endpoint` findings only, since those have an
+  existing diagram file to diff against; `unrepresented-repo` findings have no diagram at all (a
+  new file, not a diff) and are left out of scope here.
+
+Verified against a real scratch workspace: a diagram naming a component "Billing" that didn't
+match the actual repo name "billing-service" was correctly identified and the suggested repair
+renamed only that component, preserving the rest of the file, exactly as instructed. Two separate
+findings tracing back to the same diagram file correctly deduped to one suggestion, not two.
 
 ## 15. PR/Handoff Description Synthesis
 
