@@ -171,6 +171,7 @@ Today, `llm.enabled` gates:
 - **`ctxhub handoff`** — adds a synthesized `## Summary` section citing only the evidence already in the bundle, alongside (not replacing) the existing structured sections.
 - **`ctxhub note add --draft` / `ctxhub diagram add --draft`** — replace the empty scaffold body with an AI-drafted note or Mermaid diagram grounded in recent commits plus indexed ctxhub evidence, clearly marked as pending human review.
 - **`ctxhub repo add --suggest-globs` / `ctxhub repo discover --suggest-globs`** — inspect a newly added repo and print a suggested per-repo `include`/`exclude` diff for `ctxhub.yaml`, grounded in the repo's layout, without auto-applying it.
+- **`ctxhub eval --suggest-queries`** — inspect the current indexed repo/file set and append suggested golden queries plus a short rationale to the eval suite for human review, never replacing curated cases.
 
 If a command's LLM path is unavailable (disabled, no agent CLI found, timed out), it always falls back to its non-LLM behavior and explains why in the output — it never just silently does less. `ctxhub doctor` reports whether LLM-backed features are enabled, which agent is configured/detected, and whether that agent's CLI is actually reachable on PATH.
 
@@ -232,7 +233,7 @@ ctxhub eval --json            # CI-friendly eval payload
 - `ctxhub diagram add <repo> "<title>" [--agent <name>] [--draft]`: scaffold a dated Mermaid `.mmd` architecture diagram under `<repo>/docs/architecture/` for reviewable team architecture context. `--draft` asks the configured agent CLI to draft Mermaid content from recent commits and indexed context when `llm.enabled`.
 - `ctxhub graph [--json|--drift]`: summarize workspace components and relationships from indexed diagrams plus package metadata; `--drift` flags missing or unknown architecture references and `--fail-on-drift` makes those findings CI-failing. With `llm.enabled`, also suggests specific repairs for drift findings (see [LLM-backed features](#llm-backed-features)).
 - `ctxhub validate docs [--json|--strict-diagrams]`: check Markdown local links and Mermaid diagram declarations; strict mode adds dependency-light Mermaid delimiter and relationship syntax checks.
-- `ctxhub eval [--init|--file <path>|--report|--json]`: run golden query checks against the index, write run history under `.ctxhub/cache/evals/`, and optionally generate a Markdown quality report. Use `--json` in CI.
+- `ctxhub eval [--init|--file <path>|--report|--json|--suggest-queries]`: run golden query checks against the index, write run history under `.ctxhub/cache/evals/`, and optionally generate a Markdown quality report. `--suggest-queries` asks the configured agent CLI for additional candidate cases and appends them to the suite with a stored rationale for review.
 - `ctxhub eval --agent-report [--file <path>|--json]`: check whether an agent reaches for the tool ctxhub's skill docs recommend for a set of realistic questions (requires `llm.enabled`, see [LLM-backed features](#llm-backed-features)).
 
 The default config excludes `.env` files and redacts common secret-looking values before content is written to the index. `privacy.redactPatterns` accepts JavaScript regular expression source strings; matches are replaced with `[REDACTED]`.

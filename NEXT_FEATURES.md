@@ -23,7 +23,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] PR/handoff description synthesis (scoped to `ctxhub handoff`)
 - [x] Auto-drafted note/diagram content
 - [x] Tailored onboarding globs for new repos
-- [ ] Eval golden-query expansion
+- [x] Eval golden-query expansion
 - [ ] Standalone `ctxhub ask`
 - [ ] Natural-language query rewriting in front of search
 - [ ] LLM-authored file summaries at index time
@@ -617,7 +617,7 @@ and diff rendering.
 
 ## 18. Eval Golden-Query Expansion
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub eval`
 
@@ -640,8 +640,14 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Suggested cases are appended, never silently replacing existing curated cases.
-- Each suggested case includes its rationale so a human can quickly accept/reject it.
+- Suggested cases are appended, never silently replacing existing curated cases. ✓
+- Each suggested case includes its rationale so a human can quickly accept/reject it. ✓
+
+Implemented as `ctxhub eval --suggest-queries`, which uses the existing manifest + configured repo
+set as grounded evidence, asks `runAgentPrompt` for 3-5 candidate cases, and appends only new
+queries into the suite JSON. Each stored case now supports an optional `rationale` field, and the
+eval markdown report renders that rationale when present. Disabled/failed/invalid LLM paths leave
+the suite unchanged and print a clear notice.
 
 ## 19. Standalone `ctxhub ask`
 

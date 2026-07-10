@@ -3,16 +3,18 @@ import chalk from 'chalk';
 import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
 import type { CtxhubConfig, SearchResult } from '../config/types.js';
 import { createIndexProvider } from '../indexing/providers.js';
+import { loadManifest } from '../indexing/manifest.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 
 export type EvalExpected = { repo?: string; path?: string };
-export type EvalCase = { query: string; expected: EvalExpected[] };
+export type EvalCase = { query: string; expected: EvalExpected[]; rationale?: string };
 export type EvalSuite = { cases: EvalCase[] };
 export type EvalExpectedResult = EvalExpected & { rank?: number; score?: number; matchedPath?: string; matchedRepo?: string };
 export type EvalCaseResult = {
   query: string;
+  rationale?: string;
   passed: boolean;
   expected: EvalExpectedResult[];
   missing: EvalExpected[];
@@ -36,7 +38,7 @@ const EVAL_RUNS_DIR = path.join(CACHE_DIR, 'evals');
 const DEFAULT_AGENT_EVAL_PATH = path.join(CACHE_DIR, 'agent-eval.json');
 
 export async function evalCommand(
-  opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean; agentReport?: boolean } = {}
+  opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean; agentReport?: boolean; suggestQueries?: boolean } = {}
 ) {
   const { config, workspaceRoot } = await loadWorkspaceConfig();
 
@@ -54,6 +56,33 @@ export async function evalCommand(
   }
 
   const suite = JSON.parse(await readText(filePath)) as EvalSuite;
+
+  if (opts.suggestQueries) {
+    const { suggestions, llmNotice } = await suggestEvalQueries(suite, config, workspaceRoot);
+    const { suite: nextSuite, added } = appendSuggestedEvalCases(suite, suggestions);
+
+    if (added.length) {
+      await writeText(filePath, JSON.stringify(nextSuite, null, 2));
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify({ filePath, added, totalCases: nextSuite.cases.length, llmNotice }, null, 2));
+      return;
+    }
+
+    if (added.length) {
+      console.log(chalk.green(`Appended ${added.length} suggested eval case${added.length === 1 ? '' : 's'} to ${path.relative(process.cwd(), filePath)}`));
+      for (const testCase of added) {
+        console.log(`${chalk.green('+')} ${testCase.query}`);
+        if (testCase.rationale) console.log(chalk.gray(`  why: ${testCase.rationale}`));
+      }
+    } else {
+      console.log(chalk.yellow('No new eval query suggestions were appended.'));
+    }
+    if (llmNotice) console.log(chalk.dim(llmNotice));
+    return;
+  }
+
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
   const run = await evaluateSuite(suite, (query, limit) => index.search(query, limit), filePath);
   const historyPath = await writeEvalHistory(run, workspaceRoot);
@@ -236,6 +265,7 @@ export async function evaluateSuite(suite: EvalSuite, search: SearchFn, suitePat
 
     cases.push({
       query: testCase.query,
+      rationale: testCase.rationale,
       passed: missing.length === 0,
       expected,
       missing,
@@ -276,6 +306,10 @@ ${run.cases.map(renderCaseMarkdown).join('\n\n')}
 
 function renderCaseMarkdown(testCase: EvalCaseResult): string {
   return `### ${testCase.passed ? 'PASS' : 'FAIL'}: ${testCase.query}
+
+${testCase.rationale ? `Rationale: ${testCase.rationale}
+
+` : ''}
 
 Expected:
 ${testCase.expected.map(expected => `- ${expected.repo ?? '*'}:${expected.path ?? '*'} -> ${expected.rank ? `rank ${expected.rank}, score ${expected.score}` : 'missing'}`).join('\n')}
@@ -333,4 +367,109 @@ async function writeEvalReport(run: EvalRunResult, workspaceRoot = process.cwd()
   await writeText(reportPath, content);
   await writeText(latestPath, content);
   return reportPath;
+}
+
+export async function suggestEvalQueries(
+  suite: EvalSuite,
+  config: CtxhubConfig,
+  workspaceRoot: string,
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt
+): Promise<{ suggestions: EvalCase[]; llmNotice?: string }> {
+  if (!config.llm.enabled) {
+    return { suggestions: [], llmNotice: llmDisabledNotice('eval query suggestions') };
+  }
+
+  const manifest = await loadManifest(config.workspace.name, workspaceRoot);
+  const prompt = buildEvalSuggestionPrompt(suite, config, manifest);
+  const result = await runAgentPromptFn(config, prompt);
+  if (!result.ok) {
+    return { suggestions: [], llmNotice: `Eval query suggestions were unavailable (${result.reason}); keeping the curated suite unchanged.` };
+  }
+
+  const suggestions = parseSuggestedEvalCases(result.text);
+  if (!suggestions.length) {
+    return { suggestions: [], llmNotice: 'Eval query suggestions returned no valid cases; keeping the curated suite unchanged.' };
+  }
+
+  return { suggestions };
+}
+
+export function appendSuggestedEvalCases(suite: EvalSuite, suggestions: EvalCase[]): { suite: EvalSuite; added: EvalCase[] } {
+  const seen = new Set(suite.cases.map(testCase => normalizeQueryKey(testCase.query)));
+  const added: EvalCase[] = [];
+
+  for (const suggestion of suggestions) {
+    const key = normalizeQueryKey(suggestion.query);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    added.push(suggestion);
+  }
+
+  return {
+    suite: { cases: [...suite.cases, ...added] },
+    added
+  };
+}
+
+function buildEvalSuggestionPrompt(
+  suite: EvalSuite,
+  config: CtxhubConfig,
+  manifest: Awaited<ReturnType<typeof loadManifest>>
+): string {
+  const existingQueries = suite.cases.slice(0, 50).map(testCase => `- ${testCase.query}`).join('\n') || '- (none)';
+  const repoList = config.repositories.map(repo => `- ${repo.name}: ${repo.path}`).join('\n') || '- (none)';
+  const fileHints = Object.values(manifest.files)
+    .slice(0, 80)
+    .map(file => `- ${file.repo}:${file.filePath}`)
+    .join('\n') || '- (none)';
+
+  return [
+    'You are suggesting additional golden queries for a ctxhub eval suite.',
+    '',
+    'Existing queries (do not repeat these):',
+    existingQueries,
+    '',
+    'Configured repos:',
+    repoList,
+    '',
+    'Indexed file hints (use only these repo:path pairs in expected matches; never invent unseen files):',
+    fileHints,
+    '',
+    'Return strict JSON only with this shape:',
+    '{"cases":[{"query":"question","expected":[{"repo":"name","path":"file/path"}],"rationale":"why this query belongs in the suite"}]}',
+    'Guidelines:',
+    '- Suggest 3 to 5 realistic developer questions.',
+    '- Each case must include at least one expected repo/path drawn from the hints above.',
+    '- Keep the rationale short and specific.',
+    '- Prefer coverage across different repos or concerns, not many variants of the same question.'
+  ].join('\n');
+}
+
+function parseSuggestedEvalCases(raw: string): EvalCase[] {
+  try {
+    const normalized = raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(normalized) as { cases?: Array<{ query?: unknown; expected?: Array<{ repo?: unknown; path?: unknown }>; rationale?: unknown }> };
+    if (!Array.isArray(parsed.cases)) return [];
+
+    return parsed.cases
+      .map(testCase => ({
+        query: typeof testCase.query === 'string' ? testCase.query.trim() : '',
+        expected: Array.isArray(testCase.expected)
+          ? testCase.expected
+            .map(expected => ({
+              repo: typeof expected.repo === 'string' ? expected.repo.trim() : undefined,
+              path: typeof expected.path === 'string' ? expected.path.trim() : undefined
+            }))
+            .filter(expected => Boolean(expected.repo || expected.path))
+          : [],
+        rationale: typeof testCase.rationale === 'string' ? testCase.rationale.trim() : undefined
+      }))
+      .filter(testCase => testCase.query && testCase.expected.length);
+  } catch {
+    return [];
+  }
+}
+
+function normalizeQueryKey(query: string): string {
+  return query.trim().toLowerCase();
 }

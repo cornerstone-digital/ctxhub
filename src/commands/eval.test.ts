@@ -1,9 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateAgentSuite, evaluateSuite, renderAgentEvalMarkdown, renderEvalMarkdown } from './eval.js';
+import { appendSuggestedEvalCases, evaluateAgentSuite, evaluateSuite, renderAgentEvalMarkdown, renderEvalMarkdown, suggestEvalQueries } from './eval.js';
 import { defaultConfig } from '../config/defaultConfig.js';
 import type { CtxhubConfig, SearchResult } from '../config/types.js';
 import type { RunAgentResult } from '../llm/runAgent.js';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { saveManifest } from '../indexing/manifest.js';
 
 function result(repo: string, filePath: string, score: number): SearchResult {
   return {
@@ -45,6 +49,15 @@ test('renderEvalMarkdown includes query status and actual ranks', async () => {
   assert.match(markdown, /ctxhub Eval Report/);
   assert.match(markdown, /PASS: auth/);
   assert.match(markdown, /rank 1/);
+});
+
+test('renderEvalMarkdown includes rationale when present', async () => {
+  const run = await evaluateSuite({
+    cases: [{ query: 'auth', expected: [{ path: 'README.md' }], rationale: 'Covers the main onboarding path.' }]
+  }, async () => [result('api', 'README.md', 3)], 'eval.json');
+
+  const markdown = renderEvalMarkdown(run);
+  assert.match(markdown, /Rationale: Covers the main onboarding path\./);
 });
 
 function config(overrides: Partial<CtxhubConfig['llm']> = {}): CtxhubConfig {
@@ -106,4 +119,79 @@ test('renderAgentEvalMarkdown distinguishes MATCH/MISMATCH/SKIPPED cases', () =>
   assert.match(markdown, /MATCH: q1/);
   assert.match(markdown, /MISMATCH: q2/);
   assert.match(markdown, /SKIPPED: q3/);
+});
+
+test('suggestEvalQueries reports the disabled notice and no suggestions when llm.enabled is false', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-eval-suggest-'));
+  try {
+    await saveManifest({
+      version: 1,
+      workspace: 'ws',
+      files: {
+        'api:README.md': {
+          repo: 'api',
+          filePath: 'README.md',
+          absolutePath: '/tmp/api/README.md',
+          hash: 'hash',
+          indexedAt: '2026-07-10T00:00:00.000Z',
+          chunkIds: ['1']
+        }
+      }
+    }, cwd);
+
+    const result = await suggestEvalQueries({ cases: [] }, config({ enabled: false }), cwd);
+    assert.deepEqual(result.suggestions, []);
+    assert.match(result.llmNotice ?? '', /llm\.enabled: true/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('suggestEvalQueries parses structured cases with rationale from the LLM response', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-eval-suggest-'));
+  try {
+    await saveManifest({
+      version: 1,
+      workspace: 'ws',
+      files: {
+        'api:README.md': {
+          repo: 'api',
+          filePath: 'README.md',
+          absolutePath: '/tmp/api/README.md',
+          hash: 'hash',
+          indexedAt: '2026-07-10T00:00:00.000Z',
+          chunkIds: ['1']
+        }
+      }
+    }, cwd);
+
+    const result = await suggestEvalQueries(
+      { cases: [] },
+      config({ enabled: true }),
+      cwd,
+      async () => ({ ok: true, text: '{"cases":[{"query":"How does auth work?","expected":[{"repo":"api","path":"README.md"}],"rationale":"Covers the main auth path."}]}' })
+    );
+
+    assert.deepEqual(result.suggestions, [{
+      query: 'How does auth work?',
+      expected: [{ repo: 'api', path: 'README.md' }],
+      rationale: 'Covers the main auth path.'
+    }]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('appendSuggestedEvalCases appends only new queries and leaves existing ones intact', () => {
+  const { suite, added } = appendSuggestedEvalCases(
+    { cases: [{ query: 'How does auth work?', expected: [{ repo: 'api', path: 'README.md' }] }] },
+    [
+      { query: 'How does auth work?', expected: [{ repo: 'api', path: 'README.md' }], rationale: 'duplicate' },
+      { query: 'Where is rate limiting?', expected: [{ repo: 'api', path: 'src/rate-limit.ts' }], rationale: 'new' }
+    ]
+  );
+
+  assert.equal(added.length, 1);
+  assert.equal(added[0].query, 'Where is rate limiting?');
+  assert.equal(suite.cases.length, 2);
 });

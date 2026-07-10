@@ -278,6 +278,7 @@ export function buildProgram(): Command {
     .command('eval')
     .option('--file <path>', 'Eval suite JSON path')
     .option('--init', 'Create a starter eval suite')
+    .option('--suggest-queries', 'Ask the configured agent CLI for additional golden queries and append them to the eval suite for review')
     .option('--json', 'Print JSON')
     .option('--report', 'Write a Markdown eval report under .ctxhub/cache/evals/')
     .option('--plain', 'Print plain eval output')
