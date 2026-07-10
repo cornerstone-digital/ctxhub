@@ -5,7 +5,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 ## Active Queue
 
 - [ ] Report-first memory workspace UX
-- [ ] Memory provenance and backlinks
+- [x] Memory provenance and backlinks
 - [ ] Graph interaction and navigation polish
 - [x] MCP write-surface parity for durable memory
 - [ ] Memory workflow automation and promotion paths
@@ -94,7 +94,7 @@ Acceptance criteria:
 
 ## 23. Memory Provenance And Backlinks
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub report`, `ctxhub memory search`, and memory-related MCP payloads
 
@@ -123,11 +123,24 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Memory hits and timeline events expose consistent provenance fields wherever they appear.
+- Memory hits and timeline events expose consistent provenance fields wherever they appear. ✓
+  (`ReportItem`/`ReportGraphNode` gained `sourceFile?`/`timestamp?`; `reportMemorySearchItems`
+  populates them from `MempalaceSearchHit.source_file`/`created_at`.)
 - The report graph can show explicit cross-links between memory and repo artifacts when evidence
-  exists.
+  exists. ✓ (new `'documented-by'` edge type; `buildProvenanceBacklinks()` matches a memory hit's
+  `sourceFile` against `architecture`/`recent` items, exact `repo:path` first, falling back to a
+  path-only match across repos.)
 - Users can tell whether a fact came from MemPalace, a git-tracked note, a diagram, or indexed
-  source/doc context.
+  source/doc context. ✓ (existing `section`/node-class distinctions were already sufficient; this
+  item only added the missing source-file/timestamp/backlink layer on top.)
+
+Implemented as a pure function (`buildProvenanceBacklinks(items): ReportGraphEdge[]` in
+`report.ts`), no LLM involved. Writer/`added_by` provenance was deliberately descoped: a live check
+against a real MemPalace palace earlier this session confirmed `searchMempalace` results carry no
+writer field on read (only `addDrawerMempalace` accepts one on write), so there is nothing to
+surface here without a MemPalace-side change. Verified with unit tests only (pure data
+transformation, no CLI/LLM boundary to smoke-test) -- exact match, wing-mismatch path-only
+fallback, and no-match cases, plus an integration test through `buildReportGraphData`.
 
 ## 24. Graph Interaction And Navigation Polish
 

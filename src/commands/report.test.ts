@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { buildReportGraphData, openReportCommand, reportCommand } from './report.js';
+import { buildProvenanceBacklinks, buildReportGraphData, openReportCommand, reportCommand } from './report.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { readText } from '../utils/fs.js';
@@ -166,6 +166,66 @@ test('buildReportGraphData links repos to files and architecture components', ()
   assert.ok(graph.edges.some(edge => edge.source === 'component:app' && edge.target === 'component:db' && edge.type === 'depends-on'));
   assert.ok(graph.edges.some(edge => edge.source === 'memory-wing:app' && edge.target === 'memory-room:app:decisions' && edge.type === 'memory-contains'));
   assert.ok(graph.edges.some(edge => edge.source === 'memory-room:app:decisions' && edge.target === 'memory-hit:app:decisions:notes.md' && edge.type === 'memory-match'));
+});
+
+test('buildProvenanceBacklinks links a memory hit to the exact repo:path file it names', () => {
+  const edges = buildProvenanceBacklinks([
+    { section: 'recent', repo: 'app', path: 'auth.ts', title: 'auth.ts', snippet: '', stale: false },
+    { section: 'memory-hit', repo: 'app', path: 'decisions', title: 'notes.md', snippet: '', stale: false, sourceFile: 'auth.ts' }
+  ]);
+
+  assert.deepEqual(edges, [{ source: 'memory-hit:app:decisions:notes.md', target: 'file:app:auth.ts', type: 'documented-by' }]);
+});
+
+test('buildProvenanceBacklinks falls back to a path-only match when the memory wing does not match the file\'s repo', () => {
+  // MemPalace's "wing" (here: "auth-project") is a free-text label, not guaranteed to equal a
+  // configured repo name ("app") -- this is exactly the mismatch #23 has to tolerate.
+  const edges = buildProvenanceBacklinks([
+    { section: 'recent', repo: 'app', path: 'auth.ts', title: 'auth.ts', snippet: '', stale: false },
+    { section: 'memory-hit', repo: 'auth-project', path: 'decisions', title: 'notes.md', snippet: '', stale: false, sourceFile: 'auth.ts' }
+  ]);
+
+  assert.deepEqual(edges, [{ source: 'memory-hit:auth-project:decisions:notes.md', target: 'file:app:auth.ts', type: 'documented-by' }]);
+});
+
+test('buildProvenanceBacklinks produces no edge when a memory hit names no source file or nothing matches', () => {
+  const noSourceFile = buildProvenanceBacklinks([
+    { section: 'recent', repo: 'app', path: 'auth.ts', title: 'auth.ts', snippet: '', stale: false },
+    { section: 'memory-hit', repo: 'app', path: 'decisions', title: 'notes.md', snippet: '', stale: false }
+  ]);
+  assert.deepEqual(noSourceFile, []);
+
+  const noMatch = buildProvenanceBacklinks([
+    { section: 'recent', repo: 'app', path: 'auth.ts', title: 'auth.ts', snippet: '', stale: false },
+    { section: 'memory-hit', repo: 'app', path: 'decisions', title: 'notes.md', snippet: '', stale: false, sourceFile: 'unrelated.ts' }
+  ]);
+  assert.deepEqual(noMatch, []);
+});
+
+test('buildReportGraphData includes provenance backlink edges and carries sourceFile/timestamp onto memory-hit nodes', () => {
+  const graph = buildReportGraphData(
+    [{ name: 'app', path: './app' }],
+    [
+      { section: 'recent', repo: 'app', path: 'auth.ts', title: 'auth.ts', snippet: 'auth code', stale: false },
+      {
+        section: 'memory-hit',
+        repo: 'app',
+        path: 'decisions',
+        title: 'notes.md',
+        snippet: 'GraphQL decision memory hit',
+        stale: false,
+        sourceFile: 'auth.ts',
+        timestamp: '2026-01-01T00:00:00.000Z'
+      }
+    ]
+  );
+
+  const hitNode = graph.nodes.find(node => node.id === 'memory-hit:app:decisions:notes.md');
+  assert.equal(hitNode?.sourceFile, 'auth.ts');
+  assert.equal(hitNode?.timestamp, '2026-01-01T00:00:00.000Z');
+  assert.ok(
+    graph.edges.some(edge => edge.source === 'memory-hit:app:decisions:notes.md' && edge.target === 'file:app:auth.ts' && edge.type === 'documented-by')
+  );
 });
 
 test('parseMempalaceStatus extracts wing and room counts into report items', () => {

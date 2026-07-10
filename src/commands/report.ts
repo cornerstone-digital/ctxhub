@@ -21,6 +21,11 @@ type ReportItem = {
   components?: string[];
   relationships?: string[];
   count?: number;
+  // Provenance (NEXT_FEATURES #23) -- populated for memory-hit items today; index-backed items
+  // (architecture/recent) already carry recency via `lastIndexed`. `sourceFile` is the file a
+  // MemPalace hit says it's about, used to build backlinks to the matching file node below.
+  sourceFile?: string;
+  timestamp?: string;
 };
 
 type ReportGraphNode = {
@@ -32,12 +37,14 @@ type ReportGraphNode = {
   title?: string;
   snippet?: string;
   stale?: boolean;
+  sourceFile?: string;
+  timestamp?: string;
 };
 
 type ReportGraphEdge = {
   source: string;
   target: string;
-  type: 'contains' | 'documents' | 'depends-on' | 'memory-contains' | 'memory-match';
+  type: 'contains' | 'documents' | 'depends-on' | 'memory-contains' | 'memory-match' | 'documented-by';
 };
 
 type ReportGraph = {
@@ -581,7 +588,9 @@ export function buildReportGraphData(
           repo: item.repo,
           path: item.path,
           title: item.title,
-          snippet: item.snippet
+          snippet: item.snippet,
+          sourceFile: item.sourceFile,
+          timestamp: item.timestamp
         });
       }
       addEdge(edges, { source: wingId, target: roomId, type: 'memory-contains' });
@@ -624,10 +633,45 @@ export function buildReportGraphData(
     }
   }
 
+  // Runs after every item has already produced its node (architecture/recent items always
+  // precede memory-hit items in the array `reportCommand` builds), so every id these edges
+  // reference is guaranteed to already exist in `nodes`.
+  for (const edge of buildProvenanceBacklinks(items)) {
+    if (nodes.has(edge.source) && nodes.has(edge.target)) addEdge(edges, edge);
+  }
+
   return {
     nodes: [...nodes.values()],
     edges: [...edges.values()]
   };
+}
+
+// NEXT_FEATURES #23: cross-links between a memory hit and the repo file it says it's about, when
+// we can tell. MemPalace's `wing` is a free-text project label, not guaranteed to equal a
+// configured repo name, so this is a best-effort heuristic -- exact repo+path match first,
+// falling back to a path-only match against any repo -- not a guaranteed link. No match is a
+// normal, expected outcome, not an error.
+export function buildProvenanceBacklinks(items: ReportItem[]): ReportGraphEdge[] {
+  const fileItemsByRepoPath = new Map<string, ReportItem>();
+  const fileItemsByPath = new Map<string, ReportItem>();
+  for (const item of items) {
+    if (item.section !== 'architecture' && item.section !== 'recent') continue;
+    fileItemsByRepoPath.set(`${item.repo}:${item.path}`, item);
+    if (!fileItemsByPath.has(item.path)) fileItemsByPath.set(item.path, item);
+  }
+
+  const edges: ReportGraphEdge[] = [];
+  for (const item of items) {
+    if (item.section !== 'memory-hit' || !item.sourceFile) continue;
+    const matched = fileItemsByRepoPath.get(`${item.repo}:${item.sourceFile}`) ?? fileItemsByPath.get(item.sourceFile);
+    if (!matched) continue;
+    edges.push({
+      source: `memory-hit:${item.repo}:${item.path}:${item.title}`,
+      target: `file:${matched.repo}:${matched.path}`,
+      type: 'documented-by'
+    });
+  }
+  return edges;
 }
 
 function addEdge(edges: Map<string, ReportGraphEdge>, edge: ReportGraphEdge): void {
@@ -670,7 +714,9 @@ function reportMemorySearchItems(memoryHits: Awaited<ReturnType<typeof searchMem
     path: hit.room,
     title: hit.source_file ?? `${hit.wing} memory`,
     snippet: hit.text.replace(/\s+/g, ' ').trim().slice(0, 280),
-    stale: false
+    stale: false,
+    sourceFile: hit.source_file,
+    timestamp: hit.created_at
   }));
 }
 
