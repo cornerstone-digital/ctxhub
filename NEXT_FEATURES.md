@@ -9,7 +9,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Graph interaction and navigation polish
 - [x] MCP write-surface parity for durable memory
 - [x] Memory workflow automation and promotion paths
-- [ ] Collaborative review mode with built-in reviewer personas
+- [x] Collaborative review mode with built-in reviewer personas
 - [ ] Reviewer profiles (custom, pluggable reviewer personas)
 - [ ] Harness capability abstraction
 - [ ] Evidence-backed confidence scoring
@@ -341,7 +341,7 @@ palace scoped to a disposable scratch workspace (`.ctxhub/memory/mempalace`, not
 
 ## 27. Collaborative Review Mode With Built-In Reviewer Personas
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** new `ctxhub review <topic>`, likely extending `ctxhub pr-context`
 
@@ -374,10 +374,25 @@ Implementation notes:
 Acceptance criteria:
 
 - `ctxhub review <topic> --as <persona>` (or similar) produces persona-specific findings grounded
-  only in real evidence, with citations.
-- Falls back to a plain evidence bundle, not an error, when `llm.enabled` is false.
+  only in real evidence, with citations. ✓ (`bug-hunter`/`security`/`performance` personas, each a
+  distinct prompt template over the same diff + context-pack evidence `pr-context`/`handoff`
+  already gather; verified live against the real `claude` CLI against a deliberately-introduced
+  command-injection vulnerability, which the `security` persona correctly identified with
+  `repo:path` citations.)
+- Falls back to a plain evidence bundle, not an error, when `llm.enabled` is false. ✓ (changed
+  files + suggested context still print; findings are empty with a clear `llmNotice` explaining
+  why, same shape as `pr-context`'s existing disabled path.)
 - At least the contract-reviewer persona can reuse #13's existing risk-review logic directly
-  rather than reimplementing it.
+  rather than reimplementing it. ✓ (the `contract` persona calls `reviewContractRisks` unmodified;
+  the `docs` persona similarly calls `analyzeArchitectureDrift`/`suggestDriftRepairs` unmodified.)
+
+Implemented as new `src/commands/review.ts` (`reviewCommand`, `REVIEW_PERSONAS` = `bug-hunter` |
+`contract` | `security` | `performance` | `docs`), wired in as `ctxhub review <topic> --as
+<persona>`. The diff-gathering helper `prContext.ts` used internally was extracted into an
+exported `gatherRepoDiffs()` so `review.ts` didn't have to duplicate it. Verified via unit tests
+covering the disabled/success/failure/no-changes branches with an injected `runAgentPromptFn`
+(mirroring `prContext.test.ts`), full-command tests for the `contract` and `docs` personas against
+a real git+index workspace fixture, and the live `claude` CLI run described above.
 
 ## 28. Reviewer Profiles
 

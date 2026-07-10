@@ -10,23 +10,8 @@ const MAX_DIFF_CHARS_PER_REPO = 4000;
 
 export async function prContextCommand(opts: { base?: string; json?: boolean; limit?: string; llm?: boolean } = {}) {
   const { config, workspaceRoot } = await loadWorkspaceConfig();
-  const changed = new Map<string, string[]>();
-  const diffs = new Map<string, string>();
   const base = opts.base ?? 'origin/main';
-
-  for (const repo of config.repositories) {
-    const repoPath = path.resolve(workspaceRoot, repo.path);
-    try {
-      const files = (await runGit(['diff', '--name-only', `${base}...HEAD`], repoPath)).split('\n').filter(Boolean);
-      if (files.length) {
-        changed.set(repo.name, files);
-        const diff = await runGit(['diff', `${base}...HEAD`], repoPath);
-        diffs.set(repo.name, diff.slice(0, MAX_DIFF_CHARS_PER_REPO));
-      }
-    } catch {
-      // Repos without the requested base are simply skipped.
-    }
-  }
+  const { changed, diffs } = await gatherRepoDiffs(config, workspaceRoot, base);
 
   const query = [...changed.entries()].flatMap(([repo, files]) => [repo, ...files]).join(' ') || 'current branch changes';
   const pack = await createContextPack(query, Number(opts.limit ?? 8));
@@ -54,6 +39,33 @@ export async function prContextCommand(opts: { base?: string; json?: boolean; li
     for (const risk of risks) console.log(`${chalk.yellow('!')} ${chalk.green(risk.repo)}: ${risk.risk}`);
   }
   if (llmNotice) console.log(chalk.dim(`\n${llmNotice}`));
+}
+
+// Shared with NEXT_FEATURES #27 (ctxhub review): the changed-files-and-diffs-vs-a-base-ref
+// gathering that pr-context needs is exactly the evidence several review personas need too.
+export async function gatherRepoDiffs(
+  config: CtxhubConfig,
+  workspaceRoot: string,
+  base: string
+): Promise<{ changed: Map<string, string[]>; diffs: Map<string, string> }> {
+  const changed = new Map<string, string[]>();
+  const diffs = new Map<string, string>();
+
+  for (const repo of config.repositories) {
+    const repoPath = path.resolve(workspaceRoot, repo.path);
+    try {
+      const files = (await runGit(['diff', '--name-only', `${base}...HEAD`], repoPath)).split('\n').filter(Boolean);
+      if (files.length) {
+        changed.set(repo.name, files);
+        const diff = await runGit(['diff', `${base}...HEAD`], repoPath);
+        diffs.set(repo.name, diff.slice(0, MAX_DIFF_CHARS_PER_REPO));
+      }
+    } catch {
+      // Repos without the requested base are simply skipped.
+    }
+  }
+
+  return { changed, diffs };
 }
 
 export type ContractRisk = { repo: string; risk: string };

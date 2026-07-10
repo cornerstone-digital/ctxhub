@@ -49,6 +49,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   open: 'Search & Context',
   'pr-context': 'Search & Context',
   handoff: 'Search & Context',
+  review: 'Quality & CI',
   memory: 'Memory',
   stats: 'Memory',
   agent: 'Agents & Skills',
