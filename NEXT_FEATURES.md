@@ -4,7 +4,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 
 ## Active Queue
 
-- [ ] Report-first memory workspace UX
+- [x] Report-first memory workspace UX
 - [x] Memory provenance and backlinks
 - [ ] Graph interaction and navigation polish
 - [x] MCP write-surface parity for durable memory
@@ -57,7 +57,7 @@ workspace console for both developers and agents.
 
 ## 22. Report-First Memory Workspace UX
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub report`
 
@@ -87,10 +87,26 @@ Implementation notes:
 
 Acceptance criteria:
 
-- A user can filter memory hits and timeline scope from within the report itself.
+- A user can filter memory hits and timeline scope from within the report itself. ✓ (new in-page
+  `<select>` controls for wing, room, and timeline entity; wired into the same `render()`/
+  `renderTimeline()` filter path the search box already used.)
 - A user can move between list, graph, and timeline views without losing their current filter
-  context.
-- No network listener or paid dependency is introduced.
+  context. ✓ (wing/room scope now also hides out-of-scope graph nodes/edges, not just list items;
+  the existing view-toggle mechanism was already shared across all three views.)
+- No network listener or paid dependency is introduced. ✓ (still one static HTML file; no new
+  runtime dependency.)
+
+Implemented per the resolved design fork from the implementation plan: free-text `--memory-query`
+still requires regenerating the report (a real new semantic query can't be re-run client-side
+against a static file without adding a local server, which would reverse NEXT_FEATURES #4's
+"no network listener by default"), and the report's UI copy says so explicitly next to the
+controls. Wing/room/timeline-entity, by contrast, are finite/enumerable from data already embedded
+at generation time, so those became real in-page filters: the MemPalace timeline is now always
+fetched unfiltered (`entity: undefined`) regardless of `--timeline-entity`, with that flag only
+pre-selecting the in-page dropdown instead of gating what's embedded. Verified via `report.test.ts`
+regex assertions on the generated HTML/embedded JSON, plus a real `ctxhub report --open`-style
+render (via `reportCommand` called directly with fixture data, to avoid touching a real MemPalace
+palace) opened in an actual browser to confirm the controls render and the hint copy is correct.
 
 ## 23. Memory Provenance And Backlinks
 

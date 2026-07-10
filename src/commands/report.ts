@@ -62,11 +62,17 @@ type ReportMempalaceSummary = {
 type ReportTimelineEvent = {
   label: string;
   detail: string;
+  subject?: string;
+  object?: string;
 };
 
 type ReportTimeline = {
   note: string;
   events: ReportTimelineEvent[];
+  // NEXT_FEATURES #22: the full set of distinct entities across all embedded events, so the
+  // in-page timeline-entity control has something to populate without the client re-deriving it.
+  entities: string[];
+  selectedEntity?: string;
 };
 
 export async function reportCommand(
@@ -104,7 +110,10 @@ export async function reportCommand(
           limit: Number(opts.memoryLimit ?? 8)
         })
       : Promise.resolve(undefined),
-    (deps.timelineMempalaceFn ?? timelineMempalace)(config, workspaceRoot, { entity: opts.timelineEntity })
+    // NEXT_FEATURES #22: always fetch the broad, unfiltered timeline -- entity selection becomes
+    // an in-page control (see buildReportTimeline below) instead of something the user must decide
+    // at generation time. `opts.timelineEntity`, if given, only pre-selects that control.
+    (deps.timelineMempalaceFn ?? timelineMempalace)(config, workspaceRoot, { entity: undefined })
   ]);
 
   const architecture = diagramResults.filter(result => result.kind === 'architecture-diagram');
@@ -155,6 +164,10 @@ export async function reportCommand(
   code,pre{background:#f6f8fa;padding:.2rem .4rem;border-radius:4px}
   li{margin:.35rem 0}
   input[type=search]{width:100%;box-sizing:border-box;padding:.5rem .75rem;font-size:1rem;margin:.5rem 0 1rem;border:1px solid #ccc;border-radius:6px}
+  .scope-controls{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin:0 0 .35rem}
+  .scope-controls label{display:flex;gap:.4rem;align-items:center;font-size:.9rem}
+  .scope-controls select{padding:.3rem .5rem;border:1px solid #ccc;border-radius:6px;font:inherit}
+  .scope-hint{margin:0 0 1rem}
   .item{border:1px solid #e2e2e2;border-radius:6px;padding:.6rem .8rem;margin:.5rem 0}
   .item.stale{border-color:#e0a800;background:#fffaf0}
   .item .meta{color:#666;font-size:.85rem}
@@ -197,6 +210,7 @@ export async function reportCommand(
     body{background:#1a1a1a;color:#eee}
     code,pre{background:#2a2a2a}
     input[type=search]{background:#2a2a2a;color:#eee;border-color:#444}
+    .scope-controls select{background:#2a2a2a;color:#eee;border-color:#444}
     .item{border-color:#444}
     .item.stale{border-color:#e0a800;background:#3a3320}
     .item .meta{color:#aaa}
@@ -238,6 +252,12 @@ export async function reportCommand(
 
 <h2>Browse indexed knowledge</h2>
 <input type="search" id="filter" placeholder="Filter by repo, path, title, or snippet...">
+<div class="scope-controls">
+  <label>Wing <select id="wing-filter"><option value="">All</option></select></label>
+  <label>Room <select id="room-filter"><option value="">All</option></select></label>
+  <label>Timeline entity <select id="timeline-entity-filter"><option value="">All</option></select></label>
+</div>
+<p class="meta scope-hint">Wing, room, and timeline entity filters apply immediately to what's already in this report. To pull in memory hits for a new free-text query, regenerate with <code>ctxhub report --memory-query "..."</code>.</p>
 <div class="toolbar">
   <button id="list-view-button" class="active" type="button">List</button>
   <button id="graph-view-button" type="button">Graph</button>
@@ -291,6 +311,9 @@ export async function reportCommand(
   var count = document.getElementById('count');
   var graphCount = document.getElementById('graph-count');
   var filter = document.getElementById('filter');
+  var wingFilter = document.getElementById('wing-filter');
+  var roomFilter = document.getElementById('room-filter');
+  var timelineEntityFilter = document.getElementById('timeline-entity-filter');
   var listView = document.getElementById('list-view');
   var graphView = document.getElementById('graph-view');
   var timelineView = document.getElementById('timeline-view');
@@ -305,6 +328,42 @@ export async function reportCommand(
   var selectedNodeId = null;
   var svgNs = 'http://www.w3.org/2000/svg';
   var graphElements = buildGraphElements(graph);
+  var memoryItems = items.filter(function (item) { return item.section === 'memory' || item.section === 'memory-hit'; });
+
+  function populateSelect(select, values) {
+    values.forEach(function (value) {
+      var option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    });
+  }
+
+  function refreshRoomOptions() {
+    var wing = wingFilter.value;
+    var rooms = Array.from(new Set(memoryItems
+      .filter(function (item) { return !wing || item.repo === wing; })
+      .map(function (item) { return item.path; })
+    )).sort();
+    var current = roomFilter.value;
+    roomFilter.innerHTML = '<option value="">All</option>';
+    populateSelect(roomFilter, rooms);
+    roomFilter.value = rooms.indexOf(current) !== -1 ? current : '';
+  }
+
+  function matchesMemoryScope(repo, path, isWingLevel) {
+    if (wingFilter.value && repo !== wingFilter.value) return false;
+    // A wing-level graph node has no room of its own -- don't hide it just because a specific
+    // room is selected, or its child room node loses visible context for which wing it's under.
+    if (!isWingLevel && roomFilter.value && path !== roomFilter.value) return false;
+    return true;
+  }
+
+  var memoryWings = Array.from(new Set(memoryItems.map(function (item) { return item.repo; }))).sort();
+  populateSelect(wingFilter, memoryWings);
+  refreshRoomOptions();
+  populateSelect(timelineEntityFilter, timeline.entities || []);
+  if (timeline.selectedEntity) timelineEntityFilter.value = timeline.selectedEntity;
 
   function escapeHtml(value) {
     return String(value)
@@ -316,6 +375,8 @@ export async function reportCommand(
     var shown = 0;
     list.innerHTML = items
       .filter(function (item) {
+        var isMemoryItem = item.section === 'memory' || item.section === 'memory-hit';
+        if (isMemoryItem && !matchesMemoryScope(item.repo, item.path)) return false;
         if (!q) return true;
         return [item.repo, item.path, item.title, item.snippet].join(' ').toLowerCase().indexOf(q) !== -1;
       })
@@ -412,8 +473,10 @@ export async function reportCommand(
     var visibleNodeIds = new Set();
 
     graphElements.nodes.forEach(function (entry) {
+      var isMemoryNode = entry.data.type === 'memory-wing' || entry.data.type === 'memory-room' || entry.data.type === 'memory-hit';
+      var inScope = !isMemoryNode || matchesMemoryScope(entry.data.repo, entry.data.path, entry.data.type === 'memory-wing');
       var haystack = [entry.data.label, entry.data.repo, entry.data.path, entry.data.title, entry.data.snippet].join(' ').toLowerCase();
-      var visible = !q || haystack.indexOf(q) !== -1;
+      var visible = inScope && (!q || haystack.indexOf(q) !== -1);
       entry.circle.classList.toggle('hidden', !visible);
       entry.label.classList.toggle('hidden', !visible);
       if (visible) visibleNodeIds.add(entry.data.id);
@@ -437,6 +500,8 @@ export async function reportCommand(
     var shown = 0;
     timelineItems.innerHTML = timeline.events
       .filter(function (event) {
+        var entity = timelineEntityFilter.value;
+        if (entity && event.subject !== entity && event.object !== entity) return false;
         if (!q) return true;
         return (event.label + ' ' + event.detail).toLowerCase().indexOf(q) !== -1;
       })
@@ -495,6 +560,9 @@ export async function reportCommand(
   }
 
   filter.addEventListener('input', function () { render(filter.value); });
+  wingFilter.addEventListener('change', function () { refreshRoomOptions(); render(filter.value); });
+  roomFilter.addEventListener('change', function () { render(filter.value); });
+  timelineEntityFilter.addEventListener('change', function () { render(filter.value); });
   listViewButton.addEventListener('click', function () { activateView('list'); });
   graphViewButton.addEventListener('click', function () { activateView('graph'); });
   timelineViewButton.addEventListener('click', function () { activateView('timeline'); });
@@ -723,23 +791,25 @@ function reportMemorySearchItems(memoryHits: Awaited<ReturnType<typeof searchMem
 function buildReportTimeline(
   timeline: Awaited<ReturnType<typeof timelineMempalace>>,
   limit: number,
-  entity?: string
+  selectedEntity?: string
 ): ReportTimeline {
   if (timeline.error) {
-    return { note: timeline.error, events: [] };
+    return { note: timeline.error, events: [], entities: [] };
   }
 
   const events = (timeline.timeline ?? []).slice(0, limit).map(event => {
     if (event && typeof event === 'object') {
       const value = event as Record<string, unknown>;
+      const subject = typeof value.subject === 'string' ? value.subject : undefined;
+      const object = typeof value.object === 'string' ? value.object : undefined;
       const label = [value.valid_from, value.subject, value.predicate, value.object].filter(Boolean).join(' · ') || 'Timeline event';
-      return { label, detail: JSON.stringify(value) };
+      return { label, detail: JSON.stringify(value), subject, object };
     }
     return { label: 'Timeline event', detail: String(event) };
   });
 
-  const scope = entity ? `entity ${entity}` : 'all entities';
+  const entities = Array.from(new Set(events.flatMap(event => [event.subject, event.object]).filter((value): value is string => Boolean(value)))).sort();
   const total = timeline.count ?? events.length;
-  const note = `${total} timeline event(s) for ${scope}${total > limit ? `; showing first ${limit}` : ''}`;
-  return { note, events };
+  const note = `${total} timeline event(s) across all entities${total > limit ? `; showing first ${limit}` : ''}`;
+  return { note, events, entities, selectedEntity };
 }

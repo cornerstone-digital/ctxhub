@@ -90,6 +90,53 @@ test('reportCommand writes an HTML report with status, repos, architecture, and 
   });
 });
 
+test('reportCommand embeds in-page wing/room/timeline-entity controls and a re-run hint (NEXT_FEATURES #22)', () => {
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    const output = path.join(cwd, 'report.html');
+    await captureLog(() => reportCommand(
+      { output, memoryQuery: 'graphql', timelineEntity: 'graphql' },
+      {
+        readMempalaceSummary: async () => ({ available: true, items: [{ section: 'memory', repo: 'app', path: 'decisions', title: 'app / decisions', snippet: '2 drawers in MemPalace', stale: false, count: 2 }] }),
+        searchMempalaceFn: async () => ({ query: 'graphql', results: [{ wing: 'app', room: 'decisions', source_file: 'notes.md', text: 'GraphQL decision memory hit' }] }),
+        timelineMempalaceFn: async () => ({ entity: undefined, count: 1, timeline: [{ subject: 'api', predicate: 'uses', object: 'graphql', valid_from: '2026-01-01' }] })
+      }
+    ));
+
+    const html = await readText(output);
+    assert.match(html, /id="wing-filter"/);
+    assert.match(html, /id="room-filter"/);
+    assert.match(html, /id="timeline-entity-filter"/);
+    assert.match(html, /regenerate with.*ctxhub report --memory-query/s);
+    // The timeline payload should carry the distinct entities (from subject/object) and the
+    // CLI-provided timelineEntity as a pre-select, for the in-page control to consume.
+    assert.match(html, /"entities":\["api","graphql"\]/);
+    assert.match(html, /"selectedEntity":"graphql"/);
+  });
+});
+
+test('reportCommand always fetches the full/unfiltered MemPalace timeline, even when --timeline-entity is passed', () => {
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    const output = path.join(cwd, 'report.html');
+    let requestedEntity: string | undefined = 'not-called';
+    await captureLog(() => reportCommand(
+      { output, timelineEntity: 'graphql' },
+      {
+        readMempalaceSummary: async () => ({ available: true, items: [] }),
+        timelineMempalaceFn: async (_config, _workspaceRoot, input) => {
+          requestedEntity = input.entity;
+          return { count: 0, timeline: [] };
+        }
+      }
+    ));
+
+    // NEXT_FEATURES #22: entity selection is now an in-page control, not a generation-time gate --
+    // the underlying MemPalace call should always request the broad, unfiltered timeline.
+    assert.equal(requestedEntity, undefined);
+  });
+});
+
 test('reportCommand escapes a literal </script> sequence inside embedded JSON so it cannot prematurely close the script tag', () => {
   return withWorkspace(async cwd => {
     await indexWorkspace(cwd);
