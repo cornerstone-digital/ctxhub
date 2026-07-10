@@ -24,6 +24,10 @@
 - `ctxhub eval`, `ctxhub validate docs`, and `ctxhub graph` add search-quality checks, documentation validation, and architecture graph summaries.
 - `ctxhub open`, `ctxhub pr-context`, `ctxhub watch`, and `ctxhub report` round out day-to-day review, development-loop, and workspace-report workflows.
 - Privacy-aware indexing excludes environment files by default and redacts common secret-like values before storing chunks.
+- Opt-in LLM-backed features (`llm.enabled` in config, off by default): shells out to whichever agent CLI (claude/codex/copilot/cursor) is configured/detected for one bounded, non-interactive task per feature. Always falls back to the existing non-LLM behavior with a clear notice when disabled, unavailable, or timed out — never invents evidence beyond what it was given. Covers: `ctxhub explain` synthesis, an onboarding orientation narrator, `ctxhub pr-context` contract-risk review, `ctxhub graph --drift` repair suggestions, `ctxhub handoff` summaries, `ctxhub note`/`diagram add --draft`, tailored globs for newly discovered repos, `ctxhub eval --agent-report`/`--suggest-queries`, standalone `ctxhub ask`, `search`'s `rewriteQuery`, and LLM-authored file summaries at index time for large files.
+- Context compaction on the MCP surface: every tool response is auto-compacted (redundant full content dropped, TOON vs. compact JSON picked per payload), plus `maxTokens` budget trimming and an `excludeSeen` delta mode on `search`, and `context_pack` no longer double-ships a chunk that matches both its search and architecture sub-queries.
+- `ctxhub report` gained an interactive knowledge graph view (repo/file/component/MemPalace wing-room nodes, click-to-inspect neighbors) alongside the existing filterable list view — still a single self-contained HTML file, no CDN, no new runtime dependency.
+- `memory_search`/`memory_timeline` read tools (MCP + CLI) and `ctxhub memory add`/`diary` CLI write commands are thin passthroughs to MemPalace's real search/timeline/drawer/diary engine (see "Not planned" below for why this isn't a second memory implementation).
 
 ## Planned
 
@@ -31,7 +35,7 @@
 
 ## Not planned
 
-- ctxhub reimplementing agent write/memory operations itself — MemPalace already ships a full write-capable MCP surface (19 tools including `mempalace_add_drawer`, `mempalace_checkpoint`, `mempalace_diary_write`) for exactly this. ctxhub's job is making sure it's connected (`ctxhub agent <name>` wires up `mempalace-mcp` alongside its own server), not rebuilding it.
+- ctxhub reimplementing MemPalace's actual memory engine — `src/memory/mempalaceCli.ts` shells out to MemPalace's real CLI/Python internals (`mempalace.searcher`, `mempalace.mcp_server`) for every read and write; ctxhub never stores or parses durable memory itself. What ctxhub *does* now provide (revised from an earlier, stricter version of this line): read-only `memory_search`/`memory_timeline` MCP tools and CLI commands (`ctxhub memory search`/`timeline`), plus CLI-only write convenience wrappers (`ctxhub memory add`/`diary`, not exposed as MCP tools) — all thin passthroughs to MemPalace's own engine, not a second implementation of it. `ctxhub agent <name>` still also wires up MemPalace's own full MCP server (`mempalace-mcp`, 19 tools) alongside ctxhub's, so an agent has both surfaces available.
 - An embeddings/vector-DB index provider — lexical/full-text search already covers this project's typical doc+code corpus well, and a local embedding model would add a second native-binary dependency for modest benefit on identifier-dense content.
 
-Both were deliberately decided against rather than merely deferred.
+The embeddings decision was deliberately decided against rather than merely deferred. The memory-operations line above was revised, not reversed: ctxhub still doesn't own or reimplement memory storage — it just grew thin convenience wrappers around MemPalace's real engine.
