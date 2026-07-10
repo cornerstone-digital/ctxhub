@@ -151,7 +151,10 @@ export async function reportCommand(
     ...memory.items,
     ...reportMemorySearchItems(memoryHits)
   ];
-  const graph = buildReportGraphData(config.repositories.map(repo => ({ name: repo.name, path: repo.path })), items);
+  // Resolve to absolute paths (NEXT_FEATURES #24 "jump to file") so the client can construct a
+  // real file:// link from a repo node's path + a file node's repo-relative path, without needing
+  // the workspace root embedded separately.
+  const graph = buildReportGraphData(config.repositories.map(repo => ({ name: repo.name, path: path.resolve(workspaceRoot, repo.path) })), items);
   const reportTimeline = buildReportTimeline(timeline, Number(opts.timelineLimit ?? 40), opts.timelineEntity);
 
   await writeText(output, `<!doctype html>
@@ -182,15 +185,19 @@ export async function reportCommand(
   .graph-wrap{border:1px solid #e2e2e2;border-radius:10px;padding:.75rem;background:linear-gradient(180deg,#fafbfc,#f5f7fa)}
   .graph-meta{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem;font-size:.85rem;color:#666}
   .graph-legend{display:flex;gap:.5rem;flex-wrap:wrap}
-  .legend{display:inline-flex;gap:.35rem;align-items:center;padding:.15rem .45rem;border-radius:999px;background:#fff;border:1px solid #ddd}
+  .legend{display:inline-flex;gap:.35rem;align-items:center;padding:.15rem .45rem;border-radius:999px;background:#fff;border:1px solid #ddd;cursor:pointer;user-select:none}
+  .legend input{margin:0}
   .swatch{width:.7rem;height:.7rem;border-radius:999px;display:inline-block}
+  .graph-focus{display:flex;gap:.35rem;align-items:center}
   .panel{border:1px solid #e2e2e2;border-radius:10px;padding:.9rem;background:#fff}
   .panel h3{margin-top:0}
   .panel ul{padding-left:1rem}
   .graph-svg{width:100%;height:680px;display:block}
-  .graph-edge{stroke:#c7cdd4;stroke-width:1.2;opacity:.7}
+  .graph-edge{stroke:#c7cdd4;stroke-width:1.2;opacity:.7;cursor:pointer}
   .graph-edge.depends-on{stroke:#7c8793;stroke-dasharray:5 4}
   .graph-edge.documents{stroke:#4a90e2}
+  .graph-edge.selected{stroke:#111827;stroke-width:2.6;opacity:1}
+  .graph-edge.dimmed,.graph-node.dimmed{opacity:.12}
   .graph-edge.hidden,.graph-node.hidden,.graph-label.hidden{display:none}
   .graph-node{cursor:pointer;stroke:#fff;stroke-width:2}
   .graph-node.repo{fill:#0f766e}
@@ -224,6 +231,7 @@ export async function reportCommand(
     .graph-edge{stroke:#5b6470}
     .graph-edge.depends-on{stroke:#939eaa}
     .graph-edge.documents{stroke:#6ea8fe}
+    .graph-edge.selected{stroke:#e5e7eb}
     .graph-label{fill:#e5e7eb}
     .timeline-item{background:#20242b;border-left-color:#475569}
     .timeline-item .meta{color:#aaa}
@@ -262,13 +270,13 @@ export async function reportCommand(
   <button id="list-view-button" class="active" type="button">List</button>
   <button id="graph-view-button" type="button">Graph</button>
   <button id="timeline-view-button" type="button">Timeline</button>
-  <div class="graph-legend">
-    <span class="legend"><span class="swatch" style="background:#0f766e"></span>Repo</span>
-    <span class="legend"><span class="swatch" style="background:#2563eb"></span>File</span>
-    <span class="legend"><span class="swatch" style="background:#d97706"></span>Component</span>
-    <span class="legend"><span class="swatch" style="background:#be185d"></span>Memory wing</span>
-    <span class="legend"><span class="swatch" style="background:#7c3aed"></span>Memory room</span>
-    <span class="legend"><span class="swatch" style="background:#ea580c"></span>Memory hit</span>
+  <div class="graph-legend" id="graph-legend">
+    <label class="legend"><input type="checkbox" checked data-node-class="repo"><span class="swatch" style="background:#0f766e"></span>Repo</label>
+    <label class="legend"><input type="checkbox" checked data-node-class="file"><span class="swatch" style="background:#2563eb"></span>File</label>
+    <label class="legend"><input type="checkbox" checked data-node-class="component"><span class="swatch" style="background:#d97706"></span>Component</label>
+    <label class="legend"><input type="checkbox" checked data-node-class="memory-wing"><span class="swatch" style="background:#be185d"></span>Memory wing</label>
+    <label class="legend"><input type="checkbox" checked data-node-class="memory-room"><span class="swatch" style="background:#7c3aed"></span>Memory room</label>
+    <label class="legend"><input type="checkbox" checked data-node-class="memory-hit"><span class="swatch" style="background:#ea580c"></span>Memory hit</label>
   </div>
 </div>
 <p class="meta"><span id="count"></span> — architecture diagrams, MemPalace wing/room summaries, optional memory search hits, and the ${RECENT_LIMIT} most recently indexed chunks. Items outlined in orange have drifted from their repo's current HEAD.</p>
@@ -280,7 +288,8 @@ export async function reportCommand(
     <div class="graph-wrap">
       <div class="graph-meta">
         <span id="graph-count"></span>
-        <span>Click a node to inspect it and its neighbors.</span>
+        <span>Click a node or edge to inspect it.</span>
+        <label class="graph-focus"><input type="checkbox" id="focus-neighborhood"> Focus on selected node's neighborhood</label>
       </div>
       <svg id="graph" class="graph-svg" viewBox="0 0 960 680" role="img" aria-label="Workspace knowledge graph"></svg>
       <p id="graph-empty" class="graph-empty hidden">No graph nodes match the current filter.</p>
@@ -325,9 +334,14 @@ export async function reportCommand(
   var graphEmpty = document.getElementById('graph-empty');
   var timelineNote = document.getElementById('timeline-note');
   var timelineItems = document.getElementById('timeline-items');
+  var nodeClassCheckboxes = document.querySelectorAll('#graph-legend input[type=checkbox]');
+  var focusNeighborhood = document.getElementById('focus-neighborhood');
   var selectedNodeId = null;
+  var selectedEdgeKey = null;
   var svgNs = 'http://www.w3.org/2000/svg';
   var graphElements = buildGraphElements(graph);
+  var nodesById = {};
+  graph.nodes.forEach(function (node) { nodesById[node.id] = node; });
   var memoryItems = items.filter(function (item) { return item.section === 'memory' || item.section === 'memory-hit'; });
 
   function populateSelect(select, values) {
@@ -349,6 +363,18 @@ export async function reportCommand(
     roomFilter.innerHTML = '<option value="">All</option>';
     populateSelect(roomFilter, rooms);
     roomFilter.value = rooms.indexOf(current) !== -1 ? current : '';
+  }
+
+  function enabledNodeClasses() {
+    var enabled = new Set();
+    nodeClassCheckboxes.forEach(function (checkbox) {
+      if (checkbox.checked) enabled.add(checkbox.dataset.nodeClass);
+    });
+    return enabled;
+  }
+
+  function edgeKey(edge) {
+    return edge.source + '|' + edge.type + '|' + edge.target;
   }
 
   function matchesMemoryScope(repo, path, isWingLevel) {
@@ -437,6 +463,11 @@ export async function reportCommand(
       line.setAttribute('x2', target.x);
       line.setAttribute('y2', target.y);
       line.setAttribute('class', 'graph-edge ' + edge.type);
+      line.addEventListener('click', function () {
+        selectedEdgeKey = edgeKey(edge);
+        selectedNodeId = null;
+        updateSelection();
+      });
       graphSvg.appendChild(line);
       return { data: edge, el: line };
     }).filter(Boolean);
@@ -452,6 +483,7 @@ export async function reportCommand(
       circle.setAttribute('class', 'graph-node ' + node.type + (node.stale ? ' stale' : ''));
       circle.addEventListener('click', function () {
         selectedNodeId = node.id;
+        selectedEdgeKey = null;
         updateSelection();
       });
       graphSvg.appendChild(circle);
@@ -471,12 +503,14 @@ export async function reportCommand(
   function renderGraph(query) {
     var q = (query || '').toLowerCase();
     var visibleNodeIds = new Set();
+    var classEnabled = enabledNodeClasses();
 
     graphElements.nodes.forEach(function (entry) {
       var isMemoryNode = entry.data.type === 'memory-wing' || entry.data.type === 'memory-room' || entry.data.type === 'memory-hit';
       var inScope = !isMemoryNode || matchesMemoryScope(entry.data.repo, entry.data.path, entry.data.type === 'memory-wing');
+      var inClass = classEnabled.has(entry.data.type);
       var haystack = [entry.data.label, entry.data.repo, entry.data.path, entry.data.title, entry.data.snippet].join(' ').toLowerCase();
-      var visible = inScope && (!q || haystack.indexOf(q) !== -1);
+      var visible = inScope && inClass && (!q || haystack.indexOf(q) !== -1);
       entry.circle.classList.toggle('hidden', !visible);
       entry.label.classList.toggle('hidden', !visible);
       if (visible) visibleNodeIds.add(entry.data.id);
@@ -518,30 +552,69 @@ export async function reportCommand(
     }
   }
 
+  function jumpToFileLink(node) {
+    if (node.type !== 'file' || !node.repo || !node.path) return '';
+    var repoNode = nodesById['repo:' + node.repo];
+    if (!repoNode || !repoNode.path) return '';
+    var fullPath = repoNode.path.replace(/\\/+$/, '') + '/' + node.path.replace(/^\\/+/, '');
+    return '<p><strong>Jump to file:</strong> <code>' + escapeHtml(fullPath) + '</code> ' +
+      '<a href="file://' + encodeURI(fullPath) + '">Open</a></p>';
+  }
+
   function updateSelection() {
-    var selected = graphElements.nodes.find(function (entry) { return entry.data.id === selectedNodeId; });
+    var selectedNode = graphElements.nodes.find(function (entry) { return entry.data.id === selectedNodeId; });
+    var selectedEdge = graphElements.edges.find(function (entry) { return edgeKey(entry.data) === selectedEdgeKey; });
+    var neighborIds = new Set();
+    if (selectedNode) {
+      neighborIds.add(selectedNode.data.id);
+      graphElements.edges.forEach(function (entry) {
+        if (entry.data.source === selectedNode.data.id) neighborIds.add(entry.data.target);
+        else if (entry.data.target === selectedNode.data.id) neighborIds.add(entry.data.source);
+      });
+    }
+    var focusing = Boolean(focusNeighborhood.checked && selectedNode);
+
     graphElements.nodes.forEach(function (entry) {
-      entry.circle.classList.toggle('selected', selected && entry.data.id === selected.data.id);
+      entry.circle.classList.toggle('selected', Boolean(selectedNode) && entry.data.id === selectedNode.data.id);
+      entry.circle.classList.toggle('dimmed', focusing && !neighborIds.has(entry.data.id));
+      entry.label.classList.toggle('dimmed', focusing && !neighborIds.has(entry.data.id));
+    });
+    graphElements.edges.forEach(function (entry) {
+      entry.el.classList.toggle('selected', Boolean(selectedEdge) && edgeKey(entry.data) === selectedEdgeKey);
+      var touchesSelection = selectedNode && (entry.data.source === selectedNode.data.id || entry.data.target === selectedNode.data.id);
+      entry.el.classList.toggle('dimmed', focusing && !touchesSelection);
     });
 
-    if (!selected) {
-      graphPanel.innerHTML = '<h3>Graph details</h3><p>Select a repo, file, or component node to inspect linked knowledge.</p>';
+    if (selectedEdge) {
+      var source = nodesById[selectedEdge.data.source];
+      var target = nodesById[selectedEdge.data.target];
+      graphPanel.innerHTML = [
+        '<h3>Edge: ' + escapeHtml(selectedEdge.data.type) + '</h3>',
+        '<p><strong>From:</strong> ' + escapeHtml(source ? source.label : selectedEdge.data.source) + ' (' + escapeHtml(source ? source.type : '?') + ')</p>',
+        '<p><strong>To:</strong> ' + escapeHtml(target ? target.label : selectedEdge.data.target) + ' (' + escapeHtml(target ? target.type : '?') + ')</p>'
+      ].join('');
+      return;
+    }
+
+    if (!selectedNode) {
+      graphPanel.innerHTML = '<h3>Graph details</h3><p>Select a repo, file, component, or edge to inspect linked knowledge.</p>';
       return;
     }
 
     var neighbors = [];
     graphElements.edges.forEach(function (entry) {
-      if (entry.data.source === selected.data.id) neighbors.push(entry.data.target + ' (' + entry.data.type + ')');
-      else if (entry.data.target === selected.data.id) neighbors.push(entry.data.source + ' (' + entry.data.type + ')');
+      if (entry.data.source === selectedNode.data.id) neighbors.push(entry.data.target + ' (' + entry.data.type + ')');
+      else if (entry.data.target === selectedNode.data.id) neighbors.push(entry.data.source + ' (' + entry.data.type + ')');
     });
 
     graphPanel.innerHTML = [
-      '<h3>' + escapeHtml(selected.data.label) + '</h3>',
-      '<p><strong>Type:</strong> ' + escapeHtml(selected.data.type) + (selected.data.stale ? ' <span class="badge stale">stale</span>' : '') + '</p>',
-      selected.data.repo ? '<p><strong>Repo:</strong> ' + escapeHtml(selected.data.repo) + '</p>' : '',
-      selected.data.path ? '<p><strong>Path:</strong> ' + escapeHtml(selected.data.path) + '</p>' : '',
-      selected.data.title ? '<p><strong>Title:</strong> ' + escapeHtml(selected.data.title) + '</p>' : '',
-      selected.data.snippet ? '<p><strong>Snippet:</strong> ' + escapeHtml(selected.data.snippet) + '</p>' : '',
+      '<h3>' + escapeHtml(selectedNode.data.label) + '</h3>',
+      '<p><strong>Type:</strong> ' + escapeHtml(selectedNode.data.type) + (selectedNode.data.stale ? ' <span class="badge stale">stale</span>' : '') + '</p>',
+      selectedNode.data.repo ? '<p><strong>Repo:</strong> ' + escapeHtml(selectedNode.data.repo) + '</p>' : '',
+      selectedNode.data.path ? '<p><strong>Path:</strong> ' + escapeHtml(selectedNode.data.path) + '</p>' : '',
+      selectedNode.data.title ? '<p><strong>Title:</strong> ' + escapeHtml(selectedNode.data.title) + '</p>' : '',
+      selectedNode.data.snippet ? '<p><strong>Snippet:</strong> ' + escapeHtml(selectedNode.data.snippet) + '</p>' : '',
+      jumpToFileLink(selectedNode.data),
       '<p><strong>Neighbors:</strong></p>',
       neighbors.length ? '<ul>' + neighbors.map(function (value) { return '<li>' + escapeHtml(value) + '</li>'; }).join('') + '</ul>' : '<p>None</p>'
     ].join('');
@@ -563,6 +636,10 @@ export async function reportCommand(
   wingFilter.addEventListener('change', function () { refreshRoomOptions(); render(filter.value); });
   roomFilter.addEventListener('change', function () { render(filter.value); });
   timelineEntityFilter.addEventListener('change', function () { render(filter.value); });
+  nodeClassCheckboxes.forEach(function (checkbox) {
+    checkbox.addEventListener('change', function () { renderGraph(filter.value); });
+  });
+  focusNeighborhood.addEventListener('change', function () { updateSelection(); });
   listViewButton.addEventListener('click', function () { activateView('list'); });
   graphViewButton.addEventListener('click', function () { activateView('graph'); });
   timelineViewButton.addEventListener('click', function () { activateView('timeline'); });

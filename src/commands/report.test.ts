@@ -115,6 +115,60 @@ test('reportCommand embeds in-page wing/room/timeline-entity controls and a re-r
   });
 });
 
+test('reportCommand emits a syntactically valid client-side script whose jump-to-file regexes reach the browser with their backslash intact', () => {
+  // Regression test: the client-side <script> block is embedded as literal text inside report.ts's
+  // own outer template literal. A JS string/template literal treats "\/" as a no-op escape (same
+  // class of bug fixed for the </script> escaping earlier this session) -- so writing the intended
+  // client-side regex /\/+$/ directly in the source, without doubling the backslash, silently
+  // strips it down to //+$/ once the outer template literal is evaluated, which the browser then
+  // parses as a comment ("//") rather than a regex literal.
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    const output = path.join(cwd, 'report.html');
+    await captureLog(() => reportCommand(
+      { output },
+      { readMempalaceSummary: async () => ({ available: true, items: [] }) }
+    ));
+
+    const html = await readText(output);
+    const scriptMatch = html.match(/<script>\n\(function \(\) \{[\s\S]*?\}\)\(\);\n<\/script>/);
+    assert.ok(scriptMatch, 'expected to find the embedded client-side <script> block');
+    const clientScript = scriptMatch[0].replace(/^<script>\n/, '').replace(/<\/script>$/, '');
+
+    assert.doesNotThrow(() => new Function(clientScript), 'embedded client-side script must be syntactically valid JS');
+    assert.ok(clientScript.includes('replace(/\\/+$/'), 'the trailing-slash-trim regex must reach the browser with its backslash escape intact');
+    assert.ok(clientScript.includes('replace(/^\\/+/'), 'the leading-slash-trim regex must reach the browser with its backslash escape intact');
+  });
+});
+
+test('reportCommand embeds graph node-class checkboxes, a focus-neighborhood toggle, and resolves repo nodes to absolute paths (NEXT_FEATURES #24)', () => {
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    const output = path.join(cwd, 'report.html');
+    await captureLog(() => reportCommand(
+      { output },
+      { readMempalaceSummary: async () => ({ available: true, items: [] }) }
+    ));
+
+    const html = await readText(output);
+    assert.match(html, /data-node-class="repo"/);
+    assert.match(html, /data-node-class="file"/);
+    assert.match(html, /data-node-class="component"/);
+    assert.match(html, /data-node-class="memory-wing"/);
+    assert.match(html, /data-node-class="memory-room"/);
+    assert.match(html, /data-node-class="memory-hit"/);
+    assert.match(html, /id="focus-neighborhood"/);
+    assert.match(html, /Click a node or edge to inspect it/);
+    // Repo node paths should be resolved to an absolute path so the client can build a working
+    // jump-to-file link, not whatever relative path happened to be in the config.
+    const graphMatch = html.match(/<script id="ctxhub-report-graph"[^>]*>([\s\S]*?)<\/script>/);
+    const graph = JSON.parse(graphMatch[1].replaceAll('<\\/', '</'));
+    const repoNode = graph.nodes.find(node => node.id === 'repo:app');
+    assert.ok(path.isAbsolute(repoNode.path), `expected an absolute repo path, got ${repoNode.path}`);
+    assert.ok(repoNode.path.endsWith(path.join(cwd, 'app')) || repoNode.path === path.join(cwd, 'app'));
+  });
+});
+
 test('reportCommand always fetches the full/unfiltered MemPalace timeline, even when --timeline-entity is passed', () => {
   return withWorkspace(async cwd => {
     await indexWorkspace(cwd);

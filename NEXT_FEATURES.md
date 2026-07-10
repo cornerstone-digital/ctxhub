@@ -6,7 +6,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 
 - [x] Report-first memory workspace UX
 - [x] Memory provenance and backlinks
-- [ ] Graph interaction and navigation polish
+- [x] Graph interaction and navigation polish
 - [x] MCP write-surface parity for durable memory
 - [ ] Memory workflow automation and promotion paths
 - [ ] Collaborative review mode with built-in reviewer personas
@@ -160,7 +160,7 @@ fallback, and no-match cases, plus an integration test through `buildReportGraph
 
 ## 24. Graph Interaction And Navigation Polish
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub report`
 
@@ -186,9 +186,31 @@ Implementation notes:
 
 Acceptance criteria:
 
-- A user can focus the graph on a node neighborhood without visually losing the rest of the page.
-- A user can hide low-signal node classes when investigating one slice of the workspace.
+- A user can focus the graph on a node neighborhood without visually losing the rest of the page. ✓
+  (a "Focus on selected node's neighborhood" toggle dims, rather than hides, everything outside the
+  selected node's immediate neighbors, so the rest of the graph stays visible as context.)
+- A user can hide low-signal node classes when investigating one slice of the workspace. ✓ (the
+  graph legend swatches are now checkboxes -- unchecking a class actually hides those nodes/edges,
+  reusing the existing `.hidden` filter mechanism.)
 - Selected nodes and edges expose enough metadata to support the next action, not just inspection.
+  ✓ (edges are now clickable and populate the detail panel with their endpoints/type; a file node's
+  panel shows a resolved absolute path plus a `file://` "Open" link.)
+
+Implemented in the same embedded `<script>` block #22 touched, per the plan's sequencing note.
+Repo nodes now carry an absolute filesystem path (`path.resolve(workspaceRoot, repo.path)`, done
+once in `reportCommand`) so the client can join it with a file node's repo-relative path into a
+real, working link without any new backend call. Verified via `report.test.ts` (markup/behavior
+regex assertions, an edge-selection/jump-link-focused test, and a real syntax-validity check of the
+extracted client script) plus a real `reportCommand` render opened in an actual browser. One real
+bug was caught and fixed along the way: the client-side jump-to-file trimming regexes
+(`/\/+$/`/`/^\/+/`) are embedded as literal text inside `report.ts`'s own outer template literal, so
+writing them with a single backslash let the outer template literal's string-escape processing
+silently eat the backslash (`\/` is a no-op escape in a JS string, same class of bug as the earlier
+`</script>` escaping fix this session) -- collapsing to `//+$/` in the emitted HTML, which the
+browser then parses as a comment rather than a regex, throwing a real `SyntaxError`. Fixed by
+doubling the backslash in the TS source (`/\\/+$/`) so the emitted browser code keeps a single
+backslash; caught by ESLint's `no-useless-escape` and confirmed as a real (not cosmetic) break via
+a revert-and-confirm-fail regression test before restoring the fix.
 
 ## 25. MCP Write-Surface Parity For Durable Memory
 
