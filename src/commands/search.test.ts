@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { searchCommand } from './search.js';
+import { maybeRewriteSearchInput, searchCommand } from './search.js';
 import { openCommand } from './open.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
@@ -137,5 +137,37 @@ test('searchCommand --interactive throws a clear error outside a real terminal i
       () => searchCommand('authentication', { interactive: true }),
       /--interactive needs a real terminal/
     );
+  });
+});
+
+test('maybeRewriteSearchInput returns a disabled notice and leaves the query unchanged when llm.enabled is false', async () => {
+  const config = await loadConfig(process.cwd()).catch(() => undefined);
+  const result = await maybeRewriteSearchInput(
+    'auth flow',
+    'all',
+    { ...(config ?? { workspace: { name: 'ws' }, repositories: [], knowledge: { include: [], exclude: [] }, memory: { provider: 'mempalace', path: '' }, index: { provider: 'local-json', path: '', table: '', incremental: true, chunkSize: 1000 }, hooks: {}, privacy: { redactPatterns: [] }, llm: { enabled: false, timeoutMs: 1000 }, version: 1 }) },
+    async () => ({ ok: false, reason: 'disabled' })
+  );
+  assert.equal(result.query, 'auth flow');
+  assert.equal(result.facet, 'all');
+  assert.match(result.notice ?? '', /llm\.enabled: true/);
+});
+
+test('searchCommand surfaces both original and rewritten query when rewrite-query changes them', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    await saveConfig(config, cwd);
+
+    const lines = await captureLog(() => searchCommand(
+      'auth',
+      { rewriteQuery: true },
+      { runAgentPromptFn: async () => ({ ok: true, text: '{"query":"authenticateRequest","type":"code"}' }) }
+    ));
+
+    assert.ok(lines.some(line => line.includes('Original query: auth (all)')));
+    assert.ok(lines.some(line => line.includes('Rewritten query: authenticateRequest (code)')));
+    assert.ok(lines.some(line => line.includes('auth.ts')));
+    assert.ok(!lines.some(line => line.includes('README.md')));
   });
 });

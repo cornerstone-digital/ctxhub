@@ -14,6 +14,8 @@ import { checkServerStaleness } from '../utils/serverStatus.js';
 import { estimateTokens, trimToTokenBudget } from '../utils/tokenEstimate.js';
 import { estimateBaselineTokensFromFileSizes, readUsageStats, recordToolUsage, summarizeUsageStats } from '../utils/usageStats.js';
 import { SEARCH_FACETS, classifyResult, filterResults, localRgHints, normalizeSearchFacet } from '../context/searchFacets.js';
+import { maybeRewriteSearchInput } from '../commands/search.js';
+import { runAgentPrompt } from '../llm/runAgent.js';
 import { compactEncode } from './compact.js';
 
 // The one choke point every tool response passes through -- compaction (dropping redundant
@@ -38,7 +40,10 @@ async function recordUsage(workspaceRoot: string, tool: string, payload: unknown
   await recordToolUsage(path.join(workspaceRoot, STATS_PATH), tool, tokensReturned, tokensBaseline);
 }
 
-export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean; startedAt?: number } = {}): McpServer {
+export function createCtxhubMcpServer(
+  cwd = process.cwd(),
+  opts: { allowIndex?: boolean; startedAt?: number; runAgentPromptFn?: typeof runAgentPrompt } = {}
+): McpServer {
   const server = new McpServer({ name: 'ctxhub', version: getPackageVersion() });
   const startedAt = opts.startedAt ?? Date.now();
 
@@ -80,36 +85,42 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
         query: z.string().describe('Search query'),
         limit: z.number().int().positive().max(50).optional().describe('Max results (default 5)'),
         type: z.enum(SEARCH_FACETS).optional().describe('Optional result type filter: all, docs, code, architecture, notes'),
+        rewriteQuery: z.boolean().optional().describe('Ask the configured agent CLI to rewrite the query/type before searching; when it changes, both original and rewritten values are returned'),
         maxTokens: z.number().int().positive().optional().describe('Optional token budget; lower-ranked results are dropped (by id) to fit'),
         excludeSeen: z.boolean().optional().describe('Skip chunks already returned by search earlier in this session (default false)')
       }
     },
-    async ({ query, limit, type, maxTokens, excludeSeen }) => {
+    async ({ query, limit, type, rewriteQuery, maxTokens, excludeSeen }) => {
       const { config, workspaceRoot } = await workspace(cwd);
       const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const facet = normalizeSearchFacet(type);
+      const rewritten = rewriteQuery
+        ? await maybeRewriteSearchInput(query, facet, config, opts.runAgentPromptFn ?? runAgentPrompt)
+        : { query, facet };
       const maxResults = limit ?? 5;
       // Facet 'all' normally doesn't need a wider candidate pool since nothing gets filtered out
       // afterward -- but excludeSeen filters the pool too, so it needs headroom beyond maxResults
       // even here, or there's nothing left to backfill with once already-seen ids are skipped.
-      const candidatePoolSize = facet === 'all' && !excludeSeen ? maxResults : Math.max(maxResults * 5, 25);
-      const candidates = await index.search(query, candidatePoolSize);
-      const facetFiltered = filterResults(candidates, facet);
+      const candidatePoolSize = rewritten.facet === 'all' && !excludeSeen ? maxResults : Math.max(maxResults * 5, 25);
+      const candidates = await index.search(rewritten.query, candidatePoolSize);
+      const facetFiltered = filterResults(candidates, rewritten.facet);
       const unseen = excludeSeen ? facetFiltered.filter(result => !seenChunkIds.has(result.id)) : facetFiltered;
       const filtered = unseen.slice(0, maxResults);
       const { kept: results, droppedIds } = maxTokens !== undefined ? trimToTokenBudget(filtered, maxTokens) : { kept: filtered, droppedIds: [] as string[] };
       for (const result of results) seenChunkIds.add(result.id);
       const payload = {
-        query,
-        type: facet,
+        query: rewritten.query,
+        type: rewritten.facet,
         resultTypes: countResultTypes(results),
         results: results.map(result => ({ ...result, type: classifyResult(result) })),
-        localFollowUpCommands: localRgHints(query, results),
+        localFollowUpCommands: localRgHints(rewritten.query, results),
         guidance: [
           'Use ctxhub to orient across repos and identify likely files.',
           'For exact method bodies or edits, follow up with get_file_context or local rg in the target repo.',
           'For architecture/topology questions, prefer type="architecture" or architecture_search.'
         ],
+        ...(rewritten.rewritten ? { originalQuery: query, originalType: facet, rewrittenQuery: rewritten.query, rewrittenType: rewritten.facet } : {}),
+        ...(rewritten.notice ? { llmNotice: rewritten.notice } : {}),
         ...(droppedIds.length ? { droppedIds } : {})
       };
       await recordUsage(workspaceRoot, 'search', payload, results.map(result => result.absolutePath));

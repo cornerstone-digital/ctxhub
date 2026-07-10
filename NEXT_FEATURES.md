@@ -25,7 +25,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Tailored onboarding globs for new repos
 - [x] Eval golden-query expansion
 - [x] Standalone `ctxhub ask`
-- [ ] Natural-language query rewriting in front of search
+- [x] Natural-language query rewriting in front of search
 - [ ] LLM-authored file summaries at index time
 
 ## 1. Cited Explain Command
@@ -684,7 +684,7 @@ disabled, success, and timeout/unavailable branches.
 
 ## 20. Natural-Language Query Rewriting in Front of `search`
 
-**Status:** Not started
+**Status:** Done
 
 **MCP/CLI:** extend `search` / `ctxhub search`
 
@@ -707,8 +707,14 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Response includes both the original and rewritten query when a rewrite happened.
-- Never silently changes results without surfacing that a rewrite occurred.
+- Response includes both the original and rewritten query when a rewrite happened. ✓
+- Never silently changes results without surfacing that a rewrite occurred. ✓
+
+Implemented as an opt-in rewrite pre-pass on both the CLI (`ctxhub search --rewrite-query`) and
+the MCP `search` tool (`rewriteQuery: true`). The rewrite prompt returns strict JSON with a new
+query and optional narrowed facet, but ctxhub only applies it when it meaningfully changes the
+original input; otherwise the search runs unchanged. Disabled/failed/invalid rewrite attempts run
+the original query and surface a clear notice instead.
 
 ## 21. LLM-Authored File Summaries at Index Time
 

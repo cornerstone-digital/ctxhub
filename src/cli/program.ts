@@ -130,6 +130,7 @@ export function buildProgram(): Command {
     .option('--docs', 'Shortcut for --type docs')
     .option('--architecture', 'Shortcut for --type architecture')
     .option('--notes', 'Shortcut for --type notes')
+    .option('--rewrite-query', 'Ask the configured agent CLI to rewrite the query/type before searching, surfacing both original and rewritten values')
     .option('-i, --interactive', 'Launch a live, filterable terminal search UI')
     .option('--plain', 'Require a query and print one-shot search results')
     .option('--no-interactive', 'Disable live search when query is omitted')

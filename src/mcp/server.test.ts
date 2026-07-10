@@ -10,7 +10,11 @@ import { createCtxhubMcpServer } from './server.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 
-async function withConnectedClient(cwd: string, run: (client: Client) => Promise<void>, opts: { allowIndex?: boolean } = {}) {
+async function withConnectedClient(
+  cwd: string,
+  run: (client: Client) => Promise<void>,
+  opts: { allowIndex?: boolean; runAgentPromptFn?: (config: unknown, prompt: string) => Promise<unknown> } = {}
+) {
   const server = createCtxhubMcpServer(cwd, opts);
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -154,6 +158,37 @@ test('mcp search supports result type filters and returns agent follow-up hints'
       assert.equal(payload.type, 'code');
       assert.ok(payload.results.some(item => item.filePath === 'auth.ts' && item.type === 'code'));
       assert.ok(payload.localFollowUpCommands.some(command => command.includes('rg "authenticateRequest" app')));
+    });
+  });
+});
+
+test('mcp search surfaces original and rewritten query values when rewriteQuery changes them', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    await saveConfig(config, cwd);
+    await indexWorkspace(cwd);
+
+    await withConnectedClient(cwd, async client => {
+      const result = await client.callTool({
+        name: 'search',
+        arguments: { query: 'auth', limit: 5, rewriteQuery: true }
+      });
+      const payload = firstTextPayload(result as never) as {
+        query: string;
+        type: string;
+        originalQuery?: string;
+        rewrittenQuery?: string;
+        rewrittenType?: string;
+        results: Array<{ filePath: string; type: string }>;
+      };
+
+      assert.equal(payload.originalQuery, 'auth');
+      assert.equal(payload.rewrittenQuery, 'authenticateRequest');
+      assert.equal(payload.rewrittenType, 'code');
+      assert.ok(payload.results.some(item => item.filePath === 'auth.ts' && item.type === 'code'));
+    }, {
+      runAgentPromptFn: async () => ({ ok: true, text: '{"query":"authenticateRequest","type":"code"}' })
     });
   });
 });
