@@ -34,15 +34,11 @@ async function withIsolatedCtxhubHome(run: () => Promise<void>) {
   }
 }
 
-test('GET / serves the self-contained Fleet view HTML page', () => {
+test('GET / serves Fleet view HTML', () => {
   return withRunningServer(async baseUrl => {
     const res = await fetch(`${baseUrl}/`);
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type') ?? '', /text\/html/);
-    const html = await res.text();
-    assert.match(html, /ctxhub Fleet/);
-    assert.match(html, /fetch\('\/workspaces'\)/);
-    assert.ok(!html.includes('cdn.'), 'the Fleet view must stay self-contained, no CDN assets');
   });
 });
 

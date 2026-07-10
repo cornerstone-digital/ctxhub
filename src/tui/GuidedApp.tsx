@@ -12,6 +12,8 @@ import {
   type SelectListItem
 } from './components/SelectList.js';
 
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
 type Screen = 'menu' | 'wizard' | 'confirm';
 
 type MenuRow = SelectListItem & { command?: GuidedCommand };
@@ -77,6 +79,7 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [confirmArgv, setConfirmArgv] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
+  const [spinnerIndex, setSpinnerIndex] = useState(0);
 
   const menuRows = useMemo(() => buildMenuRows(commands, filter), [commands, filter]);
   const field = selectedCommand?.fields[fieldIndex];
@@ -99,6 +102,14 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
     setChoiceIndex(field.kind === 'boolean' ? (field.defaultValue ? 0 : 1) : 0);
     setToggled(new Set());
   }, [field]);
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => {
+      setSpinnerIndex(current => (current + 1) % SPINNER_FRAMES.length);
+    }, 80);
+    return () => clearInterval(timer);
+  }, [running]);
 
   function startCommand(command: GuidedCommand) {
     setSelectedCommand(command);
@@ -200,10 +211,18 @@ export function GuidedApp({ commands: commandsProp, run: runProp }: Props) {
         <Text color="gray">Ready to run</Text>
         <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
           <Text bold>Run this command?</Text>
-          <Text color="cyan">ctxhub {confirmArgv.join(' ')}</Text>
+          {running ? (
+            <Text color="cyan">{SPINNER_FRAMES[spinnerIndex]} Running ctxhub {confirmArgv.join(' ')}…</Text>
+          ) : (
+            <Text color="cyan">ctxhub {confirmArgv.join(' ')}</Text>
+          )}
           {selectedCommand ? <Text color="gray">{selectedCommand.description}</Text> : null}
         </Box>
-        <Text color="gray">{running ? 'running...' : 'enter run · esc edit'}</Text>
+        {running ? null : (
+          <Text color="gray">
+            <Text bold>enter</Text><Text> run · </Text><Text bold>esc</Text><Text> edit</Text>
+          </Text>
+        )}
       </Box>
     );
   }

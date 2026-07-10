@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { stat } from 'node:fs/promises';
 import fg from 'fast-glob';
 import type { IndexedChunk, RepoConfig } from '../config/types.js';
 import { loadManifest, manifestKey, saveManifest } from './manifest.js';
@@ -72,6 +73,7 @@ export async function indexWorkspace(
   const result: IndexResult = { scanned: 0, indexed: 0, skipped: 0, deleted: 0 };
   const seenKeys = new Set<string>();
 
+  try {
   for (const repo of config.repositories) {
     const repoPath = path.resolve(workspaceRoot, repo.path);
     if (!(await pathExists(repoPath))) {
@@ -106,9 +108,15 @@ export async function indexWorkspace(
       // regardless of which file's prepare step actually finished first.
       const prepared = await mapWithConcurrencyLimit(batch, concurrency, async (filePath): Promise<PreparedFile> => {
         const absolutePath = path.join(repoPath, filePath);
+        const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+        const key = manifestKey(repo.name, filePath);
+        const fileStat = await stat(absolutePath).catch(() => null);
+        if (!fileStat || fileStat.size > MAX_FILE_BYTES) {
+          console.warn(`[indexer] skipping ${filePath}: ${fileStat ? `file too large (${fileStat.size} bytes)` : 'stat failed'}`);
+          return { type: 'skip', key };
+        }
         const raw = await readText(absolutePath);
         const hash = sha256(raw);
-        const key = manifestKey(repo.name, filePath);
 
         const existing = manifest.files[key];
         if (!force && existing?.hash === hash) {
@@ -195,6 +203,9 @@ export async function indexWorkspace(
     }
   }
 
-  await saveManifest(manifest, workspaceRoot);
+  await index.flush?.();
+  } finally {
+    await saveManifest(manifest, workspaceRoot);
+  }
   return result;
 }

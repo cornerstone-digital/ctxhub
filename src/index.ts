@@ -19,5 +19,8 @@ try {
   }
 
   console.error(chalk.red((error as Error).message));
+  if (process.env.DEBUG || process.argv.includes('--debug')) {
+    console.error(chalk.dim((error as Error).stack ?? ''));
+  }
   process.exit(1);
 }

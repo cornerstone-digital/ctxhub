@@ -11,15 +11,38 @@ type Props = {
   items: SelectListItem[];
   selectedIndex: number;
   markerFor?: (item: SelectListItem, index: number) => string;
+  maxVisible?: number;
 };
 
 // Generalizes the manual arrow-key-highlight list pattern proven in SearchApp.tsx into
 // a reusable component: the guided menu's command list, single-choice wizard fields,
 // and (via markerFor rendering "[x] "/"[ ] ") multi-select wizard fields all share this.
-export function SelectList({ items, selectedIndex, markerFor }: Props) {
+export function SelectList({ items, selectedIndex, markerFor, maxVisible }: Props) {
+  const shouldClip = maxVisible !== undefined && items.length > maxVisible;
+
+  let startIndex = 0;
+  if (shouldClip && maxVisible !== undefined) {
+    // Keep selectedIndex in view, centering it when possible.
+    startIndex = Math.max(0, selectedIndex - Math.floor(maxVisible / 2));
+    startIndex = Math.min(startIndex, items.length - maxVisible);
+  }
+
+  const visibleItems = shouldClip && maxVisible !== undefined
+    ? items.slice(startIndex, startIndex + maxVisible)
+    : items;
+
+  const itemsAbove = startIndex;
+  const itemsBelow = shouldClip && maxVisible !== undefined
+    ? items.length - startIndex - visibleItems.length
+    : 0;
+
   return (
     <Box flexDirection="column">
-      {items.map((item, i) => {
+      {itemsAbove > 0 ? (
+        <Text dimColor>  ↑ {itemsAbove} more</Text>
+      ) : null}
+      {visibleItems.map((item, i) => {
+        const absoluteIndex = startIndex + i;
         if (item.disabled) {
           return (
             <Text key={item.key} bold color="gray">
@@ -28,8 +51,8 @@ export function SelectList({ items, selectedIndex, markerFor }: Props) {
           );
         }
 
-        const active = i === selectedIndex;
-        const marker = markerFor ? markerFor(item, i) : '';
+        const active = absoluteIndex === selectedIndex;
+        const marker = markerFor ? markerFor(item, absoluteIndex) : '';
         return (
           <Text key={item.key} color={active ? 'black' : undefined} backgroundColor={active ? 'cyan' : undefined}>
             {active ? '> ' : '  '}
@@ -38,6 +61,9 @@ export function SelectList({ items, selectedIndex, markerFor }: Props) {
           </Text>
         );
       })}
+      {itemsBelow > 0 ? (
+        <Text dimColor>  ↓ {itemsBelow} more</Text>
+      ) : null}
     </Box>
   );
 }

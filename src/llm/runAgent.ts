@@ -124,7 +124,10 @@ export async function runAgentPrompt(
     return { ok: true, text };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('timed out')) return { ok: false, reason: 'timeout', detail: message };
+    const timedOut = (error as { timedOut?: boolean }).timedOut === true;
+    // TIMEOUT_SIGNAL set by src/utils/execa-lite.ts — update both if changed
+    const TIMEOUT_SIGNAL = 'timed out';
+    if (timedOut || message.includes(TIMEOUT_SIGNAL)) return { ok: false, reason: 'timeout', detail: message };
     return { ok: false, reason: 'error', detail: message };
   }
 }

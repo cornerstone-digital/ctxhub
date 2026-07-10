@@ -17,7 +17,17 @@ export const defaultConfig: CtxhubConfig = {
       '**/*.{mmd,mermaid}',
       '**/*.{ts,tsx,js,jsx,mjs,cjs,json}'
     ],
-    exclude: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**', 'coverage/**', 'cicd/**', '.env', '.env.*']
+    exclude: [
+      '**/node_modules/**',
+      '**/.git/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/.next/**',
+      '**/coverage/**',
+      '**/cicd/**',
+      '.env',
+      '.env.*'
+    ]
   },
   memory: {
     provider: 'mempalace',

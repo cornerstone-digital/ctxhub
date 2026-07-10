@@ -21,7 +21,9 @@ export function execa(command: string, args: string[], options: Options = {}): P
           if (settled) return;
           settled = true;
           child.kill('SIGTERM');
-          reject(new Error(`${command} ${args.join(' ')} timed out after ${options.timeoutMs}ms`));
+          const err = new Error(`${command} ${args.join(' ')} timed out after ${options.timeoutMs}ms`) as Error & { timedOut: boolean };
+          err.timedOut = true;
+          reject(err);
         }, options.timeoutMs)
       : undefined;
 

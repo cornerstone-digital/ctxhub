@@ -101,7 +101,7 @@ test('default knowledge globs do not treat YAML as indexable knowledge, and excl
   // multi-repo workspace, which pollutes search results with identically-scored
   // boilerplate. See the cicd/cicd.yaml case observed indexing a real workspace.
   assert.ok(!defaultConfig.knowledge.include.some(pattern => pattern.includes('yaml') || pattern.includes('yml')));
-  assert.ok(defaultConfig.knowledge.exclude.includes('cicd/**'));
+  assert.ok(defaultConfig.knowledge.exclude.includes('**/cicd/**'));
 });
 
 test('loadConfig throws a helpful error when no config exists', () => {

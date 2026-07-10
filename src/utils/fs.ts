@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, access, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
 export async function pathExists(target: string): Promise<boolean> {
@@ -19,6 +19,14 @@ export async function readText(target: string): Promise<string> {
 }
 
 export async function writeText(target: string, content: string): Promise<void> {
-  await ensureDir(path.dirname(target));
-  await writeFile(target, content, 'utf8');
+  await mkdir(path.dirname(target), { recursive: true });
+  const tmp = `${target}.${process.pid}.tmp`;
+  try {
+    await writeFile(tmp, content, 'utf8');
+    await rename(tmp, target);
+  } catch (err) {
+    // Clean up tmp file on failure (best-effort)
+    try { await unlink(tmp); } catch { /* best-effort, ignore */ }
+    throw err;
+  }
 }

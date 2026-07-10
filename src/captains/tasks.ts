@@ -47,6 +47,10 @@ export async function addCaptainTask(task: CaptainTask, tasksPath = getCaptainTa
     throw new Error(`A captain task named "${task.name}" already exists. Remove it first or choose a different name.`);
   }
 
+  if (task.schedule !== undefined && task.schedule.everyMinutes < 1) {
+    throw new Error(`schedule.everyMinutes must be at least 1; got ${task.schedule.everyMinutes}.`);
+  }
+
   file.tasks.push(task);
   await saveCaptainTasks(file, tasksPath);
 }

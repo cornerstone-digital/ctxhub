@@ -7,6 +7,7 @@ export type RepoStatus = {
   name: string;
   state: RepoState;
   detail?: string;
+  percent?: number;
 };
 
 const ICON_BY_STATE: Record<RepoState, string> = {
@@ -24,6 +25,11 @@ const COLOR_BY_STATE: Record<RepoState, string | undefined> = {
   missing: 'yellow',
   error: 'red'
 };
+
+export function progressBar(percent: number, width = 20): string {
+  const filled = Math.round((percent / 100) * width);
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
 
 export function summarizeRepoStatuses(repos: RepoStatus[]): string {
   const counts = repos.reduce<Record<RepoState, number>>(

@@ -8,6 +8,10 @@ import type { IndexFn } from './IndexProgressApp.js';
 
 const MAX_ACTIVITY_ENTRIES = 10;
 
+function formatTime(): string {
+  return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 type ActivityEntry = { at: string; message: string };
 
 type Props = {
@@ -45,11 +49,11 @@ export function WatchProgressApp({ repoNames, cwd, intervalMs, indexFn = indexWo
         if (cancelled) return;
 
         setCycles(current => current + 1);
-        setLastChecked(new Date().toISOString());
+        setLastChecked(formatTime());
         const changed = result.indexed + result.deleted;
         if (changed) {
           setActivity(current =>
-            [{ at: new Date().toISOString(), message: `indexed=${result.indexed} deleted=${result.deleted} skipped=${result.skipped}` }, ...current].slice(
+            [{ at: formatTime(), message: `indexed=${result.indexed} deleted=${result.deleted} skipped=${result.skipped}` }, ...current].slice(
               0,
               MAX_ACTIVITY_ENTRIES
             )
@@ -57,7 +61,7 @@ export function WatchProgressApp({ repoNames, cwd, intervalMs, indexFn = indexWo
         }
       } catch (error) {
         if (cancelled) return;
-        setActivity(current => [{ at: new Date().toISOString(), message: `error: ${(error as Error).message}` }, ...current].slice(0, MAX_ACTIVITY_ENTRIES));
+        setActivity(current => [{ at: formatTime(), message: `error: ${(error as Error).message}` }, ...current].slice(0, MAX_ACTIVITY_ENTRIES));
       } finally {
         if (!cancelled) setRunning(false);
       }
@@ -78,7 +82,7 @@ export function WatchProgressApp({ repoNames, cwd, intervalMs, indexFn = indexWo
       <Text color="gray">Indexing every {intervalMs / 1000}s in {cwd}. Press Ctrl+C to stop.</Text>
       <Box marginTop={1}>
         <Text color="gray">
-          cycles: {cycles}
+          Cycles: {cycles}
           {lastChecked ? ` · last checked: ${lastChecked}` : ''}
         </Text>
       </Box>

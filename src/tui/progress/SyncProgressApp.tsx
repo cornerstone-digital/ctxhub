@@ -4,7 +4,7 @@ import { Box, Text, render, useApp } from 'ink';
 import { indexWorkspace, type IndexResult } from '../../indexing/indexer.js';
 import { loadWorkspaceConfig } from '../../config/config.js';
 import { pullRepo } from '../../git/git.js';
-import { RepoStatusList, type RepoStatus } from './RepoStatusList.js';
+import { RepoStatusList, progressBar, summarizeRepoStatuses, type RepoStatus } from './RepoStatusList.js';
 import { applyIndexProgress } from './applyIndexProgress.js';
 
 export type PullFn = (repoPath: string) => Promise<void>;
@@ -80,7 +80,21 @@ export function SyncProgressApp({ repos, cwd, noPull, pullFn = pullRepo, indexFn
       ) : null}
       <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={phase === 'pull' ? 'gray' : 'cyan'} paddingX={1}>
         <Text bold>{phase === 'pull' ? 'Re-indexing changed knowledge (queued)' : 'Re-indexing changed knowledge'}</Text>
-        <RepoStatusList repos={indexStatus} showSummary />
+        <Text color="gray">{summarizeRepoStatuses(indexStatus)}</Text>
+        {indexStatus.map(repo => (
+          <Box key={repo.name} flexDirection="column">
+            <Text color={repo.state === 'done' ? 'green' : repo.state === 'error' ? 'red' : repo.state === 'missing' ? 'yellow' : repo.state === 'active' ? 'cyan' : 'gray'}>
+              {repo.state === 'done' ? '✓' : repo.state === 'error' ? '✗' : repo.state === 'missing' ? '!' : repo.state === 'active' ? '◐' : '·'}{' '}
+              {repo.name}
+              {repo.state !== 'active' && repo.detail ? ` — ${repo.detail}` : ''}
+            </Text>
+            {repo.state === 'active' && repo.percent !== undefined ? (
+              <Text color="cyan">   [{progressBar(repo.percent)}] {repo.percent}%</Text>
+            ) : repo.state === 'active' && repo.detail ? (
+              <Text color="gray">   {repo.detail}</Text>
+            ) : null}
+          </Box>
+        ))}
       </Box>
     </Box>
   );

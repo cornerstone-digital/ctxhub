@@ -64,7 +64,8 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   report: 'Reports',
   workspace: 'Fleet',
   service: 'Fleet',
-  captain: 'Fleet'
+  captain: 'Fleet',
+  reset: 'Setup'
 };
 
 export function extractGuidedCommands(program: Command): GuidedCommand[] {

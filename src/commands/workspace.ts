@@ -15,10 +15,17 @@ export async function workspaceListCommand() {
     return;
   }
 
+  console.log(chalk.bold('Registered workspaces') + chalk.gray(' (~/.ctxhub/registry.json)'));
+  console.log('');
+
   for (const workspace of workspaces) {
     const marker = workspace.exists ? chalk.green('✓') : chalk.red('✗');
-    const suffix = workspace.exists ? '' : chalk.red(' (path missing)');
-    console.log(`${marker} ${workspace.name} ${chalk.gray(workspace.path)}${suffix}`);
+    const segments = workspace.path.split(path.sep);
+    const shortPath = segments.slice(-3).join(path.sep);
+    console.log(`${marker} ${workspace.name} ${chalk.gray(shortPath)}`);
+    if (!workspace.exists) {
+      console.log(`    ${chalk.red('(path missing)')} ${chalk.gray(workspace.path)}`);
+    }
   }
 }
 

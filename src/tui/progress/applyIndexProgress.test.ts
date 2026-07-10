@@ -19,7 +19,7 @@ test('formatFileProgress falls back to a plain count when total is unknown', () 
 
 test('applyIndexProgress marks the matching repo active with file-progress detail, leaving others untouched', () => {
   const updated = applyIndexProgress(repos(), { type: 'repo-progress', repo: 'app', scanned: 142, total: 500 });
-  assert.deepEqual(updated.find(r => r.name === 'app'), { name: 'app', state: 'active', detail: '142/500 files (28%)' });
+  assert.deepEqual(updated.find(r => r.name === 'app'), { name: 'app', state: 'active', detail: '142/500 files (28%)', percent: 28 });
   assert.deepEqual(updated.find(r => r.name === 'web'), { name: 'web', state: 'queued' });
 });
 

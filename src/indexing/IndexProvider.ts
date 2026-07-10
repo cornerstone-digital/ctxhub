@@ -9,4 +9,6 @@ export interface IndexProvider {
   recent(limit?: number): Promise<IndexedDocument[]>;
   clear(): Promise<void>;
   status(): Promise<IndexStatus>;
+  /** Called once after the entire indexing run completes; used to build expensive indexes (e.g. FTS) a single time rather than per batch. */
+  flush?(): Promise<void>;
 }

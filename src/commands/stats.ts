@@ -18,20 +18,29 @@ export async function statsCommand(opts: { json?: boolean } = {}) {
     return;
   }
 
-  console.log(chalk.bold('ctxhub token savings (estimated)'));
-  console.log(`${chalk.bold('Since:')} ${summary.since}`);
-  console.log(`${chalk.bold('Tool calls:')} ${summary.totalCalls}`);
-  console.log(`${chalk.bold('Tokens returned:')} ${summary.tokensReturned.toLocaleString()}`);
-  console.log(`${chalk.bold('Tokens a full-file read would have cost:')} ${summary.tokensBaseline.toLocaleString()}`);
-  console.log(`${chalk.bold('Estimated tokens saved:')} ${summary.tokensSaved.toLocaleString()} (${summary.savingsPercent}%)`);
-
-  console.log(`\n${chalk.bold('By tool')}`);
-  for (const tool of summary.tools) {
-    console.log(`  ${tool.tool}: ${tool.calls} calls, ~${tool.tokensSaved.toLocaleString()} tokens saved`);
+  const labelWidth = 'Tokens a full-file read would have cost'.length + 2;
+  function row(label: string, value: string): string {
+    return `  ${chalk.bold(label.padEnd(labelWidth))}${value}`;
   }
 
-  console.log(chalk.dim('\nHeuristic estimate (chars/4), assuming the alternative was reading each matched file in full -- a directional signal, not exact accounting.'));
+  console.log(chalk.bold.underline('ctxhub token savings (estimated)'));
+  console.log('');
+  console.log(row('Since', summary.since ?? '—'));
+  console.log(row('Tool calls', String(summary.totalCalls)));
+  console.log(row('Tokens returned', summary.tokensReturned.toLocaleString()));
+  console.log(row('Tokens a full-file read would have cost', summary.tokensBaseline.toLocaleString()));
+  console.log(row('Estimated tokens saved', `${summary.tokensSaved.toLocaleString()} (${summary.savingsPercent}%)`));
+
+  console.log('');
+  console.log(chalk.bold.underline('By tool'));
+  console.log('');
+  for (const tool of summary.tools) {
+    console.log(row(tool.tool, `${tool.calls} calls, ~${tool.tokensSaved.toLocaleString()} tokens saved`));
+  }
+
+  console.log('');
+  console.log(chalk.dim('Heuristic estimate (chars/4), assuming the alternative was reading each matched file in full — a directional signal, not exact accounting.'));
   if (summary.tokensSaved < 0) {
-    console.log(chalk.dim("Negative here usually means only very small files matched -- ctxhub's response metadata (guidance, follow-up hints) outweighed the small file(s) it replaced."));
+    console.log(chalk.dim("Negative here usually means only very small files matched — ctxhub's response metadata (guidance, follow-up hints) outweighed the small file(s) it replaced."));
   }
 }

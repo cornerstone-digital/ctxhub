@@ -1,0 +1,4 @@
+node_modules/
+*.local
+vite.config.ts.timestamp-*
+.DS_Store

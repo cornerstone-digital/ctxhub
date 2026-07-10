@@ -1,6 +1,6 @@
 import path from 'node:path';
 import chalk from 'chalk';
-import { findConfigPath, loadConfig } from '../config/config.js';
+import { findConfigPath, loadConfig, workspaceRootForConfig } from '../config/config.js';
 import { pathExists, readText, writeText } from './fs.js';
 import { detectDrift, driftCount } from './drift.js';
 import { getPackageVersion } from './version.js';
@@ -25,7 +25,8 @@ export async function checkForDriftOnce(commandName: string, cwd = process.cwd()
   if (!configPath) return;
 
   const currentVersion = getPackageVersion();
-  const markerPath = path.join(cwd, VERSION_MARKER_PATH);
+  const workspaceRoot = configPath ? workspaceRootForConfig(configPath) : cwd;
+  const markerPath = path.join(workspaceRoot, VERSION_MARKER_PATH);
   const lastChecked = (await pathExists(markerPath)) ? (await readText(markerPath)).trim() : undefined;
   if (lastChecked === currentVersion) return;
 

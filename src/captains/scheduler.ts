@@ -10,7 +10,8 @@ export function isCaptainTaskDue(task: CaptainTask, runs: CaptainRunRecord[], no
   if (!runs.length) return true;
 
   const lastRun = runs[runs.length - 1];
-  const dueAt = new Date(lastRun.startedAt).getTime() + task.schedule.everyMinutes * 60_000;
+  const intervalMs = Math.max(1, task.schedule.everyMinutes) * 60_000;
+  const dueAt = new Date(lastRun.startedAt).getTime() + intervalMs;
   return now.getTime() >= dueAt;
 }
 
@@ -19,15 +20,26 @@ export function isCaptainTaskDue(task: CaptainTask, runs: CaptainRunRecord[], no
 // *when* a task runs, never what it's allowed to do once it runs.
 export async function runDueCaptainTasks(now = new Date()): Promise<CaptainRunRecord[]> {
   const { tasks } = await loadCaptainTasks();
-  const ran: CaptainRunRecord[] = [];
 
+  const dueTasks: CaptainTask[] = [];
   for (const task of tasks) {
     if (!task.schedule) continue;
-
     const runs = await listCaptainRuns(task.name);
     if (!isCaptainTaskDue(task, runs, now)) continue;
+    dueTasks.push(task);
+  }
 
-    ran.push(await runCaptainTask(task));
+  const results = await Promise.allSettled(
+    dueTasks.map(task => runCaptainTask(task))
+  );
+
+  const ran: CaptainRunRecord[] = [];
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      ran.push(result.value);
+    } else {
+      console.error('[captain] task failed:', result.reason instanceof Error ? result.reason.message : String(result.reason));
+    }
   }
 
   return ran;

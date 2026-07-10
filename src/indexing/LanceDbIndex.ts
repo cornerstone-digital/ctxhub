@@ -54,6 +54,11 @@ export class LanceDbIndex implements IndexProvider {
     const table = await this.table(documents);
     await this.removeDocuments(documents.map(document => document.id));
     await retryLanceWrite(() => table.add(documents.map(toRow)));
+  }
+
+  async flush(): Promise<void> {
+    const table = await this.existingTable();
+    if (!table) return;
     await this.createFullTextIndex(table);
   }
 
@@ -121,10 +126,11 @@ export class LanceDbIndex implements IndexProvider {
 
     const table = await db.openTable(this.tableName);
     const rows = await table.query().select(['lastIndexed']).limit(10000).toArray();
+    const rowCount = await table.countRows();
     return {
       provider: this.name as IndexProviderName,
-      documentCount: await table.countRows(),
-      chunkCount: await table.countRows(),
+      documentCount: rowCount,
+      chunkCount: rowCount,
       indexLocation: this.dbPath,
       lastIndexed: rows.map(row => String(row.lastIndexed)).sort().at(-1)
     };
@@ -229,7 +235,9 @@ function rowToDocument(row: Record<string, unknown>): IndexedDocument {
     repo: String(row.repo),
     filePath: String(row.filePath),
     absolutePath: String(row.absolutePath),
-    kind: row.kind === 'architecture-diagram' ? 'architecture-diagram' : 'document',
+    kind: (['architecture-diagram', 'file-summary'] as const).includes(row.kind as 'architecture-diagram' | 'file-summary')
+      ? row.kind as IndexedDocument['kind']
+      : 'document',
     diagramType: String(row.diagramType || '') || undefined,
     components: splitList(row.components),
     relationships: splitList(row.relationships),

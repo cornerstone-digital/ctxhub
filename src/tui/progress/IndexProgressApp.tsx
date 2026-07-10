@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text, render, useApp } from 'ink';
 import { indexWorkspace, type IndexProgressEvent, type IndexResult } from '../../indexing/indexer.js';
 import { loadWorkspaceConfig } from '../../config/config.js';
-import { RepoStatusList, type RepoStatus } from './RepoStatusList.js';
+import { progressBar, summarizeRepoStatuses, type RepoStatus } from './RepoStatusList.js';
 import { applyIndexProgress } from './applyIndexProgress.js';
 
 export type IndexFn = (
@@ -55,7 +55,21 @@ export function IndexProgressApp({ repoNames, cwd, force, indexFn = indexWorkspa
       </Text>
       <Box marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1} flexDirection="column">
         <Text bold>Workspace knowledge</Text>
-        <RepoStatusList repos={repos} showSummary />
+        <Text color="gray">{summarizeRepoStatuses(repos)}</Text>
+        {repos.map(repo => (
+          <Box key={repo.name} flexDirection="column">
+            <Text color={repo.state === 'done' ? 'green' : repo.state === 'error' ? 'red' : repo.state === 'missing' ? 'yellow' : repo.state === 'active' ? 'cyan' : 'gray'}>
+              {repo.state === 'done' ? '✓' : repo.state === 'error' ? '✗' : repo.state === 'missing' ? '!' : repo.state === 'active' ? '◐' : '·'}{' '}
+              {repo.name}
+              {repo.state !== 'active' && repo.detail ? ` — ${repo.detail}` : ''}
+            </Text>
+            {repo.state === 'active' && repo.percent !== undefined ? (
+              <Text color="cyan">   [{progressBar(repo.percent)}] {repo.percent}%</Text>
+            ) : repo.state === 'active' && repo.detail ? (
+              <Text color="gray">   {repo.detail}</Text>
+            ) : null}
+          </Box>
+        ))}
       </Box>
     </Box>
   );
