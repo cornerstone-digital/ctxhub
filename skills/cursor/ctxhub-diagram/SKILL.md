@@ -8,7 +8,7 @@ Treat the user's invocation text as the architecture or flow to capture. If the 
 
 ## What to do
 
-1. Gather evidence first with `ctxhub-context`, `ctxhub-search`, or the ctxhub MCP tools. Do not invent components. Check existing architecture docs/diagrams first so you update or reuse them instead of duplicating the same flow.
+1. Gather evidence first with `ctxhub-context`, `ctxhub-search`, or the ctxhub MCP tools. Do not invent components. Check existing architecture docs/diagrams first so you update or reuse them instead of duplicating the same flow. If `architecture_search`/`architecture_map` return nothing, also run a plain `docs` search before concluding no diagram exists — Mermaid blocks embedded in prose docs aren't always extracted as standalone architecture results.
 2. Create the scaffold with: `ctxhub diagram add <repo> "<short-title>" --agent <your-name>`.
 3. Edit the generated `.mmd` file under `<repo>/docs/architecture/`.
 4. Prefer simple Mermaid: `flowchart LR` for component relationships and ownership boundaries, or `sequenceDiagram` for request/event flows.
