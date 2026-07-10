@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { memoryClearCommand, memorySearchCommand, memoryStatusCommand, memoryTimelineCommand } from './memory.js';
+import { memoryAddCommand, memoryClearCommand, memoryDiaryCommand, memorySearchCommand, memoryStatusCommand, memoryTimelineCommand } from './memory.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { loadManifest } from '../indexing/manifest.js';
@@ -119,5 +119,32 @@ test('memoryTimelineCommand prints timeline events from MemPalace', () => {
     assert.ok(lines.some(line => line.includes('MemPalace timeline: graphql')));
     assert.ok(lines.some(line => line.includes('1 event(s)')));
     assert.ok(lines.some(line => line.includes('"predicate": "uses"')));
+  });
+});
+
+test('memoryAddCommand stores durable memory under an explicit wing and room', () => {
+  return withWorkspace(async () => {
+    const lines = await captureLog(() => memoryAddCommand(
+      'Remember the GraphQL migration rationale.',
+      { wing: 'app', room: 'decisions', addedBy: 'copilot' },
+      { addDrawerMempalaceFn: async () => ({ success: true, drawer_id: 'drawer-123', wing: 'app', room: 'decisions' }) }
+    ));
+
+    assert.ok(lines.some(line => line.includes('Stored durable memory in app / decisions')));
+    assert.ok(lines.some(line => line.includes('drawer-123')));
+  });
+});
+
+test('memoryDiaryCommand stores a diary entry for an agent', () => {
+  return withWorkspace(async () => {
+    const lines = await captureLog(() => memoryDiaryCommand(
+      'Worked through the auth migration and captured the key gotchas.',
+      { agent: 'copilot', topic: 'auth-migration', wing: 'app' },
+      { writeDiaryMempalaceFn: async () => ({ success: true, entry_id: 'diary-123', topic: 'auth-migration' }) }
+    ));
+
+    assert.ok(lines.some(line => line.includes('Stored diary entry for copilot')));
+    assert.ok(lines.some(line => line.includes('Wing: app')));
+    assert.ok(lines.some(line => line.includes('diary-123')));
   });
 });

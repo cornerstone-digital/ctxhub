@@ -25,4 +25,4 @@ Treat the invocation text as the finding to capture. If the repo or title is unc
    - any uncertainty or follow-up
 4. Leave it as a normal repo change for review. Do not put private session notes, secrets, or speculation into team notes.
 
-Use MemPalace or another agent memory tool for private long-term memory. Use `ctxhub note add` when the knowledge should live with the codebase and be indexed by ctxhub after it is committed.
+Use MemPalace or another agent memory tool for private long-term memory. If this should be durable memory instead of a team note, prefer `ctxhub memory add "<content>" --wing <wing> --room <room>` or `ctxhub memory diary "<entry>" --agent <your-name>` rather than creating a repo note. Use `ctxhub note add` only when the knowledge should live with the codebase and be indexed by ctxhub after it is committed.

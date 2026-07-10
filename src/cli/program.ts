@@ -4,7 +4,7 @@ import { repoAddCommand, repoDiscoverCommand, repoHookCommand, repoListCommand }
 import { indexCommand } from '../commands/index.js';
 import { searchCommand } from '../commands/search.js';
 import { syncCommand } from '../commands/sync.js';
-import { memoryClearCommand, memorySearchCommand, memoryStatusCommand, memoryTimelineCommand } from '../commands/memory.js';
+import { memoryAddCommand, memoryClearCommand, memoryDiaryCommand, memorySearchCommand, memoryStatusCommand, memoryTimelineCommand } from '../commands/memory.js';
 import { statsCommand } from '../commands/stats.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { mcpCommand } from '../commands/mcp.js';
@@ -229,6 +229,27 @@ export function buildProgram(): Command {
     .option('--json', 'Print JSON')
     .description('Search MemPalace durable memory with optional wing/room filters')
     .action(memorySearchCommand);
+
+  memory
+    .command('add')
+    .argument('<content>', 'Content to store in MemPalace durable memory')
+    .requiredOption('--wing <name>', 'MemPalace wing/project to file this memory under')
+    .requiredOption('--room <name>', 'MemPalace room/topic to file this memory under')
+    .option('--source-file <path>', 'Optional source file path to associate with this memory')
+    .option('--added-by <name>', 'Optional actor label stored with the memory', 'ctxhub')
+    .option('--json', 'Print JSON')
+    .description('Store durable memory in MemPalace under an explicit wing and room')
+    .action(memoryAddCommand);
+
+  memory
+    .command('diary')
+    .argument('<entry>', 'Diary entry text to store in MemPalace')
+    .requiredOption('--agent <name>', 'Agent or user name for the diary entry')
+    .option('--topic <name>', 'Diary topic', 'general')
+    .option('--wing <name>', 'Optional MemPalace wing/project; defaults to the agent-specific diary wing')
+    .option('--json', 'Print JSON')
+    .description('Write a durable diary entry to MemPalace, optionally under a chosen wing')
+    .action(memoryDiaryCommand);
 
   memory
     .command('timeline')

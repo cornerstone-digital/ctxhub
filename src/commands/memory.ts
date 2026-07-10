@@ -4,7 +4,7 @@ import { loadWorkspaceConfig } from '../config/config.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { saveManifest } from '../indexing/manifest.js';
-import { readMempalaceStatusSummary, searchMempalace, timelineMempalace } from '../memory/mempalaceCli.js';
+import { addDrawerMempalace, readMempalaceStatusSummary, searchMempalace, timelineMempalace, writeDiaryMempalace } from '../memory/mempalaceCli.js';
 import { runMemoryStatusApp } from '../tui/MemoryStatusApp.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 
@@ -108,6 +108,65 @@ export async function memoryTimelineCommand(
   for (const item of result.timeline ?? []) {
     console.log(`\n${JSON.stringify(item, null, 2)}`);
   }
+}
+
+export async function memoryAddCommand(
+  content: string,
+  opts: { wing: string; room: string; sourceFile?: string; addedBy?: string; json?: boolean } ,
+  deps: { addDrawerMempalaceFn?: typeof addDrawerMempalace } = {}
+) {
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const result = await (deps.addDrawerMempalaceFn ?? addDrawerMempalace)(config, workspaceRoot, {
+    wing: opts.wing,
+    room: opts.room,
+    content,
+    sourceFile: opts.sourceFile,
+    addedBy: opts.addedBy
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (!result.success) {
+    console.log(chalk.yellow(String(result.error ?? 'Memory write failed.')));
+    if (result.hint) console.log(chalk.gray(String(result.hint)));
+    return;
+  }
+
+  console.log(chalk.green(`Stored durable memory in ${opts.wing} / ${opts.room}`));
+  if (result.reason) console.log(chalk.gray(String(result.reason)));
+  if (result.drawer_id) console.log(chalk.gray(`Drawer: ${String(result.drawer_id)}`));
+}
+
+export async function memoryDiaryCommand(
+  entry: string,
+  opts: { agent: string; topic?: string; wing?: string; json?: boolean },
+  deps: { writeDiaryMempalaceFn?: typeof writeDiaryMempalace } = {}
+) {
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const result = await (deps.writeDiaryMempalaceFn ?? writeDiaryMempalace)(config, workspaceRoot, {
+    agentName: opts.agent,
+    entry,
+    topic: opts.topic,
+    wing: opts.wing
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (!result.success) {
+    console.log(chalk.yellow(String(result.error ?? 'Diary write failed.')));
+    if (result.hint) console.log(chalk.gray(String(result.hint)));
+    return;
+  }
+
+  console.log(chalk.green(`Stored diary entry for ${opts.agent}`));
+  if (opts.wing) console.log(chalk.gray(`Wing: ${opts.wing}`));
+  if (result.entry_id) console.log(chalk.gray(`Entry: ${String(result.entry_id)}`));
 }
 
 export async function memoryClearCommand(opts: { force?: boolean } = {}) {

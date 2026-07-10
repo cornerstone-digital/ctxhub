@@ -1,6 +1,6 @@
 ---
 name: ctxhub
-description: Search across every repo in this multi-repo workspace — including ones not currently open — before answering questions about how existing code or services work, architecture, which repo owns what, or why a past decision was made. Provides search, architecture_search, architecture_map, memory_status, and repo_list.
+description: Search across every repo in this multi-repo workspace — including ones not currently open — before answering questions about how existing code or services work, architecture, which repo owns what, or why a past decision was made. Provides search, architecture_search, architecture_map, memory_status, memory_search, memory_timeline, and repo_list.
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -21,7 +21,7 @@ Also treat the index as possibly stale after the user mentions pulling new chang
 
 ## How to use it
 
-- If the `ctxhub` MCP server is connected, prefer its tools: `context_pack`, `search`, `open_chunk`, `get_file_context`, `architecture_search`, `architecture_map`, `memory_status`, `repo_list`, `server_status`, `usage_stats`.
+- If the `ctxhub` MCP server is connected, prefer its tools: `context_pack`, `search`, `open_chunk`, `get_file_context`, `architecture_search`, `architecture_map`, `memory_status`, `memory_search`, `memory_timeline`, `repo_list`, `server_status`, `usage_stats`.
 - For broad questions, use `context_pack` first; it bundles search, architecture, freshness, repo list, and suggested reading order.
 - If a ctxhub tool result seems to contradict a recent change (a fix you know landed, a skill wording update, etc.), or once near the start of a long session, call `server_status`. If it reports `stale: true`, ctxhub was rebuilt after this MCP server process started and cannot restart itself — tell the user their ctxhub connection is stale and ask them to restart/reconnect the ctxhub MCP server (or restart the agent/harness) rather than trying to work around it.
 - If the user asks how much ctxhub is helping or saving them, call `usage_stats` (or run `ctxhub stats`) and report the estimated tokens saved versus reading matched files in full — it's a heuristic, so present it as directional, not exact.
@@ -39,7 +39,13 @@ Also treat the index as possibly stale after the user mentions pulling new chang
 
 ## Remembering things long-term
 
-This index is a read-only mirror of the workspace's actual repo content — it isn't a place to store your own notes, decisions, or session history. If you learn something worth remembering across sessions (a decision, a workaround, a gotcha) and MemPalace's MCP server is connected, write it there instead (`mempalace_add_drawer`, `mempalace_checkpoint`, etc.) — don't try to stuff it into ctxhub's index.
+This index is a read-only mirror of the workspace's actual repo content — it isn't a place to store your own notes, decisions, or session history. If you learn something worth remembering across sessions, store it in MemPalace durable memory instead.
+
+- First discover the available structure with `memory_status()` or `ctxhub memory status --plain`; that now lists known wings and rooms.
+- To read existing memory, use `memory_search(query, wing?, room?, source_file?)` or `ctxhub memory search ...`.
+- To browse change over time, use `memory_timeline(entity?)` or `ctxhub memory timeline ...`.
+- To store durable memory yourself, use `ctxhub memory add "<content>" --wing <wing> --room <room>` for durable facts/notes and `ctxhub memory diary "<entry>" --agent <name> [--wing <wing>]` for diary-style session notes.
+- Prefer explicit wings/rooms when you know the project/topic; they make later retrieval much better than dumping everything into a generic bucket.
 
 ## Sharing something with the team
 

@@ -48,6 +48,13 @@ export type MempalaceTimelineResult = {
   error?: string;
 };
 
+export type MempalaceWriteResult = {
+  success?: boolean;
+  error?: string;
+  hint?: string;
+  [key: string]: unknown;
+};
+
 type CliResult = { stdout: string; stderr: string; exitCode: number };
 
 export async function readMempalaceStatusSummary(config: CtxhubConfig, workspaceRoot = process.cwd()): Promise<MempalaceStatusSummary> {
@@ -157,6 +164,76 @@ export async function timelineMempalace(
       'print(json.dumps(result, ensure_ascii=False))'
     ].join('\n')
   ) as Promise<MempalaceTimelineResult>;
+}
+
+export async function addDrawerMempalace(
+  config: CtxhubConfig,
+  workspaceRoot: string,
+  input: { wing: string; room: string; content: string; sourceFile?: string; addedBy?: string },
+  runJsonFn: typeof runMempalaceJson = runMempalaceJson
+): Promise<MempalaceWriteResult> {
+  if (config.memory.provider !== 'mempalace') {
+    return { error: 'ctxhub is not configured to use MemPalace for durable memory.' };
+  }
+
+  return runJsonFn(
+    {
+      wing: input.wing,
+      room: input.room,
+      content: input.content,
+      source_file: input.sourceFile,
+      added_by: input.addedBy ?? 'ctxhub-memory-add'
+    },
+    config,
+    workspaceRoot,
+    [
+      'import json, sys',
+      'from mempalace.mcp_server import tool_add_drawer',
+      'payload = json.loads(sys.argv[1])',
+      'result = tool_add_drawer(',
+      '  wing=payload["wing"],',
+      '  room=payload["room"],',
+      '  content=payload["content"],',
+      '  source_file=payload.get("source_file"),',
+      '  added_by=payload.get("added_by", "ctxhub-memory-add"),',
+      ')',
+      'print(json.dumps(result, ensure_ascii=False))'
+    ].join('\n')
+  ) as Promise<MempalaceWriteResult>;
+}
+
+export async function writeDiaryMempalace(
+  config: CtxhubConfig,
+  workspaceRoot: string,
+  input: { agentName: string; entry: string; topic?: string; wing?: string },
+  runJsonFn: typeof runMempalaceJson = runMempalaceJson
+): Promise<MempalaceWriteResult> {
+  if (config.memory.provider !== 'mempalace') {
+    return { error: 'ctxhub is not configured to use MemPalace for durable memory.' };
+  }
+
+  return runJsonFn(
+    {
+      agent_name: input.agentName,
+      entry: input.entry,
+      topic: input.topic ?? 'general',
+      wing: input.wing ?? ''
+    },
+    config,
+    workspaceRoot,
+    [
+      'import json, sys',
+      'from mempalace.mcp_server import tool_diary_write',
+      'payload = json.loads(sys.argv[1])',
+      'result = tool_diary_write(',
+      '  agent_name=payload["agent_name"],',
+      '  entry=payload["entry"],',
+      '  topic=payload.get("topic", "general"),',
+      '  wing=payload.get("wing", ""),',
+      ')',
+      'print(json.dumps(result, ensure_ascii=False))'
+    ].join('\n')
+  ) as Promise<MempalaceWriteResult>;
 }
 
 async function runMempalaceJson(payload: Record<string, unknown>, config: CtxhubConfig, workspaceRoot: string, script: string): Promise<unknown> {
