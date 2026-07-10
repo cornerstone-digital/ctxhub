@@ -5,12 +5,12 @@ import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { attachFreshness } from '../context/freshness.js';
 import { writeText } from '../utils/fs.js';
-import type { SearchResult } from '../config/types.js';
+import type { CtxhubConfig, SearchResult } from '../config/types.js';
 
 const RECENT_LIMIT = 40;
 
 type ReportItem = {
-  section: 'architecture' | 'recent';
+  section: 'architecture' | 'recent' | 'memory';
   repo: string;
   path: string;
   title: string;
@@ -19,12 +19,13 @@ type ReportItem = {
   stale: boolean;
   components?: string[];
   relationships?: string[];
+  count?: number;
 };
 
 type ReportGraphNode = {
   id: string;
   label: string;
-  type: 'repo' | 'file' | 'component';
+  type: 'repo' | 'file' | 'component' | 'memory-wing' | 'memory-room';
   repo?: string;
   path?: string;
   title?: string;
@@ -35,7 +36,7 @@ type ReportGraphNode = {
 type ReportGraphEdge = {
   source: string;
   target: string;
-  type: 'contains' | 'documents' | 'depends-on';
+  type: 'contains' | 'documents' | 'depends-on' | 'memory-contains';
 };
 
 type ReportGraph = {
@@ -43,14 +44,25 @@ type ReportGraph = {
   edges: ReportGraphEdge[];
 };
 
-export async function reportCommand(opts: { output?: string; open?: boolean; plain?: boolean; interactive?: boolean } = {}) {
+type ReportMemorySummary = {
+  available: boolean;
+  note?: string;
+  totalDrawers?: number;
+  items: ReportItem[];
+};
+
+export async function reportCommand(
+  opts: { output?: string; open?: boolean; plain?: boolean; interactive?: boolean } = {},
+  deps: { readMempalaceSummary?: typeof readMempalaceSummary } = {}
+) {
   const cwd = process.cwd();
   const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
-  const [status, diagramResults, recentDocs] = await Promise.all([
+  const [status, diagramResults, recentDocs, memory] = await Promise.all([
     index.status(),
     index.search('architecture diagram mermaid', 100),
-    index.recent(RECENT_LIMIT)
+    index.recent(RECENT_LIMIT),
+    (deps.readMempalaceSummary ?? readMempalaceSummary)(config)
   ]);
 
   const architecture = diagramResults.filter(result => result.kind === 'architecture-diagram');
@@ -84,7 +96,8 @@ export async function reportCommand(opts: { output?: string; open?: boolean; pla
       snippet: item.snippet,
       lastIndexed: item.lastIndexed,
       stale: Boolean(item.freshness?.stale)
-    }))
+    })),
+    ...memory.items
   ];
   const graph = buildReportGraphData(config.repositories.map(repo => ({ name: repo.name, path: repo.path })), items);
 
@@ -126,6 +139,8 @@ export async function reportCommand(opts: { output?: string; open?: boolean; pla
   .graph-node.repo{fill:#0f766e}
   .graph-node.file{fill:#2563eb}
   .graph-node.component{fill:#d97706}
+  .graph-node.memory-wing{fill:#be185d}
+  .graph-node.memory-room{fill:#7c3aed}
   .graph-node.stale{stroke:#e0a800;stroke-width:4}
   .graph-node.selected{stroke:#111827;stroke-width:4}
   .graph-label{font-size:11px;fill:#111827;pointer-events:none}
@@ -165,6 +180,7 @@ export async function reportCommand(opts: { output?: string; open?: boolean; pla
   <li>Chunks: ${status.chunkCount}</li>
   <li>Last indexed: ${status.lastIndexed ?? 'never'}</li>
   <li>Stale results found: ${stale.length}</li>
+  <li>MemPalace: ${escapeHtml(memory.note ?? (memory.available ? `${memory.totalDrawers ?? 0} drawers` : 'not configured'))}</li>
 </ul>
 
 <h2>Repositories</h2>
@@ -179,9 +195,11 @@ export async function reportCommand(opts: { output?: string; open?: boolean; pla
     <span class="legend"><span class="swatch" style="background:#0f766e"></span>Repo</span>
     <span class="legend"><span class="swatch" style="background:#2563eb"></span>File</span>
     <span class="legend"><span class="swatch" style="background:#d97706"></span>Component</span>
+    <span class="legend"><span class="swatch" style="background:#be185d"></span>Memory wing</span>
+    <span class="legend"><span class="swatch" style="background:#7c3aed"></span>Memory room</span>
   </div>
 </div>
-<p class="meta"><span id="count"></span> — architecture diagrams and the ${RECENT_LIMIT} most recently indexed chunks. Items outlined in orange have drifted from their repo's current HEAD.</p>
+<p class="meta"><span id="count"></span> — architecture diagrams, MemPalace wing/room summaries, and the ${RECENT_LIMIT} most recently indexed chunks. Items outlined in orange have drifted from their repo's current HEAD.</p>
 <section id="list-view" class="view active">
   <ul id="items"></ul>
 </section>
@@ -425,6 +443,34 @@ export function buildReportGraphData(
   }
 
   for (const item of items) {
+    if (item.section === 'memory') {
+      const wingId = `memory-wing:${item.repo}`;
+      const roomId = `memory-room:${item.repo}:${item.path}`;
+      if (!nodes.has(wingId)) {
+        nodes.set(wingId, {
+          id: wingId,
+          label: item.repo,
+          type: 'memory-wing',
+          repo: item.repo,
+          title: `MemPalace wing ${item.repo}`,
+          snippet: item.snippet
+        });
+      }
+      if (!nodes.has(roomId)) {
+        nodes.set(roomId, {
+          id: roomId,
+          label: item.path,
+          type: 'memory-room',
+          repo: item.repo,
+          path: item.path,
+          title: item.title,
+          snippet: item.snippet
+        });
+      }
+      addEdge(edges, { source: wingId, target: roomId, type: 'memory-contains' });
+      continue;
+    }
+
     const repoId = `repo:${item.repo}`;
     const fileId = `file:${item.repo}:${item.path}`;
     if (!nodes.has(fileId)) {
@@ -480,4 +526,75 @@ function relationshipEndpoints(relationship: string): [string, string] | undefin
 
 function isNoiseToken(token: string): boolean {
   return ['flowchart', 'graph', 'sequenceDiagram', 'classDiagram', 'LR', 'TD', 'TB', 'BT', 'RL'].includes(token);
+}
+
+export async function readMempalaceSummary(config: CtxhubConfig): Promise<ReportMemorySummary> {
+  if (config.memory.provider !== 'mempalace') {
+    return { available: false, note: 'disabled (memory.provider is not mempalace)', items: [] };
+  }
+
+  const result = await runCli('mempalace', ['status']);
+  const combined = `${result.stdout}\n${result.stderr}`.trim();
+
+  if (combined.includes('No palace found')) {
+    return { available: false, note: 'no palace found; run mempalace init <dir> then mempalace mine <dir>', items: [] };
+  }
+
+  if (result.exitCode !== 0) {
+    return { available: false, note: `status unavailable (exit ${result.exitCode})`, items: [] };
+  }
+
+  const parsed = parseMempalaceStatus(combined);
+  return {
+    available: true,
+    totalDrawers: parsed.totalDrawers,
+    note: `${parsed.totalDrawers ?? 0} drawers across ${parsed.items.length} room(s)`,
+    items: parsed.items
+  };
+}
+
+export function parseMempalaceStatus(output: string): { totalDrawers?: number; items: ReportItem[] } {
+  const totalDrawers = output.match(/MemPalace Status\s+—\s+(\d+) drawers/)?.[1];
+  const lines = output.split('\n');
+  const items: ReportItem[] = [];
+  let currentWing: string | undefined;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const wingMatch = line.match(/^\s*WING:\s+(.+)$/);
+    if (wingMatch) {
+      currentWing = wingMatch[1].trim();
+      continue;
+    }
+
+    const roomMatch = line.match(/^\s*ROOM:\s+(.+?)\s+(\d+) drawers$/);
+    if (roomMatch && currentWing) {
+      const room = roomMatch[1].trim();
+      const count = Number(roomMatch[2]);
+      items.push({
+        section: 'memory',
+        repo: currentWing,
+        path: room,
+        title: `${currentWing} / ${room}`,
+        snippet: `${count} drawer${count === 1 ? '' : 's'} in MemPalace`,
+        stale: false,
+        count
+      });
+    }
+  }
+
+  return { totalDrawers: totalDrawers ? Number(totalDrawers) : undefined, items };
+}
+
+async function runCli(command: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return new Promise(resolve => {
+    const child = spawn(command, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.on('data', chunk => (stdout += String(chunk)));
+    child.stderr?.on('data', chunk => (stderr += String(chunk)));
+    child.on('error', error => resolve({ stdout, stderr: `${stderr}${error.message}`, exitCode: 1 }));
+    child.on('close', exitCode => resolve({ stdout, stderr, exitCode: exitCode ?? 1 }));
+  });
 }

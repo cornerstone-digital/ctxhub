@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { buildReportGraphData, openReportCommand, reportCommand } from './report.js';
+import { buildReportGraphData, openReportCommand, parseMempalaceStatus, reportCommand } from './report.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { readText } from '../utils/fs.js';
@@ -61,13 +61,18 @@ test('reportCommand writes an HTML report with status, repos, architecture, and 
   return withWorkspace(async cwd => {
     await indexWorkspace(cwd);
     const output = path.join(cwd, 'report.html');
-    const lines = await captureLog(() => reportCommand({ output }));
+    const lines = await captureLog(() => reportCommand(
+      { output },
+      { readMempalaceSummary: async () => ({ available: true, totalDrawers: 3, note: '3 drawers across 2 room(s)', items: [{ section: 'memory', repo: 'app', path: 'decisions', title: 'app / decisions', snippet: '2 drawers in MemPalace', stale: false, count: 2 }] }) }
+    ));
 
     const html = await readText(output);
     assert.match(html, /<h1>ws<\/h1>/);
     assert.match(html, /app/);
     assert.match(html, /"section":"architecture"/);
     assert.match(html, /"section":"recent"/);
+    assert.match(html, /"section":"memory"/);
+    assert.match(html, /3 drawers across 2 room\(s\)/);
     assert.match(html, /id="graph"/, 'should include the graph svg container');
     assert.match(html, /ctxhub-report-graph/, 'should include graph JSON payload');
     assert.match(html, /id="filter"/, 'should include the client-side filter input');
@@ -79,24 +84,57 @@ test('reportCommand writes an HTML report with status, repos, architecture, and 
 test('buildReportGraphData links repos to files and architecture components', () => {
   const graph = buildReportGraphData(
     [{ name: 'app', path: './app' }],
-    [{
-      section: 'architecture',
-      repo: 'app',
-      path: 'architecture.mmd',
-      title: 'Mermaid flowchart',
-      snippet: 'app --> db',
-      stale: false,
-      components: ['app', 'db'],
-      relationships: ['app --> db']
-    }]
+    [
+      {
+        section: 'architecture',
+        repo: 'app',
+        path: 'architecture.mmd',
+        title: 'Mermaid flowchart',
+        snippet: 'app --> db',
+        stale: false,
+        components: ['app', 'db'],
+        relationships: ['app --> db']
+      },
+      {
+        section: 'memory',
+        repo: 'app',
+        path: 'decisions',
+        title: 'app / decisions',
+        snippet: '2 drawers in MemPalace',
+        stale: false,
+        count: 2
+      }
+    ]
   );
 
   assert.ok(graph.nodes.some(node => node.id === 'repo:app' && node.type === 'repo'));
   assert.ok(graph.nodes.some(node => node.id === 'file:app:architecture.mmd' && node.type === 'file'));
   assert.ok(graph.nodes.some(node => node.id === 'component:app' && node.type === 'component'));
+  assert.ok(graph.nodes.some(node => node.id === 'memory-wing:app' && node.type === 'memory-wing'));
+  assert.ok(graph.nodes.some(node => node.id === 'memory-room:app:decisions' && node.type === 'memory-room'));
   assert.ok(graph.edges.some(edge => edge.source === 'repo:app' && edge.target === 'file:app:architecture.mmd' && edge.type === 'contains'));
   assert.ok(graph.edges.some(edge => edge.source === 'file:app:architecture.mmd' && edge.target === 'component:db' && edge.type === 'documents'));
   assert.ok(graph.edges.some(edge => edge.source === 'component:app' && edge.target === 'component:db' && edge.type === 'depends-on'));
+  assert.ok(graph.edges.some(edge => edge.source === 'memory-wing:app' && edge.target === 'memory-room:app:decisions' && edge.type === 'memory-contains'));
+});
+
+test('parseMempalaceStatus extracts wing and room counts into report items', () => {
+  const parsed = parseMempalaceStatus([
+    '=======================================================',
+    '  MemPalace Status — 7 drawers',
+    '=======================================================',
+    '',
+    '  WING: app',
+    '    ROOM: decisions                2 drawers',
+    '    ROOM: auth                     5 drawers',
+    ''
+  ].join('\n'));
+
+  assert.equal(parsed.totalDrawers, 7);
+  assert.deepEqual(parsed.items.map(item => [item.repo, item.path, item.count]), [
+    ['app', 'decisions', 2],
+    ['app', 'auth', 5]
+  ]);
 });
 
 test('openReportCommand picks the platform launcher without shell interpolation', () => {
