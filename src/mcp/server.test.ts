@@ -158,6 +158,90 @@ test('mcp search supports result type filters and returns agent follow-up hints'
   });
 });
 
+test('mcp search excludeSeen skips chunks already returned earlier in the session and still fills up to limit', () => {
+  return withWorkspace(async cwd => {
+    // 8 distinct matching docs so that after the first call consumes 3, at least 3 more remain
+    // for excludeSeen to backfill with -- not just "however many happen to be left over".
+    for (let i = 0; i < 8; i++) {
+      await writeFile(path.join(cwd, 'app', `seen-${i}.md`), `# Seen ${i}\n\ngizmo-topic details ${i}\n`);
+    }
+    await indexWorkspace(cwd);
+
+    await withConnectedClient(cwd, async client => {
+      const first = await client.callTool({ name: 'search', arguments: { query: 'gizmo-topic', limit: 3 } });
+      const firstPayload = firstTextPayload(first as never) as { results: Array<{ id: string }> };
+      assert.equal(firstPayload.results.length, 3);
+
+      const second = await client.callTool({ name: 'search', arguments: { query: 'gizmo-topic', limit: 3, excludeSeen: true } });
+      const secondPayload = firstTextPayload(second as never) as { results: Array<{ id: string }> };
+
+      const firstIds = new Set(firstPayload.results.map(r => r.id));
+      assert.equal(secondPayload.results.length, 3, 'should still fill up to limit from the wider candidate pool');
+      assert.ok(secondPayload.results.every(r => !firstIds.has(r.id)), 'no id from the first call should reappear');
+    });
+  });
+});
+
+test('mcp search without excludeSeen returns the same top results again on a repeat call', () => {
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    await withConnectedClient(cwd, async client => {
+      const first = await client.callTool({ name: 'search', arguments: { query: 'authenticateRequest', limit: 3 } });
+      const second = await client.callTool({ name: 'search', arguments: { query: 'authenticateRequest', limit: 3 } });
+      const firstPayload = firstTextPayload(first as never) as { results: Array<{ id: string }> };
+      const secondPayload = firstTextPayload(second as never) as { results: Array<{ id: string }> };
+      assert.deepEqual(firstPayload.results.map(r => r.id), secondPayload.results.map(r => r.id));
+    });
+  });
+});
+
+test('mcp search maxTokens drops lower-ranked results and reports their ids', () => {
+  return withWorkspace(async cwd => {
+    // Several distinct files matching the same query so search has more than one candidate to
+    // rank and potentially drop, with clearly different sizes so trimming has a visible effect.
+    for (let i = 0; i < 5; i++) {
+      await writeFile(path.join(cwd, 'app', `notes-${i}.md`), `# Notes ${i}\n\nwidget-topic details ${'padding '.repeat(200)}\n`);
+    }
+    await indexWorkspace(cwd);
+
+    await withConnectedClient(cwd, async client => {
+      const unbounded = await client.callTool({ name: 'search', arguments: { query: 'widget-topic', limit: 5 } });
+      const unboundedPayload = firstTextPayload(unbounded as never) as { results: Array<{ id: string }> };
+      assert.ok(unboundedPayload.results.length > 1, 'expected multiple candidates to rank between');
+
+      const bounded = await client.callTool({ name: 'search', arguments: { query: 'widget-topic', limit: 5, maxTokens: 50 } });
+      const boundedPayload = firstTextPayload(bounded as never) as { results: Array<{ id: string }>; droppedIds?: string[] };
+      assert.ok(boundedPayload.results.length < unboundedPayload.results.length, 'a small token budget should drop some results');
+      assert.ok(boundedPayload.droppedIds && boundedPayload.droppedIds.length > 0);
+    });
+  });
+});
+
+test('mcp context_pack maxTokens caps the search section without dropping architecture results', () => {
+  return withWorkspace(async cwd => {
+    for (let i = 0; i < 5; i++) {
+      await writeFile(path.join(cwd, 'app', `notes-${i}.md`), `# Notes ${i}\n\nwidget-topic details ${'padding '.repeat(200)}\n`);
+    }
+    await mkdir(path.join(cwd, 'app', 'docs', 'architecture'), { recursive: true });
+    await writeFile(
+      path.join(cwd, 'app', 'docs', 'architecture', 'widget.md'),
+      '# Widget topic architecture\n\n```mermaid\nflowchart LR\n  A --> B\n```\n'
+    );
+    await indexWorkspace(cwd);
+
+    await withConnectedClient(cwd, async client => {
+      const result = await client.callTool({ name: 'context_pack', arguments: { query: 'widget-topic', limit: 8, maxTokens: 50 } });
+      const payload = firstTextPayload(result as never) as {
+        search: Array<{ id: string }>;
+        architecture: Array<{ id: string }>;
+        droppedSearchIds?: string[];
+      };
+      assert.ok(payload.droppedSearchIds && payload.droppedSearchIds.length > 0);
+      assert.ok(payload.architecture.length > 0, 'architecture results should be unaffected by the search token budget');
+    });
+  });
+});
+
 test('mcp server discovers the parent workspace when launched from inside a configured repo', () => {
   return withWorkspace(cwd =>
     withConnectedClient(path.join(cwd, 'app'), async client => {

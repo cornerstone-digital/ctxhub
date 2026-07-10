@@ -14,6 +14,19 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Config doctor fix mode
 - [x] Search quality dashboard
 - [x] Source-aware context expansion
+- [x] LLM-backed features infrastructure + LLM-backed explain (opt-in, see README's "LLM-backed features")
+- [x] Context compaction (dedup, token-budget trimming, already-seen delta mode, file summaries)
+- [ ] Agent-backed skill/doc test reports
+- [ ] Onboarding orientation narrator
+- [ ] Cross-repo contract-break PR reviewer
+- [ ] Architecture/doc drift repair suggestions
+- [ ] PR/handoff description synthesis
+- [ ] Auto-drafted note/diagram content
+- [ ] Tailored onboarding globs for new repos
+- [ ] Eval golden-query expansion
+- [ ] Standalone `ctxhub ask`
+- [ ] Natural-language query rewriting in front of search
+- [ ] LLM-authored file summaries at index time
 
 ## 1. Cited Explain Command
 
@@ -327,6 +340,338 @@ Acceptance criteria:
 - MCP schema stays backwards compatible. ✓ (`get_file_context` gained an optional `mode` input and an optional `symbol` output field only; existing callers passing the old params get the old-shaped fallback unless a symbol match applies.)
 - Bonus: indexing itself now chunks TS/JS/JSX source by top-level symbol (`chunkSourceCode` in `src/indexing/chunk.ts`) instead of blank-line paragraphs, so `search`/`open_chunk` results for code are already whole functions/classes with `symbol`/`symbolKind` metadata, not arbitrary slices.
 
+## LLM-Backed Feature Backlog
+
+All items below ride on the LLM opt-in infrastructure already built (`src/llm/runAgent.ts`'s
+`runAgentPrompt`/`LLM_AGENTS`/`llmDisabledNotice`, the `llm` config section, and the `llm-features`
+doctor check) and the flagship that proved it end-to-end (LLM-backed `ctxhub explain`). Each one:
+gates its LLM path behind `config.llm.enabled`, always falls back to a non-LLM behavior when
+disabled/unavailable/timed out, and never invents information beyond what it was given. Sequenced
+roughly by validated confidence and value (see `SUBAGENTS_BRAINSTORM.md`'s scorecard), not by file
+order. None of these are built yet.
+
+## 11. Agent-Backed Skill/Doc Test Reports
+
+**Status:** Not started
+
+**Command:** `ctxhub eval --agent-report`
+
+The most validated idea in this backlog — this session repeatedly did a manual version of it
+against the real VF3 workspace and found genuine skill/doc gaps each time.
+
+Developer value:
+
+- Continuous QA on whether agents actually reach for the right ctxhub tool, instead of finding
+  out from a frustrated teammate.
+
+Agent value:
+
+- Skill/doc regressions get caught before they reach a real session, not after.
+
+Implementation notes:
+
+- Extend `src/commands/eval.ts`'s existing `EvalSuite`/`EvalCase` shape (or a sibling suite file)
+  with a set of realistic natural-language questions (not just repo/path expectations).
+- For each question, invoke `runAgentPrompt` with a prompt instructing the configured agent CLI to
+  act as if it were answering the question using ctxhub's skill docs/tools, then have it report
+  which tool(s) it would reach for and why.
+- Compare against an expected tool/approach per question; write findings in the same report format
+  `writeEvalReport`/`renderEvalMarkdown` already produce.
+- Requires `llm.enabled`; without it, `--agent-report` should explain why it's unavailable
+  (`llmDisabledNotice`) rather than silently doing nothing.
+
+Acceptance criteria:
+
+- `ctxhub eval --agent-report` produces a markdown report naming which questions the agent
+  answered with the expected tool vs. not.
+- Falls back with a clear message when `llm.enabled` is false or no agent CLI is available.
+- Report format is consistent with the existing `ctxhub eval --report` dashboard.
+
+## 12. Onboarding Orientation Narrator
+
+**Status:** Not started
+
+**Command:** extend `ctxhub onboard` / new `ctxhub explain --orient`
+
+Highest business-case clarity in this backlog: faster time-to-productivity for a new engineer
+joining a repo or team.
+
+Developer value:
+
+- A new hire gets a synthesized narrative of architecture, ownership, and recent activity instead
+  of a list of commands to run themselves.
+
+Agent value:
+
+- Gives an agent a ready-made "here's what this workspace is" briefing to hand a new session.
+
+Implementation notes:
+
+- Runs after `src/tui/onboardFlow.ts`'s existing steps complete (repos discovered, index built).
+- Build a prompt from `createContextPack`'s repo list, architecture results, and recent
+  `ctxhub graph` output; ask the configured agent CLI to narrate what this workspace is and how
+  it fits together, citing repos/files it actually saw.
+- Requires `llm.enabled`; without it, ends with today's plain "onboarding complete" summary.
+
+Acceptance criteria:
+
+- Narrative cites real repos/architecture results, never invents ones that don't exist.
+- Onboarding completes successfully with the existing plain summary when LLM synthesis is off.
+
+## 13. Cross-Repo Contract-Break PR Reviewer
+
+**Status:** Not started
+
+**Command:** extend `ctxhub pr-context`
+
+Developer value:
+
+- Flags a breaking change's blast radius across sibling repos before it ships, not after an
+  incident.
+
+Agent value:
+
+- Turns "here are the changed files" into "here's who this might break."
+
+Implementation notes:
+
+- `src/commands/prContext.ts`'s `prContextCommand` already gathers changed files vs. a git base
+  and a context pack; feed the diff + context pack to `runAgentPrompt`, asking it to name likely
+  downstream consumers (via `architecture_map`/`search` results) and specific contract risks.
+- Requires `llm.enabled`; falls back to today's plain changed-files/context-pack output.
+
+Acceptance criteria:
+
+- Only flags consumers actually found via ctxhub's index, never invented ones.
+- `--json` output includes the flagged risks as structured data, not just prose.
+
+## 14. Architecture/Doc Drift Repair Suggestions
+
+**Status:** Not started
+
+**Command:** extend `ctxhub graph --drift`
+
+Developer value:
+
+- Architecture diagrams stay accurate without someone manually noticing they've gone stale.
+
+Agent value:
+
+- Turns a drift warning into an actionable suggested fix instead of just a flag.
+
+Implementation notes:
+
+- `ctxhub graph --drift` already detects diagrams/docs that no longer match repo reality; for each
+  finding, feed the drifted diagram plus current code to `runAgentPrompt` and ask for a suggested
+  diff, output via the existing `ctxhub diagram add` scaffolding conventions.
+- Never auto-applies — always a suggestion for human/agent review.
+- Requires `llm.enabled`; without it, `--drift` behaves exactly as it does today.
+
+Acceptance criteria:
+
+- Suggested diffs are diffs against the real current diagram content, not full rewrites.
+- `--fail-on-drift` (CI) behavior is unaffected — this only adds a suggestion, never blocks.
+
+## 15. PR/Handoff Description Synthesis
+
+**Status:** Not started
+
+**Command:** extend `ctxhub handoff` / `ctxhub pr-context`
+
+Developer value:
+
+- Saves real per-PR time and produces more consistent description quality across a team.
+
+Agent value:
+
+- Gives agents a drafted description to review/edit instead of writing one from scratch each time.
+
+Implementation notes:
+
+- Both `src/commands/handoff.ts` and `src/commands/prContext.ts` already assemble the raw
+  material (diff, context pack, changed files) via template string concatenation; add an LLM path
+  that feeds the same material to `runAgentPrompt` for a synthesized description, output alongside
+  (not instead of) the existing structured sections.
+- Requires `llm.enabled`; falls back to today's templated bundle.
+
+Acceptance criteria:
+
+- Synthesized description cites only files/evidence already present in the bundle.
+- `--json` output includes the synthesized text as an additional field, not a replacement.
+
+## 16. Auto-Drafted Note/Diagram Content
+
+**Status:** Not started
+
+**Command:** extend `ctxhub note add` / `ctxhub diagram add`
+
+Developer value:
+
+- Lowers the activation energy for actually writing team docs/diagrams — today's blank-template
+  step is a real reason they don't get written at all.
+
+Agent value:
+
+- Gives an agent a real first draft to refine instead of an empty scaffold to fill from scratch.
+
+Implementation notes:
+
+- `src/commands/note.ts`/`src/commands/diagram.ts` currently write a fixed placeholder template
+  (confirmed: no generation today). Add an opt-in `--draft` flag that feeds recent commits/the
+  relevant context pack to `runAgentPrompt` and writes its output into the scaffolded file instead
+  of the placeholder comment.
+- Requires `llm.enabled`; without it (or without `--draft`), behavior is unchanged.
+
+Acceptance criteria:
+
+- Drafted content is clearly marked as AI-drafted pending human review (front-matter or comment).
+- Falls back to today's exact empty template when disabled or `--draft` isn't passed.
+
+## 17. Tailored Onboarding Globs for New Repos
+
+**Status:** Not started
+
+**Command:** extend `ctxhub repo discover` / `ctxhub repo add`
+
+Developer value:
+
+- Better search/index quality in a newly added repo from day one, instead of the generic default
+  `knowledge.include/exclude` globs.
+
+Agent value:
+
+- Less manual glob-tuning before a new repo's docs/code are actually well-indexed.
+
+Implementation notes:
+
+- After a repo is added, optionally explore its structure (file listing, package manifests) and
+  feed a summary to `runAgentPrompt`, asking for suggested `include`/`exclude` globs tailored to
+  that repo's layout; present as a suggested config diff, never auto-applied.
+- Requires `llm.enabled`; without it, the generic default globs apply as they do today.
+
+Acceptance criteria:
+
+- Suggested globs are shown as a diff to `ctxhub.yaml`, not written automatically.
+- Falls back cleanly to today's default-glob behavior when disabled.
+
+## 18. Eval Golden-Query Expansion
+
+**Status:** Not started
+
+**Command:** extend `ctxhub eval`
+
+Developer value:
+
+- Keeps the search-quality dashboard meaningful as a workspace evolves, instead of slowly going
+  stale because nobody had time to add new golden queries by hand.
+
+Agent value:
+
+- More representative eval coverage means more predictable retrieval behavior over time.
+
+Implementation notes:
+
+- `src/commands/eval.ts`'s `EvalSuite` (`.ctxhub/cache/eval.json`) is manually curated today. Add
+  `ctxhub eval --suggest-queries`, feeding recent search activity or repo content to
+  `runAgentPrompt` for candidate golden queries + expected repo/path, appended to the suite for
+  human review before being trusted.
+- Requires `llm.enabled`; without it, the suite stays exactly as manually curated today.
+
+Acceptance criteria:
+
+- Suggested cases are appended, never silently replacing existing curated cases.
+- Each suggested case includes its rationale so a human can quickly accept/reject it.
+
+## 19. Standalone `ctxhub ask`
+
+**Status:** Not started
+
+**Command:** `ctxhub ask "<question>"`
+
+Developer value:
+
+- Makes ctxhub useful to a developer with no agent harness open at all, not just as an MCP backend
+  for one.
+
+Agent value:
+
+- N/A (this is specifically for developers without an agent session running).
+
+Implementation notes:
+
+- Thin wrapper: `createContextPack` + `runAgentPrompt` in one command, same LLM/fallback pattern
+  as `ctxhub explain` (in fact, likely built directly on `createExplainResult`).
+- Requires `llm.enabled`; without it, suggest running `ctxhub explain`/`ctxhub pack` instead via
+  `llmDisabledNotice`, since there's no non-LLM "ask" scaffold that makes sense standalone.
+
+Acceptance criteria:
+
+- `ctxhub ask "<question>"` answers grounded in ctxhub's index only, with citations.
+- Clear, actionable message when `llm.enabled` is false (this command has no fallback mode).
+
+## 20. Natural-Language Query Rewriting in Front of `search`
+
+**Status:** Not started
+
+**MCP/CLI:** extend `search` / `ctxhub search`
+
+Developer value:
+
+- Modest per-query quality bump for less experienced users who haven't learned how to phrase a
+  good ctxhub query yet.
+
+Agent value:
+
+- Marginal — most agents already phrase reasonably well-scoped queries.
+
+Implementation notes:
+
+- Optional pre-pass: feed the raw query to `runAgentPrompt`, asking for a better-scoped
+  query + facet (`type`) before running the real `search`; only apply if the rewrite is
+  meaningfully different, and always show the original alongside the rewritten one so the caller
+  isn't confused about what actually ran.
+- Requires `llm.enabled`; without it, the query runs exactly as typed, as today.
+
+Acceptance criteria:
+
+- Response includes both the original and rewritten query when a rewrite happened.
+- Never silently changes results without surfacing that a rewrite occurred.
+
+## 21. LLM-Authored File Summaries at Index Time
+
+**Status:** Not started
+
+**Indexing:** extend `buildFileSummaryChunk` (`src/indexing/chunk.ts`)
+
+The LLM-backed half of the file-summary feature already shipped in its non-LLM form (heading/
+symbol-name list). This is the richer follow-up.
+
+Developer value:
+
+- A genuinely readable one-paragraph summary of a large file instead of just its heading/symbol
+  list.
+
+Agent value:
+
+- Faster orientation on large, heavily-chunked files without opening every chunk.
+
+Implementation notes:
+
+- At index time, when `buildFileSummaryChunk` would otherwise produce a heading-list summary,
+  optionally feed the full file content to `runAgentPrompt` for a real prose summary instead —
+  same cost/risk profile as every other LLM-backed feature here, so it should be gated by
+  `llm.enabled` and only attempted for files above some size threshold (indexing every small file
+  through an agent CLI would be slow and wasteful).
+- Requires `llm.enabled`; falls back to the existing non-LLM heading/symbol-list summary.
+- Indexing already runs one file at a time in `src/indexing/indexer.ts`'s loop, so this is a
+  natural, already-sequential integration point — no new concurrency handling needed.
+
+Acceptance criteria:
+
+- Summary content is grounded in the actual file, no invented capabilities.
+- Falls back to the non-LLM summary when disabled, unavailable, or the call fails/times out.
+- Indexing a large workspace with `llm.enabled: false` (the default) is exactly as fast as today.
+
 ## Suggested Order
 
 1. CI workflow templates
@@ -341,3 +686,5 @@ Acceptance criteria:
 10. Source-aware context expansion
 
 The first four strengthen trust in the index and architecture docs. The next three make ctxhub more useful in daily agent workflows. The final three are larger polish/maturity pieces.
+
+The LLM-backed backlog (11-21) is sequenced separately above by validated confidence, not mixed into this list — see `SUBAGENTS_BRAINSTORM.md` for the full scorecard and reasoning.

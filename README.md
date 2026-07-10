@@ -143,7 +143,31 @@ privacy:
   redactPatterns:
     - "(api[_-]?key|token|secret|password)\\s*[:=]\\s*[^\\s]+"
     - "AKIA[0-9A-Z]{16}"
+llm:
+  enabled: false
+  timeoutMs: 120000
 ```
+
+## LLM-backed features
+
+Most of ctxhub is a read-only search/index/context server with no LLM calls of its own. A small, growing set of features are the exception — they shell out to whichever coding-agent CLI your workspace already has configured (`claude`, `codex`, `copilot`, or `cursor`) to run one bounded, non-interactive task, then use its output. These are **off by default** and opt-in at the config level:
+
+```yaml
+llm:
+  enabled: false   # set true to turn on every LLM-backed feature below
+  agent: claude    # optional -- which CLI to use. Auto-detects claude/codex/copilot/cursor on PATH if unset
+  timeoutMs: 120000
+```
+
+Turning it on is worth it: `ctxhub explain` goes from a templated evidence listing to a real, synthesized, cited answer to your actual question — the same evidence, read for you instead of by you.
+
+Today, `llm.enabled` gates:
+
+- **`ctxhub explain <query>`** — synthesizes a cited answer from retrieved evidence via your configured agent CLI, instead of the non-LLM evidence scaffold. Never invents a citation — it's instructed to cite only the evidence it was given, and falls back to the scaffold if the LLM call is disabled, unavailable, or times out. Override per-invocation with `--llm`/`--no-llm` regardless of the config default.
+
+If a command's LLM path is unavailable (disabled, no agent CLI found, timed out), it always falls back to its non-LLM behavior and explains why in the output — it never just silently does less. `ctxhub doctor` reports whether LLM-backed features are enabled, which agent is configured/detected, and whether that agent's CLI is actually reachable on PATH.
+
+More LLM-backed features (PR/handoff description synthesis, drift-repair suggestions, and others) are scoped in [NEXT_FEATURES.md](./NEXT_FEATURES.md) and will land behind this same flag.
 
 ## Guided mode
 
@@ -184,7 +208,7 @@ ctxhub eval --json            # CI-friendly eval payload
 - `ctxhub sync [--no-pull]`: pull configured repos and re-index changed files. In a real terminal it shows separate pull and index progress; `--no-pull` skips the Git pull phase and `--plain` forces plain progress output.
 - `ctxhub search [query]`: search the LanceDB project index. Use `--type all|docs|code|architecture|notes`, or shortcuts like `--code` and `--docs`, when you know what kind of evidence you want. In a real terminal it opens live search by default, seeded with the query when provided — type to search-as-you-type, tab cycles result-type facets, arrow keys move, enter views the full chunk, esc goes back/quits. Use `ctxhub search --plain "<query>"` for one-shot output.
 - `ctxhub pack <query>`: assemble an agent-ready context pack with search hits, architecture hits, freshness, status, repos, result-type counts, local `rg` follow-up suggestions, and suggested reading order. Add `--out <file>` to save a portable replay artifact.
-- `ctxhub explain <query>`: create a citation-first explanation scaffold from indexed context without inventing uncited claims.
+- `ctxhub explain <query>`: create a citation-first explanation from indexed context without inventing uncited claims — a real LLM-synthesized answer when `llm.enabled` (see [LLM-backed features](#llm-backed-features)), otherwise a non-LLM evidence scaffold. `--llm`/`--no-llm` override the config default for one call.
 - `ctxhub replay <file>`: replay an exported context pack artifact and compare recorded repo HEADs against the current workspace.
 - `ctxhub open <id>`: print a full indexed chunk returned by search or a context pack.
 - `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch.

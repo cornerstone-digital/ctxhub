@@ -83,6 +83,29 @@ test('doctorCommand flags an outdated installed agent MCP config and stays quiet
   });
 });
 
+test('doctorCommand advertises the LLM-backed features flag as ok when disabled, not as a problem', () => {
+  return withWorkspace(async () => {
+    const lines = await captureDoctorOutput();
+    assert.ok(lines.some(line => line.includes('LLM-backed features disabled (opt-in)')));
+  });
+});
+
+test('doctorCommand warns when llm.enabled but the explicitly configured agent is not on PATH', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    config.llm.agent = 'definitely-not-a-real-agent-cli-xyz' as never;
+    await saveConfig(config, cwd);
+
+    const lines = await captureDoctorOutput();
+    assert.ok(
+      lines.some(line =>
+        line.includes('LLM-backed features enabled, but configured agent "definitely-not-a-real-agent-cli-xyz" was not found on PATH')
+      )
+    );
+  });
+});
+
 test('doctorCommand --fix --dry-run reports intended changes without writing anything', () => {
   return withWorkspace(async cwd => {
     await rm(path.join(cwd, CACHE_DIR), { recursive: true, force: true });

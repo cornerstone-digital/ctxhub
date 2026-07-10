@@ -11,7 +11,7 @@ import { indexWorkspace } from '../indexing/indexer.js';
 import { pullRepo } from '../git/git.js';
 import { getPackageVersion } from '../utils/version.js';
 import { checkServerStaleness } from '../utils/serverStatus.js';
-import { estimateTokens } from '../utils/tokenEstimate.js';
+import { estimateTokens, trimToTokenBudget } from '../utils/tokenEstimate.js';
 import { estimateBaselineTokensFromFileSizes, readUsageStats, recordToolUsage, summarizeUsageStats } from '../utils/usageStats.js';
 import { SEARCH_FACETS, classifyResult, filterResults, localRgHints, normalizeSearchFacet } from '../context/searchFacets.js';
 import { compactEncode } from './compact.js';
@@ -42,6 +42,12 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
   const server = new McpServer({ name: 'ctxhub', version: getPackageVersion() });
   const startedAt = opts.startedAt ?? Date.now();
 
+  // Tracks chunk ids already returned by `search` on this running process, backing
+  // `excludeSeen` so overlapping/repeat queries in one long session don't re-ship the same
+  // content. Deliberately in-memory only -- it only needs to survive one server process, not
+  // across restarts, so there's no need for MemPalace/disk persistence here.
+  const seenChunkIds = new Set<string>();
+
   server.registerTool(
     'server_status',
     {
@@ -66,20 +72,33 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
         'which repo owns a capability, cross-repo integration behavior, or past decisions — anywhere the ' +
         'answer might live outside the current repo. Use type="code" for exact implementation/symbol lookup, ' +
         'type="docs" for README/decision docs, type="architecture" for Mermaid diagrams, and type="notes" for team notes. ' +
-        'Returns ranked chunks with repo, path, type, heading, snippet, commit, and local rg follow-up hints.',
+        'Returns ranked chunks with repo, path, type, heading, snippet, commit, and local rg follow-up hints. ' +
+        'Optional maxTokens caps total response size by token budget rather than item count alone. Optional ' +
+        'excludeSeen skips chunks this same connection already returned earlier in the session, so overlapping ' +
+        'follow-up queries do not re-ship content already in your context.',
       inputSchema: {
         query: z.string().describe('Search query'),
         limit: z.number().int().positive().max(50).optional().describe('Max results (default 5)'),
-        type: z.enum(SEARCH_FACETS).optional().describe('Optional result type filter: all, docs, code, architecture, notes')
+        type: z.enum(SEARCH_FACETS).optional().describe('Optional result type filter: all, docs, code, architecture, notes'),
+        maxTokens: z.number().int().positive().optional().describe('Optional token budget; lower-ranked results are dropped (by id) to fit'),
+        excludeSeen: z.boolean().optional().describe('Skip chunks already returned by search earlier in this session (default false)')
       }
     },
-    async ({ query, limit, type }) => {
+    async ({ query, limit, type, maxTokens, excludeSeen }) => {
       const { config, workspaceRoot } = await workspace(cwd);
       const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
       const facet = normalizeSearchFacet(type);
       const maxResults = limit ?? 5;
-      const candidates = await index.search(query, facet === 'all' ? maxResults : Math.max(maxResults * 5, 25));
-      const results = filterResults(candidates, facet).slice(0, maxResults);
+      // Facet 'all' normally doesn't need a wider candidate pool since nothing gets filtered out
+      // afterward -- but excludeSeen filters the pool too, so it needs headroom beyond maxResults
+      // even here, or there's nothing left to backfill with once already-seen ids are skipped.
+      const candidatePoolSize = facet === 'all' && !excludeSeen ? maxResults : Math.max(maxResults * 5, 25);
+      const candidates = await index.search(query, candidatePoolSize);
+      const facetFiltered = filterResults(candidates, facet);
+      const unseen = excludeSeen ? facetFiltered.filter(result => !seenChunkIds.has(result.id)) : facetFiltered;
+      const filtered = unseen.slice(0, maxResults);
+      const { kept: results, droppedIds } = maxTokens !== undefined ? trimToTokenBudget(filtered, maxTokens) : { kept: filtered, droppedIds: [] as string[] };
+      for (const result of results) seenChunkIds.add(result.id);
       const payload = {
         query,
         type: facet,
@@ -90,7 +109,8 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
           'Use ctxhub to orient across repos and identify likely files.',
           'For exact method bodies or edits, follow up with get_file_context or local rg in the target repo.',
           'For architecture/topology questions, prefer type="architecture" or architecture_search.'
-        ]
+        ],
+        ...(droppedIds.length ? { droppedIds } : {})
       };
       await recordUsage(workspaceRoot, 'search', payload, results.map(result => result.absolutePath));
       return textResult(payload);
@@ -101,14 +121,17 @@ export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: 
     'context_pack',
     {
       title: 'Assemble context pack',
-      description: 'Create an agent-ready bundle for a question: search hits, architecture hits, freshness, repos, status, and suggested reading order.',
+      description:
+        'Create an agent-ready bundle for a question: search hits, architecture hits, freshness, repos, status, and ' +
+        'suggested reading order. Optional maxTokens caps the search section by token budget rather than item count alone.',
       inputSchema: {
         query: z.string().describe('Question or topic'),
-        limit: z.number().int().positive().max(50).optional().describe('Max results (default 8)')
+        limit: z.number().int().positive().max(50).optional().describe('Max results (default 8)'),
+        maxTokens: z.number().int().positive().optional().describe('Optional token budget for the search section; lower-ranked results are dropped (by id) to fit')
       }
     },
-    async ({ query, limit }) => {
-      const pack = await createContextPack(query, limit ?? 8, cwd);
+    async ({ query, limit, maxTokens }) => {
+      const pack = await createContextPack(query, limit ?? 8, cwd, { maxTokens });
       const { workspaceRoot } = await workspace(cwd);
       await recordUsage(workspaceRoot, 'context_pack', pack, [...pack.search, ...pack.architecture].map(result => result.absolutePath));
       return textResult(pack);

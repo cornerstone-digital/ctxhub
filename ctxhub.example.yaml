@@ -30,3 +30,8 @@ privacy:
   redactPatterns:
     - "(api[_-]?key|token|secret|password)\\s*[:=]\\s*[^\\s]+"
     - "AKIA[0-9A-Z]{16}"
+# Opt-in: off by default. See "LLM-backed features" in README.md.
+llm:
+  enabled: false
+  # agent: claude   # optional -- auto-detects claude/codex/copilot/cursor on PATH if unset
+  timeoutMs: 120000

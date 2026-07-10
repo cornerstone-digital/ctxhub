@@ -7,7 +7,7 @@ import { createIndexProvider } from './providers.js';
 import { pathExists, readText } from '../utils/fs.js';
 import { sha256 } from '../utils/hash.js';
 import { getCurrentCommit } from '../git/git.js';
-import { chunkDocument, extractTitle } from './chunk.js';
+import { buildFileSummaryChunk, chunkDocument, extractTitle } from './chunk.js';
 import { redactContent } from './redact.js';
 
 export type IndexResult = {
@@ -101,7 +101,11 @@ export async function indexWorkspace(
 
       const title = extractTitle(redaction.content);
       const parts = chunkDocument(filePath, redaction.content, config.index.chunkSize);
-      const chunks: IndexedChunk[] = parts.map((part, i) => ({
+      const summaryChunk = buildFileSummaryChunk(filePath, title, parts);
+      // Appended, not prepended -- keeps every existing chunk's index (and therefore its
+      // deterministic id) unchanged when this feature is added to an already-indexed file.
+      const allParts = summaryChunk ? [...parts, summaryChunk] : parts;
+      const chunks: IndexedChunk[] = allParts.map((part, i) => ({
         id: sha256(`${repo.name}:${filePath}:${hash}:${i}`),
         workspace: config.workspace.name,
         repo: repo.name,

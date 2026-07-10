@@ -87,3 +87,33 @@ test('createContextPack still caps architecture results at the requested limit',
     assert.ok(pack.architecture.length <= 2);
   });
 });
+
+test('createContextPack does not duplicate a chunk that matches both the search and architecture sub-queries', () => {
+  return withWorkspace(async cwd => {
+    const repoPath = path.join(cwd, 'gateway');
+    await mkdir(path.join(repoPath, 'docs', 'architecture'), { recursive: true });
+    // Strong lexical match for the main query below ("gateway routing") AND a Mermaid diagram,
+    // so it's a legitimate candidate for both the search and architecture sub-queries.
+    await writeFile(
+      path.join(repoPath, 'docs', 'architecture', 'routing.md'),
+      ['# Gateway routing', '', 'Explains gateway routing behavior.', '', '```mermaid', 'flowchart LR', '  CLIENT --> GATEWAY --> SERVICE', '```', ''].join('\n')
+    );
+
+    const config = await loadConfig(cwd);
+    config.repositories.push({ name: 'gateway', path: './gateway', git: false });
+    config.index.provider = 'local-json';
+    config.index.path = '.ctxhub/index/local.json';
+    await saveConfig(config, cwd);
+
+    await indexWorkspace(cwd);
+
+    const pack = await createContextPack('gateway routing', 5, cwd);
+    assert.ok(pack.architecture.length > 0, 'expected the diagram to surface in architecture results');
+
+    const architectureIds = new Set(pack.architecture.map(result => result.id));
+    assert.ok(
+      pack.search.every(result => !architectureIds.has(result.id)),
+      'the same chunk should not also appear in search once it is already in architecture'
+    );
+  });
+});

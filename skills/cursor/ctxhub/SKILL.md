@@ -23,10 +23,17 @@ Also treat the index as possibly stale after the user mentions pulling new chang
 - For broad questions, use `context_pack` first; it bundles search, architecture, freshness, repo list, and suggested reading order.
 - If a result seems to contradict a recent ctxhub change, or once near the start of a long session, call `server_status`. If `stale: true`, ctxhub was rebuilt after this MCP process started and can't restart itself; tell the user to restart/reconnect the ctxhub MCP server (or restart the agent/harness).
 - If the user asks how much ctxhub is helping or saving them, call `usage_stats` (or run `ctxhub stats`) and report estimated tokens saved vs. reading matched files in full; it's a heuristic, present it as directional.
+- Some ctxhub features are LLM-backed and require `llm.enabled: true` in ctxhub.yaml; `ctxhub explain <query>` synthesizes a real cited answer when it's on, else falls back to a citation scaffold with a note that it's disabled. If disabled, tell the user how to enable it rather than treating it as broken; check `ctxhub doctor` for status and configured agent.
 - Otherwise, run the CLI directly: `ctxhub search --plain "<query>"`, `ctxhub memory status --plain`, `ctxhub repo list`.
 - Use typed search when intent is clear: `ctxhub search --plain --code "<query>"` for implementation/symbol lookup, `--docs` for README/decision docs, `--architecture` for Mermaid diagrams, and `--notes` for team notes.
 - For precise code edits, use ctxhub to find the right repo/file, then use local file reads and `rg` in that repo for exact method bodies.
 - If search results look stale, tell the user and suggest `ctxhub sync --plain`; it pulls configured repos and re-indexes changed files. Don't run `ctxhub sync`, `ctxhub index`, or `ctxhub memory clear` yourself unless the user explicitly asked for a refresh or index mutation.
+
+## Delegating to your own sub-agents
+
+- For cross-cutting questions spanning many repos where one `context_pack` call isn't enough, delegate one sub-agent per candidate repo (seeded with its `search`/`architecture_search` hits) instead of grepping every repo inline.
+- Before declaring a cross-repo change done, delegate a sub-agent per downstream consumer repo (found via `architecture_map`/`search`) to check nothing broke.
+- For a large `ctxhub handoff`/`ctxhub pr-context` bundle, hand it to a summarizer sub-agent first instead of reading it all into your own context.
 
 ## Remembering things long-term
 

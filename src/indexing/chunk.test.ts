@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildFileSummaryChunk,
   chunkDocument,
   chunkMarkdown,
   chunkPlainText,
@@ -14,6 +15,33 @@ import {
 test('extractTitle finds the first H1', () => {
   assert.equal(extractTitle('# Hello World\n\nBody text.'), 'Hello World');
   assert.equal(extractTitle('No heading here.'), undefined);
+});
+
+test('buildFileSummaryChunk lists every sub-chunk heading for a multi-section markdown file', () => {
+  const parts = chunkMarkdown('# Guide\n\n## Install\n\ntext\n\n## Usage\n\ntext', 1800);
+  const summary = buildFileSummaryChunk('docs/guide.md', 'Guide', parts);
+  assert.equal(summary?.kind, 'file-summary');
+  assert.match(summary?.content ?? '', /Install/);
+  assert.match(summary?.content ?? '', /Usage/);
+});
+
+test('buildFileSummaryChunk lists symbol names for a multi-function source file (same heading field, no special-casing)', () => {
+  const parts = chunkSourceCode('function alpha() {}\n\nfunction beta() {}\n', 1800);
+  const summary = buildFileSummaryChunk('src/thing.ts', undefined, parts);
+  assert.match(summary?.content ?? '', /alpha/);
+  assert.match(summary?.content ?? '', /beta/);
+});
+
+test('buildFileSummaryChunk returns undefined for a single-chunk file -- no summary needed when the file is already compact', () => {
+  const parts = chunkPlainText('just one short paragraph', 1800);
+  assert.equal(parts.length, 1);
+  assert.equal(buildFileSummaryChunk('README.md', undefined, parts), undefined);
+});
+
+test('buildFileSummaryChunk returns undefined when no sub-chunk has a heading to summarize', () => {
+  const parts = chunkPlainText('paragraph one\n\n' + 'x'.repeat(2000), 1800);
+  assert.ok(parts.length > 1);
+  assert.equal(buildFileSummaryChunk('notes.txt', undefined, parts), undefined);
 });
 
 test('chunkMarkdown splits on headings and keeps heading metadata', () => {

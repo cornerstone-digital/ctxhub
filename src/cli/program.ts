@@ -148,7 +148,9 @@ export function buildProgram(): Command {
     .argument('<query>', 'Question or topic to explain from indexed evidence')
     .option('-l, --limit <limit>', 'Max context results', '8')
     .option('--json', 'Print JSON')
-    .description('Create a citation-first explanation scaffold from indexed context')
+    .option('--llm', 'Force LLM-backed answer synthesis for this call, even if disabled in config')
+    .option('--no-llm', 'Force the non-LLM evidence scaffold for this call, even if enabled in config')
+    .description('Create a citation-first explanation from indexed context, LLM-synthesized when llm.enabled')
     .action(explainCommand);
 
   program

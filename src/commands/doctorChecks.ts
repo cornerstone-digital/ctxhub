@@ -8,6 +8,7 @@ import { getCurrentCommit, isGitInstalled, isGitRepo } from '../git/git.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { detectDrift } from '../utils/drift.js';
+import { detectAvailableAgent, isAgentCliAvailable } from '../llm/runAgent.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'error';
 export type CheckLine = { status: CheckStatus; message: string };
@@ -23,7 +24,8 @@ export const CHECK_LABELS: Record<string, string> = {
   'index-provider': 'Index provider',
   'memory-provider': 'Memory provider',
   repos: 'Repositories',
-  drift: 'Installed skills & agent configs'
+  drift: 'Installed skills & agent configs',
+  'llm-features': 'LLM-backed features'
 };
 
 // Order matches the original sequential doctorCommand implementation exactly, so the
@@ -165,6 +167,37 @@ export function buildDoctorChecks(config: CtxhubConfig, configPath: string, work
           );
         }
         return lines;
+      }
+    },
+    {
+      id: 'llm-features',
+      run: async () => {
+        if (!config.llm.enabled) {
+          return [
+            {
+              status: 'ok',
+              message:
+                'LLM-backed features disabled (opt-in) -- enable `llm.enabled` for AI-drafted PR descriptions, ' +
+                'drift-repair suggestions, and more. See README.'
+            }
+          ];
+        }
+
+        if (config.llm.agent) {
+          const available = await isAgentCliAvailable(config.llm.agent);
+          return [
+            available
+              ? { status: 'ok', message: `LLM-backed features enabled, using configured agent: ${config.llm.agent}` }
+              : { status: 'warn', message: `LLM-backed features enabled, but configured agent "${config.llm.agent}" was not found on PATH.` }
+          ];
+        }
+
+        const detected = await detectAvailableAgent();
+        return [
+          detected
+            ? { status: 'ok', message: `LLM-backed features enabled, auto-detected agent: ${detected}` }
+            : { status: 'warn', message: 'LLM-backed features enabled, but no supported agent CLI was found on PATH.' }
+        ];
       }
     }
   ];

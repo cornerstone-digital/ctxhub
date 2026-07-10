@@ -2,7 +2,7 @@ import { isSourceFile, topLevelSymbols, type SymbolKind } from '../context/symbo
 
 export type TextChunk = {
   heading?: string;
-  kind?: 'document' | 'architecture-diagram';
+  kind?: 'document' | 'architecture-diagram' | 'file-summary';
   diagramType?: string;
   components?: string[];
   relationships?: string[];
@@ -106,6 +106,25 @@ export function chunkPlainText(content: string, maxChars: number): TextChunk[] {
 export function extractTitle(content: string): string | undefined {
   const match = content.match(/^#\s+(.+)$/m);
   return match?.[1]?.trim();
+}
+
+// A cheap, non-LLM orientation aid for files that chunk into several pieces: one extra chunk
+// listing the file's title plus every sub-chunk heading -- section headings for docs, symbol
+// names for source (chunkSourceCode already sets `heading` to the symbol name), so the same
+// logic covers both without needing to special-case source vs. markdown. Skipped for
+// single-chunk files, since the whole file is already as compact as the summary would be.
+export function buildFileSummaryChunk(filePath: string, title: string | undefined, parts: TextChunk[]): TextChunk | undefined {
+  if (parts.length <= 1) return undefined;
+
+  const headings = [...new Set(parts.map(part => part.heading).filter((heading): heading is string => Boolean(heading)))];
+  if (!headings.length) return undefined;
+
+  const name = title ?? filePath;
+  return {
+    kind: 'file-summary',
+    heading: `Summary: ${name}`,
+    content: [`File summary: ${name}`, `Contains: ${headings.join(', ')}`].join('\n')
+  };
 }
 
 export function extractMermaidBlocks(content: string): string[] {

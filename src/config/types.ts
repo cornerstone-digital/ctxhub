@@ -34,10 +34,16 @@ export type CtxhubConfig = {
   privacy: {
     redactPatterns: string[];
   };
+  llm: {
+    enabled: boolean;
+    agent?: LlmAgentName;
+    timeoutMs: number;
+  };
 };
 
 export type IndexProviderName = 'local-json' | 'lancedb';
 export type MemoryProviderName = 'local-json' | 'mempalace';
+export type LlmAgentName = 'claude' | 'codex' | 'copilot' | 'cursor';
 
 export type IndexedDocument = {
   id: string;
@@ -45,7 +51,7 @@ export type IndexedDocument = {
   repo: string;
   filePath: string;
   absolutePath: string;
-  kind?: 'document' | 'architecture-diagram';
+  kind?: 'document' | 'architecture-diagram' | 'file-summary';
   diagramType?: string;
   components?: string[];
   relationships?: string[];

@@ -59,6 +59,7 @@ function mergeConfig(parsed: Partial<CtxhubConfig>): CtxhubConfig {
     index: { ...defaultConfig.index, ...parsed.index },
     hooks: { ...defaultConfig.hooks, ...parsed.hooks },
     privacy: { ...defaultConfig.privacy, ...parsed.privacy },
+    llm: { ...defaultConfig.llm, ...parsed.llm },
     repositories: parsed.repositories ?? []
   };
 }

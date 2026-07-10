@@ -37,5 +37,9 @@ export const defaultConfig: CtxhubConfig = {
       'AKIA[0-9A-Z]{16}',
       '-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----'
     ]
+  },
+  llm: {
+    enabled: false,
+    timeoutMs: 120_000
   }
 };
