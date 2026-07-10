@@ -44,6 +44,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   search: 'Search & Context',
   pack: 'Search & Context',
   explain: 'Search & Context',
+  ask: 'Search & Context',
   replay: 'Search & Context',
   open: 'Search & Context',
   'pr-context': 'Search & Context',

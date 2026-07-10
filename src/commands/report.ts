@@ -5,7 +5,8 @@ import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { attachFreshness } from '../context/freshness.js';
 import { writeText } from '../utils/fs.js';
-import type { CtxhubConfig, SearchResult } from '../config/types.js';
+import type { SearchResult } from '../config/types.js';
+import { readMempalaceStatusSummary, type MempalaceStatusSummary } from '../memory/mempalaceCli.js';
 
 const RECENT_LIMIT = 40;
 
@@ -44,7 +45,7 @@ type ReportGraph = {
   edges: ReportGraphEdge[];
 };
 
-type ReportMemorySummary = {
+type ReportMempalaceSummary = {
   available: boolean;
   note?: string;
   totalDrawers?: number;
@@ -528,73 +529,18 @@ function isNoiseToken(token: string): boolean {
   return ['flowchart', 'graph', 'sequenceDiagram', 'classDiagram', 'LR', 'TD', 'TB', 'BT', 'RL'].includes(token);
 }
 
-export async function readMempalaceSummary(config: CtxhubConfig): Promise<ReportMemorySummary> {
-  if (config.memory.provider !== 'mempalace') {
-    return { available: false, note: 'disabled (memory.provider is not mempalace)', items: [] };
-  }
-
-  const result = await runCli('mempalace', ['status']);
-  const combined = `${result.stdout}\n${result.stderr}`.trim();
-
-  if (combined.includes('No palace found')) {
-    return { available: false, note: 'no palace found; run mempalace init <dir> then mempalace mine <dir>', items: [] };
-  }
-
-  if (result.exitCode !== 0) {
-    return { available: false, note: `status unavailable (exit ${result.exitCode})`, items: [] };
-  }
-
-  const parsed = parseMempalaceStatus(combined);
+export async function readMempalaceSummary(config: Parameters<typeof readMempalaceStatusSummary>[0], workspaceRoot = process.cwd()): Promise<ReportMempalaceSummary> {
+  const summary = await readMempalaceStatusSummary(config, workspaceRoot);
   return {
-    available: true,
-    totalDrawers: parsed.totalDrawers,
-    note: `${parsed.totalDrawers ?? 0} drawers across ${parsed.items.length} room(s)`,
-    items: parsed.items
+    ...summary,
+    items: summary.items.map(item => ({
+      section: 'memory',
+      repo: item.wing,
+      path: item.room,
+      title: `${item.wing} / ${item.room}`,
+      snippet: `${item.count} drawer${item.count === 1 ? '' : 's'} in MemPalace`,
+      stale: false,
+      count: item.count
+    }))
   };
-}
-
-export function parseMempalaceStatus(output: string): { totalDrawers?: number; items: ReportItem[] } {
-  const totalDrawers = output.match(/MemPalace Status\s+—\s+(\d+) drawers/)?.[1];
-  const lines = output.split('\n');
-  const items: ReportItem[] = [];
-  let currentWing: string | undefined;
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    const wingMatch = line.match(/^\s*WING:\s+(.+)$/);
-    if (wingMatch) {
-      currentWing = wingMatch[1].trim();
-      continue;
-    }
-
-    const roomMatch = line.match(/^\s*ROOM:\s+(.+?)\s+(\d+) drawers$/);
-    if (roomMatch && currentWing) {
-      const room = roomMatch[1].trim();
-      const count = Number(roomMatch[2]);
-      items.push({
-        section: 'memory',
-        repo: currentWing,
-        path: room,
-        title: `${currentWing} / ${room}`,
-        snippet: `${count} drawer${count === 1 ? '' : 's'} in MemPalace`,
-        stale: false,
-        count
-      });
-    }
-  }
-
-  return { totalDrawers: totalDrawers ? Number(totalDrawers) : undefined, items };
-}
-
-async function runCli(command: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise(resolve => {
-    const child = spawn(command, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout?.on('data', chunk => (stdout += String(chunk)));
-    child.stderr?.on('data', chunk => (stderr += String(chunk)));
-    child.on('error', error => resolve({ stdout, stderr: `${stderr}${error.message}`, exitCode: 1 }));
-    child.on('close', exitCode => resolve({ stdout, stderr, exitCode: exitCode ?? 1 }));
-  });
 }

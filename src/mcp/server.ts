@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { loadWorkspaceConfig, STATS_PATH } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
+import { readMempalaceStatusSummary, searchMempalace, timelineMempalace } from '../memory/mempalaceCli.js';
 import { createContextPack } from '../context/pack.js';
 import { getFileContext } from '../context/fileContext.js';
 import { indexWorkspace } from '../indexing/indexer.js';
@@ -42,7 +43,14 @@ async function recordUsage(workspaceRoot: string, tool: string, payload: unknown
 
 export function createCtxhubMcpServer(
   cwd = process.cwd(),
-  opts: { allowIndex?: boolean; startedAt?: number; runAgentPromptFn?: typeof runAgentPrompt } = {}
+  opts: {
+    allowIndex?: boolean;
+    startedAt?: number;
+    runAgentPromptFn?: typeof runAgentPrompt;
+    readMempalaceStatusSummaryFn?: typeof readMempalaceStatusSummary;
+    searchMempalaceFn?: typeof searchMempalace;
+    timelineMempalaceFn?: typeof timelineMempalace;
+  } = {}
 ): McpServer {
   const server = new McpServer({ name: 'ctxhub', version: getPackageVersion() });
   const startedAt = opts.startedAt ?? Date.now();
@@ -213,8 +221,60 @@ export function createCtxhubMcpServer(
       const { config, workspaceRoot } = await workspace(cwd);
       const memory = createMemoryAdapter(config.memory.provider, config.memory.path, workspaceRoot);
       const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
-      const [memoryStatus, indexStatus] = await Promise.all([memory.status(), index.status()]);
-      return textResult({ memory: memoryStatus, index: indexStatus });
+      const [memoryStatus, indexStatus, memorySummary] = await Promise.all([
+        memory.status(),
+        index.status(),
+        (opts.readMempalaceStatusSummaryFn ?? readMempalaceStatusSummary)(config, workspaceRoot)
+      ]);
+      return textResult({ memory: memoryStatus, index: indexStatus, memorySummary });
+    }
+  );
+
+  server.registerTool(
+    'memory_search',
+    {
+      title: 'Search durable MemPalace memory',
+      description:
+        'Search durable MemPalace memory rather than the repo/source index. Use this for past decisions, prior sessions, or ' +
+        'personal durable memory that is intentionally not stored in git-tracked docs. Optional wing/room/source_file filters ' +
+        'let you scope the search to a project or topic area.',
+      inputSchema: {
+        query: z.string().describe('Memory search query'),
+        limit: z.number().int().positive().max(50).optional().describe('Max results (default 5)'),
+        wing: z.string().optional().describe('Optional MemPalace wing/project filter'),
+        room: z.string().optional().describe('Optional MemPalace room filter'),
+        source_file: z.string().optional().describe('Optional exact stored source file filter')
+      }
+    },
+    async ({ query, limit, wing, room, source_file }) => {
+      const { config, workspaceRoot } = await workspace(cwd);
+      const result = await (opts.searchMempalaceFn ?? searchMempalace)(config, workspaceRoot, {
+        query,
+        limit,
+        wing,
+        room,
+        sourceFile: source_file
+      });
+      await recordUsage(workspaceRoot, 'memory_search', result, result.results?.map(hit => hit.source_path) ?? []);
+      return textResult(result);
+    }
+  );
+
+  server.registerTool(
+    'memory_timeline',
+    {
+      title: 'Read MemPalace knowledge-graph timeline',
+      description:
+        'Return chronological MemPalace knowledge-graph facts, optionally focused on one entity. Use this when the user wants ' +
+        'how a topic evolved over time rather than just matching memory hits.',
+      inputSchema: {
+        entity: z.string().optional().describe('Optional entity to focus the timeline on')
+      }
+    },
+    async ({ entity }) => {
+      const { config, workspaceRoot } = await workspace(cwd);
+      const result = await (opts.timelineMempalaceFn ?? timelineMempalace)(config, workspaceRoot, { entity });
+      return textResult(result);
     }
   );
 

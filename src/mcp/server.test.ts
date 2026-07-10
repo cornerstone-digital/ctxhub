@@ -76,7 +76,9 @@ test('mcp server lists the read-only ctxhub tools', () => {
         'architecture_search',
         'context_pack',
         'get_file_context',
+        'memory_search',
         'memory_status',
+        'memory_timeline',
         'open_chunk',
         'repo_list',
         'search',
@@ -299,9 +301,47 @@ test('mcp memory_status tool reports provider and index status', () => {
   return withWorkspace(cwd =>
     withConnectedClient(cwd, async client => {
       const result = await client.callTool({ name: 'memory_status', arguments: {} });
-      const status = firstTextPayload(result as never) as { memory: { provider: string }; index: { provider: string } };
+      const status = firstTextPayload(result as never) as { memory: { provider: string }; index: { provider: string }; memorySummary: { available: boolean; items: unknown[] } };
       assert.equal(status.memory.provider, 'mempalace');
       assert.equal(status.index.provider, 'local-json');
+      assert.equal(Array.isArray(status.memorySummary.items), true);
+    })
+  );
+});
+
+test('mcp memory_search passes wing/room filters through to MemPalace-backed search', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(cwd, async client => {
+      const result = await client.callTool({ name: 'memory_search', arguments: { query: 'graphql', wing: 'app', room: 'decisions', limit: 3 } });
+      const payload = firstTextPayload(result as never) as { filters?: { wing?: string; room?: string }; results: Array<{ wing: string; room: string; text: string }> };
+      assert.equal(payload.filters?.wing, 'app');
+      assert.equal(payload.filters?.room, 'decisions');
+      assert.equal(payload.results[0].room, 'decisions');
+      assert.match(payload.results[0].text, /GraphQL/);
+    }, {
+      searchMempalaceFn: async () => ({
+        query: 'graphql',
+        filters: { wing: 'app', room: 'decisions' },
+        results: [{ wing: 'app', room: 'decisions', text: 'GraphQL decision history' }]
+      })
+    })
+  );
+});
+
+test('mcp memory_timeline returns MemPalace temporal facts', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(cwd, async client => {
+      const result = await client.callTool({ name: 'memory_timeline', arguments: { entity: 'graphql' } });
+      const payload = firstTextPayload(result as never) as { entity: string; count: number; timeline: Array<{ predicate: string }> };
+      assert.equal(payload.entity, 'graphql');
+      assert.equal(payload.count, 1);
+      assert.equal(payload.timeline[0].predicate, 'uses');
+    }, {
+      timelineMempalaceFn: async () => ({
+        entity: 'graphql',
+        count: 1,
+        timeline: [{ subject: 'api', predicate: 'uses', object: 'graphql' }]
+      })
     })
   );
 });

@@ -227,7 +227,9 @@ ctxhub eval --json            # CI-friendly eval payload
 - `ctxhub handoff <topic> [--from-pr]`: create a Markdown handoff bundle under `.ctxhub/cache/handoffs/` for another agent or teammate, with an LLM-synthesized summary section when `llm.enabled` (see [LLM-backed features](#llm-backed-features)).
 - `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development, with a live per-repo progress view in a real terminal.
 - `ctxhub report [-o <path>] [--open]`: generate a self-contained, browsable HTML report of workspace status, repos, architecture diagrams, MemPalace wing/room summaries when available, and the most recently indexed chunks, with a client-side search box, a local graph view for repo/file/component/memory relationships, and stale-result highlighting (no server, no external assets). `--open` launches the generated file in your browser.
-- `ctxhub memory status`: show MemPalace memory status and LanceDB index status. In a real terminal it renders a compact status panel; use `--plain` for script-friendly output.
+- `ctxhub memory status`: show MemPalace memory status and LanceDB index status. When MemPalace is configured and available, this also lists discovered wings and rooms so users can reuse them in filtered memory searches. In a real terminal it renders a compact status panel; use `--plain` for script-friendly output.
+- `ctxhub memory search <query> [--wing <name>] [--room <name>] [--source-file <path>]`: search MemPalace durable memory, optionally scoped to a wing/project or room.
+- `ctxhub memory timeline [entity]`: show MemPalace knowledge-graph timeline events, optionally focused on one entity.
 - `ctxhub memory clear`: clear the ctxhub index after confirmation; external MemPalace stores are left to MemPalace.
 - `ctxhub doctor [--fix] [--dry-run] [--fix-skills] [--fix-agent <name>]`: check Node, Git, config schema version, repo paths, index directory, memory provider, and whether installed skills/agent MCP configs are stale relative to the currently installed ctxhub version. In a real terminal it renders a live checklist before printing the final lines; use `--plain` for script-friendly output. `--fix` applies safe, low-risk repairs (missing `.ctxhub` directories, default `privacy.redactPatterns`); `--dry-run` previews those changes without writing anything; `--fix-skills`/`--fix-agent <name>` are separate opt-in flags for the more invasive fixes (reinstalling stale skill files, refreshing an agent's MCP config), since those overwrite files you may have installed deliberately.
 - `ctxhub mcp`: start an MCP server (stdio) exposing read-only context tools for AI agents (`--allow-index` adds opt-in mutating index/sync tools).
@@ -254,7 +256,9 @@ Tools exposed:
 - `context_pack(query, limit?)` — same bundle as `ctxhub pack --json`.
 - `open_chunk(id)` — return a full indexed chunk from a search/context-pack result. For TS/JS/JSX files, chunks are already whole top-level functions/classes rather than arbitrary paragraph slices (see [Source-aware context](#source-aware-context) below).
 - `get_file_context(repo, path, line?, before?, after?, mode?)` — return context around a line. For TS/JS/JSX files this defaults (`mode: "auto"`) to the full enclosing function/method/class; pass `mode: "lines"` to force the old before/after line window.
-- `memory_status()` — same output as `ctxhub memory status`.
+- `memory_status()` — same output as `ctxhub memory status`, including MemPalace wing/room summaries when available.
+- `memory_search(query, limit?, wing?, room?, source_file?)` — search MemPalace durable memory with optional wing/room/source filters.
+- `memory_timeline(entity?)` — read MemPalace knowledge-graph timeline events for one entity or the whole palace.
 - `repo_list()` — same output as `ctxhub repo list`.
 - `architecture_search(query, limit?)` — search indexed Mermaid diagrams and Mermaid code blocks.
 - `architecture_map(query?)` — summarize known components and relationships extracted from indexed diagrams.

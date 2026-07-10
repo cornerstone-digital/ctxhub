@@ -4,7 +4,7 @@ import { repoAddCommand, repoDiscoverCommand, repoHookCommand, repoListCommand }
 import { indexCommand } from '../commands/index.js';
 import { searchCommand } from '../commands/search.js';
 import { syncCommand } from '../commands/sync.js';
-import { memoryClearCommand, memoryStatusCommand } from '../commands/memory.js';
+import { memoryClearCommand, memorySearchCommand, memoryStatusCommand, memoryTimelineCommand } from '../commands/memory.js';
 import { statsCommand } from '../commands/stats.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { mcpCommand } from '../commands/mcp.js';
@@ -218,6 +218,24 @@ export function buildProgram(): Command {
     .description('Clear local memory chunks')
     .option('-f, --force', 'Clear without confirmation')
     .action(memoryClearCommand);
+
+  memory
+    .command('search')
+    .argument('<query>', 'Search MemPalace durable memory')
+    .option('--wing <name>', 'Limit search to one MemPalace wing/project')
+    .option('--room <name>', 'Limit search to one MemPalace room')
+    .option('--source-file <path>', 'Limit search to one stored source file')
+    .option('-l, --limit <limit>', 'Max results', '5')
+    .option('--json', 'Print JSON')
+    .description('Search MemPalace durable memory with optional wing/room filters')
+    .action(memorySearchCommand);
+
+  memory
+    .command('timeline')
+    .argument('[entity]', 'Optional entity to show a focused MemPalace timeline for')
+    .option('--json', 'Print JSON')
+    .description('Show MemPalace knowledge-graph timeline events')
+    .action(memoryTimelineCommand);
 
   program
     .command('stats')

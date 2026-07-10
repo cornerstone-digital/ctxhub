@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { buildReportGraphData, openReportCommand, parseMempalaceStatus, reportCommand } from './report.js';
+import { buildReportGraphData, openReportCommand, reportCommand } from './report.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { readText } from '../utils/fs.js';
 import { runGit } from '../git/git.js';
+import { parseMempalaceStatus } from '../memory/mempalaceCli.js';
 
 async function withWorkspace(run: (cwd: string) => Promise<void>) {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-report-'));
@@ -131,7 +132,7 @@ test('parseMempalaceStatus extracts wing and room counts into report items', () 
   ].join('\n'));
 
   assert.equal(parsed.totalDrawers, 7);
-  assert.deepEqual(parsed.items.map(item => [item.repo, item.path, item.count]), [
+  assert.deepEqual(parsed.items.map(item => [item.wing, item.room, item.count]), [
     ['app', 'decisions', 2],
     ['app', 'auth', 5]
   ]);
