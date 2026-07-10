@@ -38,19 +38,35 @@ test('personasSyncCommand compiles a real native subagent file for Claude Code',
   });
 });
 
-test('personasSyncCommand compiles a plain instructions fallback for non-native harnesses', () => {
+test('personasSyncCommand compiles a real native subagent file for Codex CLI (TOML)', () => {
   return withInitializedWorkspace(async dir => {
-    await personasSyncCommand(['codex', 'copilot', 'cursor']);
+    await personasSyncCommand(['codex']);
 
-    const codex = await readText(path.join(dir, '.agents', 'personas', 'architect.md'));
-    const copilot = await readText(path.join(dir, '.github', 'personas', 'architect.md'));
-    const cursor = await readText(path.join(dir, '.cursor', 'personas', 'architect.md'));
+    const content = await readText(path.join(dir, '.codex', 'agents', 'architect.toml'));
+    assert.match(content, /name = "architect"/);
+    assert.match(content, /description = "Protects long-term maintainability/);
+    assert.match(content, /developer_instructions = /);
+    assert.match(content, /# Architect/);
+  });
+});
 
-    for (const content of [codex, copilot, cursor]) {
-      assert.match(content, /Compiled by `ctxhub personas sync`/);
-      assert.match(content, /# Architect/);
-      assert.ok(!content.startsWith('---'), 'the fallback format has no frontmatter, unlike the native Claude format');
-    }
+test('personasSyncCommand compiles a real native subagent file for GitHub Copilot CLI', () => {
+  return withInitializedWorkspace(async dir => {
+    await personasSyncCommand(['copilot']);
+
+    const content = await readText(path.join(dir, '.github', 'agents', 'architect.agent.md'));
+    assert.match(content, /^---\nname: architect\ndescription: Protects long-term maintainability/);
+    assert.match(content, /# Architect/);
+  });
+});
+
+test('personasSyncCommand compiles a real native subagent file for Cursor', () => {
+  return withInitializedWorkspace(async dir => {
+    await personasSyncCommand(['cursor']);
+
+    const content = await readText(path.join(dir, '.cursor', 'agents', 'architect.md'));
+    assert.match(content, /^---\nname: architect\ndescription: Protects long-term maintainability/);
+    assert.match(content, /# Architect/);
   });
 });
 
@@ -59,9 +75,9 @@ test('personasSyncCommand with no args compiles for every supported agent', () =
     await personasSyncCommand();
 
     assert.equal(await pathExists(path.join(dir, '.claude', 'agents', 'architect.md')), true);
-    assert.equal(await pathExists(path.join(dir, '.agents', 'personas', 'architect.md')), true);
-    assert.equal(await pathExists(path.join(dir, '.github', 'personas', 'architect.md')), true);
-    assert.equal(await pathExists(path.join(dir, '.cursor', 'personas', 'architect.md')), true);
+    assert.equal(await pathExists(path.join(dir, '.codex', 'agents', 'architect.toml')), true);
+    assert.equal(await pathExists(path.join(dir, '.github', 'agents', 'architect.agent.md')), true);
+    assert.equal(await pathExists(path.join(dir, '.cursor', 'agents', 'architect.md')), true);
   });
 });
 

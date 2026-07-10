@@ -126,6 +126,11 @@ into `explain`/`ask`/`handoff`/`review`'s `--as <persona>` and into `note`/`eval
 existing draft/suggestion prompts — empty by default, so nothing changes until a team runs
 `ctxhub personas init`. `ctxhub personas sync` compiles personas per harness using the same
 `AGENT_CAPABILITIES` table `skills.ts` already derives from, extended with `nativeSubagents`/
-`projectInstructions`: a real native subagent file (`.claude/agents/<persona>.md`) for Claude Code,
-confirmed live against the actual `claude` CLI; a plain instructions-file fallback for Codex,
-Copilot, and Cursor, since none of those are confirmed to have an equivalent native mechanism.
+`projectInstructions`: all four supported harnesses have confirmed native subagent support, each
+with a genuinely different file/format — `.claude/agents/<persona>.md` (Claude Code, YAML
+frontmatter, confirmed live against the actual `claude` CLI), `.codex/agents/<persona>.toml`
+(Codex CLI, TOML), `.github/agents/<persona>.agent.md` (GitHub Copilot CLI, YAML frontmatter), and
+`.cursor/agents/<persona>.md` (Cursor, YAML frontmatter) — see
+[docs/personas.md](./personas.md)'s Phase 3 for sources and per-harness verification confidence
+(Codex's live verification surfaced a real caveat: the documented file format sits behind an
+under-development feature flag in the currently installed CLI build).

@@ -1,16 +1,27 @@
+import path from 'node:path';
 import { pathExists, readText } from './fs.js';
 import { SKILL_TEMPLATES } from '../commands/skills.js';
 import { SUPPORTED_AGENTS, expectedMcpEntry, readInstalledMcpEntry, type SupportedAgent } from '../commands/agent.js';
+import {
+  SUPPORTED_PERSONA_SYNC_AGENTS,
+  PERSONA_TARGET_ROOTS,
+  compilePersonaFile,
+  type PersonaSyncAgent
+} from '../commands/personas.js';
+import { loadPersona, loadPersonaManifest } from '../personas/persona.js';
 import { defaultConfig } from '../config/defaultConfig.js';
 import type { CtxhubConfig } from '../config/types.js';
 
 // Keyed "agent:id", e.g. "claude:ctxhub-search" -- one entry per installed skill file,
 // since an agent can have more than one (an ambient skill plus an explicit on-demand one).
+// Persona entries are keyed "agent:name", e.g. "claude:architect".
 export type DriftReport = {
   installedSkills: string[];
   staleSkills: string[];
   installedAgentConfigs: SupportedAgent[];
   staleAgentConfigs: SupportedAgent[];
+  installedPersonas: string[];
+  stalePersonas: string[];
   configVersionMismatch: boolean;
 };
 
@@ -40,15 +51,40 @@ export async function detectDrift(config: CtxhubConfig, cwd = process.cwd()): Pr
     if (JSON.stringify(installed) !== JSON.stringify(expectedMcpEntry(agent))) staleAgentConfigs.push(agent);
   }
 
+  const installedPersonas: string[] = [];
+  const stalePersonas: string[] = [];
+  const manifest = await loadPersonaManifest(cwd);
+  for (const name of Object.keys(manifest.personas)) {
+    const persona = await loadPersona(cwd, name);
+    if (!persona) continue;
+
+    for (const agent of SUPPORTED_PERSONA_SYNC_AGENTS as PersonaSyncAgent[]) {
+      const { fileName, content } = compilePersonaFile(agent, persona);
+      const destination = path.join(PERSONA_TARGET_ROOTS[agent](cwd), fileName);
+      if (!(await pathExists(destination))) continue;
+
+      const key = `${agent}:${name}`;
+      installedPersonas.push(key);
+      if ((await readText(destination)) !== content) stalePersonas.push(key);
+    }
+  }
+
   return {
     installedSkills,
     staleSkills,
     installedAgentConfigs,
     staleAgentConfigs,
+    installedPersonas,
+    stalePersonas,
     configVersionMismatch: config.version !== defaultConfig.version
   };
 }
 
 export function driftCount(report: DriftReport): number {
-  return report.staleSkills.length + report.staleAgentConfigs.length + (report.configVersionMismatch ? 1 : 0);
+  return (
+    report.staleSkills.length +
+    report.staleAgentConfigs.length +
+    report.stalePersonas.length +
+    (report.configVersionMismatch ? 1 : 0)
+  );
 }

@@ -24,7 +24,7 @@ export const CHECK_LABELS: Record<string, string> = {
   'index-provider': 'Index provider',
   'memory-provider': 'Memory provider',
   repos: 'Repositories',
-  drift: 'Installed skills & agent configs',
+  drift: 'Installed skills, agent configs & personas',
   'llm-features': 'LLM-backed features'
 };
 
@@ -164,6 +164,14 @@ export function buildDoctorChecks(config: CtxhubConfig, configPath: string, work
             drift.staleAgentConfigs.includes(agent)
               ? { status: 'warn', message: `${agent} MCP config is outdated. Run: ctxhub agent ${agent} --no-launch` }
               : { status: 'ok', message: `${agent} MCP config up to date` }
+          );
+        }
+        for (const key of drift.installedPersonas) {
+          const [agent] = key.split(':');
+          lines.push(
+            drift.stalePersonas.includes(key)
+              ? { status: 'warn', message: `${key} persona is outdated. Run: ctxhub personas sync ${agent}` }
+              : { status: 'ok', message: `${key} persona up to date` }
           );
         }
         return lines;

@@ -198,19 +198,27 @@ strengthen evidence discipline in one place without touching six files, while th
 
 ### Phase 3 — Cross-harness compilation ("the adapter model")
 
-**Scope decision (explicit, made with the user before building this):** Claude Code only gets the
-real native-subagent treatment. Codex/Copilot/Cursor get the plain project-instructions fallback,
-not a guessed-at native integration, until someone confirms those harnesses' own current docs say
-otherwise.
+**Scope decision, corrected:** the original build of this phase deliberately scoped
+`nativeSubagents` to Claude Code only, flagging Codex/Copilot/Cursor as "unverified — mark false
+until confirmed" (an honest hedge rather than a guess, since this codebase's own knowledge cutoff
+predates all three shipping the feature). A follow-up pass fetched each harness's own current
+official docs and found all four now have real, shipped, native subagent support — each with a
+genuinely different file format and location:
+
+- Claude Code: `.claude/agents/<name>.md` — YAML frontmatter (`name`, `description`, `tools`?, `model`?) + Markdown body as the subagent's system prompt.
+- Codex CLI: `.codex/agents/<name>.toml` — TOML, required `name`/`description`/`developer_instructions` (source: `learn.chatgpt.com/docs/agent-configuration/subagents`, formerly `developers.openai.com/codex/subagents`).
+- GitHub Copilot CLI: `.github/agents/<name>.agent.md` — YAML frontmatter, `description` required, `name`/`tools`/`model`/etc. optional (source: `docs.github.com/en/copilot/reference/custom-agents-configuration`).
+- Cursor (2.4+): `.cursor/agents/<name>.md` — YAML frontmatter, `name`/`description`/`model`? (default `inherit`) (source: `cursor.com/docs/subagents`).
 
 - [x] Extend `HarnessCapabilities` (`src/llm/harness.ts`) with `nativeSubagents` and `projectInstructions`
-- [x] Set `nativeSubagents: true` for `claude` only; `false` for Codex/Copilot/Cursor (unverified, not assumed) — pinned by a test so this can't silently drift
+- [x] Set `nativeSubagents: true` for all four harnesses (claude, codex, copilot, cursor) — corrected from the original Claude-only assumption, pinned by a test so this can't silently drift
 - [x] `ctxhub personas sync` command, reusing `skills.ts`'s per-agent target-root pattern (including the same workspace-root-write + symlink-into-child-repos behavior)
-- [x] Claude Code adapter: writes `.claude/agents/<persona>.md` with `name`/`description` frontmatter
-- [x] Fallback adapter: plain instructions file (`.agents/personas/`, `.github/personas/`, `.cursor/personas/`) for Codex/Copilot/Cursor
-- [ ] `ctxhub doctor` drift detection for installed persona files (stale vs. `agents/personas/*.md` source) — not built in this pass, tracked as a follow-up
-- [x] Unit tests for the sync/compile logic per harness (native vs. fallback content, no-personas-configured guidance, unsupported-agent rejection, workspace-root + child-repo symlinking)
-- [x] Live verification: `claude --agent architect -p "..."` against a real compiled `.claude/agents/architect.md` produced a response that directly reflected the persona's identity and near-verbatim its "six months from now" quality-gate language — this is the real Claude Code binary recognizing and using the compiled file, not just ctxhub writing a file that looks plausible
+- [x] Four distinct per-harness compilers in `src/commands/personas.ts` (`renderClaudeSubagent`, `renderCodexSubagent`, `renderCopilotSubagent`, `renderCursorSubagent`), each producing its harness's real native schema/filename/location — no more binary native-vs-fallback split now that all four are native
+- [x] `ctxhub doctor` drift detection for installed persona files (stale vs. `agents/personas/*.md` source)
+- [x] Unit tests for the sync/compile logic per harness (correct schema/location per harness, no-personas-configured guidance, unsupported-agent rejection, workspace-root + child-repo symlinking)
+- [x] Live verification, Claude Code: `claude --agent architect -p "..."` against a real compiled `.claude/agents/architect.md` produced a response that directly reflected the persona's identity and near-verbatim its "six months from now" quality-gate language — the real Claude Code binary recognizing and using the compiled file, not just ctxhub writing a file that looks plausible.
+- [x] Live verification attempted, Codex CLI (`codex-cli 0.142.5`, installed locally): **inconclusive.** A plain `.codex/agents/architect.toml` file per the documented convention was not picked up by `codex exec` at all — the model reported no `architect` role existed. Digging into the installed binary's own strings confirmed an `agent_roles` mechanism does exist (`core/src/config/agent_roles.rs`, with the exact required fields the docs describe), but it's wired through a `config.toml` `[agent_roles.<name>]` table (`config_file` + `nickname_candidates`) gated behind the `multi_agent_v2` feature flag, which `codex features list` reports as **"under development"** in this build (distinct from the stable `multi_agent` flag). With `--enable multi_agent_v2` the model did recognize an `architect`-named subagent, but a live test did not conclusively confirm it was honoring the custom `developer_instructions` text (the model declined to echo instructions verbatim, and a plain-language check came back generic rather than reflecting the seeded content). **Net: Codex's native-subagent file format is real and documented, but as of this build it sits behind an explicitly-unstable feature flag and ctxhub's compiled `.codex/agents/<name>.toml` file may not be picked up by default yet.** `nativeSubagents: true` for Codex reflects the documented, intended format; treat it as forward-looking until a stable Codex release confirms the plain-directory convention works without extra flags.
+- [ ] Live verification, Copilot CLI and Cursor: not done — `copilot` is installed only as an interactive-install stub (matches a pre-existing, already-documented limitation), `cursor-agent` is not installed locally. `nativeSubagents: true` for both rests on official-docs confidence only, same standing as most of this project's Copilot/Cursor capability entries.
 
 Extend `HarnessCapabilities` (`src/llm/harness.ts`) with two new fields:
 
@@ -224,45 +232,52 @@ export type HarnessCapabilities = {
 };
 ```
 
-**Confidence per harness — verify before shipping, don't trust this table blindly:**
+**Confidence per harness — corrected after direct research against each harness's own official docs:**
 
 | Harness | `nativeSubagents` | Evidence |
 | --- | --- | --- |
-| Claude Code | ✅ **True, high confidence** | `.claude/agents/<name>.md` with YAML frontmatter (`name`, `description`, `tools`, `model`) and the Markdown body as the subagent's system prompt — a real, documented feature. |
-| Codex | ❓ **Unverified — mark false until confirmed** | No confirmed equivalent file-based subagent delegation as of this writing. Treat as `projectInstructions`-only (e.g. an `AGENTS.md`-style file) until Codex's own docs confirm otherwise. |
-| Copilot | ❓ **Unverified — mark false until confirmed** | Same treatment; verify against current Copilot CLI/agent docs before flipping this to true. |
-| Cursor | ❓ **Unverified — mark false until confirmed** | Cursor has rules/modes; whether these constitute a discrete per-persona native file format needs a direct check against current Cursor docs, not assumption. |
+| Claude Code | ✅ **True, high confidence — live-verified** | `.claude/agents/<name>.md`, YAML frontmatter (`name`, `description`, `tools`?, `model`?) + Markdown body as system prompt. The real `claude` CLI picked up a compiled file and responded in the persona's voice. |
+| Codex | ✅ **True per official docs; live verification inconclusive** | `.codex/agents/<name>.toml`, TOML (`name`, `description`, `developer_instructions`) — confirmed via `learn.chatgpt.com/docs/agent-configuration/subagents`. Installed `codex-cli 0.142.5` did not pick up a plain compiled file without also enabling the `multi_agent_v2` under-development feature flag and wiring a `config.toml` `[agent_roles]` entry; even then, verbatim custom-instruction pickup wasn't confirmed live. Treat as documented-but-not-yet-reliably-verified. |
+| Copilot | ✅ **True per official docs; not live-verified** | `.github/agents/<name>.agent.md`, YAML frontmatter (`description` required; `name`/`tools`/`model`/etc. optional) — confirmed via `docs.github.com/en/copilot/reference/custom-agents-configuration`. Local `copilot` CLI is an interactive-install stub; no real-CLI check performed. |
+| Cursor | ✅ **True per official docs; not live-verified** | `.cursor/agents/<name>.md`, YAML frontmatter (`name`, `description`, `model`? default `inherit`) — confirmed via `cursor.com/docs/subagents`. `cursor-agent` is not installed locally; no real-CLI check performed. |
 
 **New command:** `ctxhub personas sync` (mirrors `ctxhub skills install`'s exact mechanism — same
 per-agent target-root pattern already in `skills.ts`'s `SKILL_TARGET_ROOTS`):
 
-- Where `nativeSubagents` is true: write one file per persona in the harness's native format
-  (`.claude/agents/<persona>.md` for Claude Code, correctly shaped frontmatter + body). Claude
-  Code's schema also supports optional `tools`/`model` fields; ctxhub's compiler only sets the
-  required `name`/`description` for now (inherit-all-tools, default-model), which is enough to
-  prove the adapter works -- `tools`/`model` support is a small, natural follow-up, not core to
-  this phase. ctxhub remains the canonical source (`agents/personas/*.md`); the harness-native
-  file is a compiled, regeneratable artifact — same relationship `ctxhub skills install` already
-  has between
-  its `skills/<agent>/<id>/SKILL.md` templates and what gets written into a workspace.
-- Where only `projectInstructions` is true: write a plain instructions file the harness reads,
-  presenting the persona as guidance text rather than a runtime-enforced subagent. Implemented as
-  one file per persona under a harness-specific root (`.agents/personas/`, `.github/personas/`,
-  `.cursor/personas/`), mirroring `skills.ts`'s existing per-agent target-root pattern exactly,
-  rather than trying to append into a single shared instructions file per harness.
-- `ctxhub doctor` drift detection for installed persona files (matching what it already does for
-  skills/MCP config) was **not** built in this pass -- noted as a real follow-up, not silently
-  dropped, since it wasn't required to prove the core adapter model works.
+- All four harnesses now get their own native compiler: one file per persona, in each harness's
+  real format, at its real location — `.claude/agents/<persona>.md`, `.codex/agents/<persona>.toml`,
+  `.github/agents/<persona>.agent.md`, `.cursor/agents/<persona>.md`. ctxhub remains the canonical
+  source (`agents/personas/*.md`); each harness-native file is a compiled, regeneratable artifact —
+  same relationship `ctxhub skills install` already has between its
+  `skills/<agent>/<id>/SKILL.md` templates and what gets written into a workspace.
+- Claude Code's schema also supports optional `tools`/`model` fields; Copilot's supports
+  `tools`/`model`/`disable-model-invocation`/`user-invocable`/`mcp-servers`/`metadata`; Cursor's
+  supports `readonly`/`is_background`. ctxhub's compilers only set the required fields for now
+  (`name`/`description`, or Codex's `developer_instructions`) — the optional fields are a small,
+  natural follow-up, not core to this phase.
+- The old `projectInstructions`-fallback path (a plain instructions file for harnesses without
+  native subagent support) is no longer exercised by `personas sync` now that all four confirmed
+  harnesses are native — `projectInstructions` stays in `HarnessCapabilities` as a real, documented
+  capability in its own right, just not currently used as a compile target.
+- `ctxhub doctor` drift detection for installed persona files: `src/utils/drift.ts`'s
+  `detectDrift` recompiles each installed `agent:persona` pair via `compilePersonaFile` and
+  compares against what's actually on disk, exactly mirroring the existing skill/MCP-config drift
+  checks (`installedPersonas`/`stalePersonas`, surfaced in the same `drift` doctor check id). A new
+  `--fix-personas` flag on `ctxhub doctor --fix` recompiles stale persona files (mirrors
+  `--fix-skills` exactly) -- opt-in since it overwrites files a team may have hand-edited. Verified
+  live: staled a compiled `.claude/agents/architect.md`, confirmed `doctor` flagged it, then
+  confirmed `--fix --fix-personas` recompiled it back to the canonical content.
 
 **Acceptance criteria:**
 
-- `ctxhub personas sync` produces a real `.claude/agents/architect.md` file. Verified live: not
-  just that the file looks structurally right, but that the actual `claude` CLI
+- `ctxhub personas sync` produces real files in each of the four native formats. Verified live for
+  Claude Code: not just that the file looks structurally right, but that the actual `claude` CLI
   (`claude --agent architect -p "..."`) picked it up and responded in the persona's voice,
-  including near-verbatim language from the persona's own text -- proof the real harness reads and
-  uses the compiled file, not an assumption about its format.
-- Every harness gets *something* (native subagent or project-instructions fallback) — never a
-  silent no-op for an unsupported harness.
+  including near-verbatim language from the persona's own text. Codex/Copilot/Cursor rest on
+  official-docs confidence (see the confidence table above for exactly how far each one's
+  verification actually got — Codex's live attempt surfaced a real, documented caveat rather than a
+  clean pass).
+- Every harness gets a real native subagent file — never a silent no-op for an unsupported harness.
 
 ### Phase 4 — Structured findings (smaller, later increment)
 

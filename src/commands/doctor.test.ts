@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { doctorCommand, type DoctorFixOptions } from './doctor.js';
 import { skillsInstallCommand } from './skills.js';
 import { agentLaunchCommand } from './agent.js';
+import { personasInitCommand, personasSyncCommand } from './personas.js';
 import { loadConfig, saveConfig, initConfig, CACHE_DIR, MEMORY_DIR } from '../config/config.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 
@@ -148,6 +149,43 @@ test('doctorCommand --fix leaves stale skills alone unless --fix-skills is passe
     const withFlag = await captureDoctorOutput({ fix: true, fixSkills: true });
     assert.ok(withFlag.some(line => line.includes('Reinstall stale claude skill file(s)')));
     assert.equal(await readText(skillPath), original);
+  });
+});
+
+test('doctorCommand flags an outdated installed persona file and stays quiet about ones never installed', () => {
+  return withWorkspace(async cwd => {
+    await personasInitCommand();
+    await personasSyncCommand(['claude']);
+
+    const lines = await captureDoctorOutput();
+    assert.ok(lines.some(line => line.includes('claude:architect persona up to date')));
+    assert.ok(!lines.some(line => line.includes('codex:architect')), 'should not mention an agent that was never synced');
+
+    const personaPath = path.join(cwd, '.claude', 'agents', 'architect.md');
+    await writeText(personaPath, `${await readText(personaPath)}\nstale edit\n`);
+
+    const linesAfterEdit = await captureDoctorOutput();
+    assert.ok(
+      linesAfterEdit.some(line => line.includes('claude:architect persona is outdated. Run: ctxhub personas sync claude'))
+    );
+  });
+});
+
+test('doctorCommand --fix leaves stale personas alone unless --fix-personas is passed, then recompiles them', () => {
+  return withWorkspace(async cwd => {
+    await personasInitCommand();
+    await personasSyncCommand(['claude']);
+    const personaPath = path.join(cwd, '.claude', 'agents', 'architect.md');
+    const original = await readText(personaPath);
+    await writeText(personaPath, `${original}\nstale edit\n`);
+
+    const withoutFlag = await captureDoctorOutput({ fix: true });
+    assert.ok(withoutFlag.some(line => line.includes('re-run with --fix-personas')));
+    assert.equal(await readText(personaPath), `${original}\nstale edit\n`, 'must not touch personas without --fix-personas');
+
+    const withFlag = await captureDoctorOutput({ fix: true, fixPersonas: true });
+    assert.ok(withFlag.some(line => line.includes('Recompile stale claude persona file(s)')));
+    assert.equal(await readText(personaPath), original);
   });
 });
 

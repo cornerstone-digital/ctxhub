@@ -9,13 +9,19 @@ export type HarnessCapabilities = {
   headlessInvocation: boolean;
   // docs/personas.md Phase 3: does this harness have a distinct, file-defined sub-agent it can
   // delegate to on its own (not just a skill/instructions file it reads for its own single-context
-  // turn)? Only Claude Code is confirmed as of this writing (`.claude/agents/<name>.md`, a real,
-  // documented feature with its own frontmatter schema). The other three are deliberately kept
-  // false rather than assumed true -- flip only after confirming against that harness's own
-  // current docs, per the explicit decision in docs/personas.md's Phase 3 section.
+  // turn)? All four are confirmed true as of this writing, each with a real, documented, but
+  // genuinely different file format/location -- verified against each harness's own official docs
+  // (see personas.ts's per-harness compile functions for the exact schemas and sources):
+  //   claude:  .claude/agents/<name>.md         -- YAML frontmatter (name, description, tools?, model?)
+  //   codex:   .codex/agents/<name>.toml        -- TOML (name, description, developer_instructions)
+  //   copilot: .github/agents/<name>.agent.md   -- YAML frontmatter (description required; name, tools?, model? optional)
+  //   cursor:  .cursor/agents/<name>.md         -- YAML frontmatter (name, description, model?)
+  // This was previously (incorrectly) assumed false for everyone but Claude, based on this
+  // codebase's own knowledge cutoff predating all three other harnesses shipping this feature.
   nativeSubagents: boolean;
-  // A plain project-level instructions file the harness reads for general guidance -- the compile
-  // target for personas.ts's `ctxhub personas sync` when nativeSubagents is false.
+  // A plain project-level instructions file the harness reads for general guidance, distinct from
+  // a native subagent -- not currently used as a compile target now that all four have real
+  // native subagent support, but kept as a documented, real capability in its own right.
   projectInstructions: boolean;
 };
 
@@ -27,9 +33,9 @@ export type HarnessCapabilities = {
 // has no MCP-config-writing support yet, so `mcpConfig` is false for it alone.
 export const AGENT_CAPABILITIES = {
   claude: { mcpConfig: true, skills: true, headlessInvocation: true, nativeSubagents: true, projectInstructions: true },
-  codex: { mcpConfig: true, skills: true, headlessInvocation: true, nativeSubagents: false, projectInstructions: true },
-  copilot: { mcpConfig: true, skills: true, headlessInvocation: true, nativeSubagents: false, projectInstructions: true },
-  cursor: { mcpConfig: false, skills: true, headlessInvocation: true, nativeSubagents: false, projectInstructions: true }
+  codex: { mcpConfig: true, skills: true, headlessInvocation: true, nativeSubagents: true, projectInstructions: true },
+  copilot: { mcpConfig: true, skills: true, headlessInvocation: true, nativeSubagents: true, projectInstructions: true },
+  cursor: { mcpConfig: false, skills: true, headlessInvocation: true, nativeSubagents: true, projectInstructions: true }
 } as const satisfies Record<LlmAgentName, HarnessCapabilities>;
 
 export type AgentsWithCapability<K extends keyof HarnessCapabilities> = {

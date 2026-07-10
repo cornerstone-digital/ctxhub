@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { rm, symlink } from 'node:fs/promises';
 import chalk from 'chalk';
+import { stringify } from 'smol-toml';
 import { loadWorkspaceConfig } from '../config/config.js';
 import type { CtxhubConfig } from '../config/types.js';
 import { ensureDir, pathExists, writeText } from '../utils/fs.js';
-import { agentsWithCapability, isCapableOf } from '../llm/harness.js';
+import { agentsWithCapability } from '../llm/harness.js';
 import { initAgentsDirectory, loadPersona, loadPersonaManifest, type Persona } from '../personas/persona.js';
 
 export async function personasInitCommand() {
@@ -22,20 +23,33 @@ export async function personasInitCommand() {
   console.log(chalk.gray('See docs/personas.md for how this works.'));
 }
 
-// docs/personas.md Phase 3, scoped per the explicit decision there: only Claude Code gets the
-// real native-subagent treatment (nativeSubagents: true, confirmed .claude/agents/*.md format).
-// Codex/Copilot/Cursor get a plain project-instructions fallback -- not a guess dressed up as a
-// native integration -- until someone confirms each harness's own current docs say otherwise (see
-// src/llm/harness.ts's HarnessCapabilities comment).
-export const SUPPORTED_PERSONA_SYNC_AGENTS = agentsWithCapability('skills');
+// docs/personas.md Phase 3: all four harnesses have real, documented native subagent support,
+// each with a genuinely different file format/location -- verified against each harness's own
+// official docs (see the per-compiler comments below for exact sources).
+export const SUPPORTED_PERSONA_SYNC_AGENTS = agentsWithCapability('nativeSubagents');
 export type PersonaSyncAgent = (typeof SUPPORTED_PERSONA_SYNC_AGENTS)[number];
 
-const PERSONA_TARGET_ROOTS: Record<PersonaSyncAgent, (cwd: string) => string> = {
+export type CompiledPersona = { fileName: string; content: string };
+
+// Exported for src/utils/drift.ts: doctor's drift check needs to recompute each harness's
+// expected file location/content to compare against what's actually installed.
+export const PERSONA_TARGET_ROOTS: Record<PersonaSyncAgent, (cwd: string) => string> = {
   claude: cwd => path.join(cwd, '.claude', 'agents'),
-  codex: cwd => path.join(cwd, '.agents', 'personas'),
-  copilot: cwd => path.join(cwd, '.github', 'personas'),
-  cursor: cwd => path.join(cwd, '.cursor', 'personas')
+  codex: cwd => path.join(cwd, '.codex', 'agents'),
+  copilot: cwd => path.join(cwd, '.github', 'agents'),
+  cursor: cwd => path.join(cwd, '.cursor', 'agents')
 };
+
+const PERSONA_COMPILERS: Record<PersonaSyncAgent, (persona: Persona) => CompiledPersona> = {
+  claude: renderClaudeSubagent,
+  codex: renderCodexSubagent,
+  copilot: renderCopilotSubagent,
+  cursor: renderCursorSubagent
+};
+
+export function compilePersonaFile(agent: PersonaSyncAgent, persona: Persona): CompiledPersona {
+  return PERSONA_COMPILERS[agent](persona);
+}
 
 export async function personasSyncCommand(agents: string[] = []) {
   const targets = agents.length ? agents : [...SUPPORTED_PERSONA_SYNC_AGENTS];
@@ -61,8 +75,7 @@ export async function personasSyncCommand(agents: string[] = []) {
       const persona = await loadPersona(workspaceRoot, name);
       if (!persona) continue;
 
-      const content = isCapableOf('nativeSubagents')(agent) ? renderNativeSubagent(persona) : renderFallbackInstructions(name, persona);
-      const fileName = `${name}.md`;
+      const { fileName, content } = PERSONA_COMPILERS[agent](persona);
       const destination = path.join(PERSONA_TARGET_ROOTS[agent](workspaceRoot), fileName);
       await writeText(destination, content);
       console.log(chalk.green(`Compiled persona '${name}' for ${agent}: ${path.relative(workspaceRoot, destination)}`));
@@ -77,25 +90,71 @@ export async function personasSyncCommand(agents: string[] = []) {
   }
 }
 
-// Claude Code's real, documented subagent format: YAML frontmatter (name, description -- used by
-// Claude's own automatic-delegation heuristic to decide when to reach for this subagent) plus the
-// persona body as the subagent's system prompt.
-function renderNativeSubagent(persona: Persona): string {
-  const description = persona.description ?? `ctxhub persona: ${persona.name}`;
-  return `---
+// Claude Code: .claude/agents/<name>.md -- YAML frontmatter (name, description; optionally tools,
+// model, which ctxhub doesn't set, leaving them at their inherit-all/default-model behavior) plus
+// the persona body as the subagent's system prompt. Verified live against the real `claude` CLI
+// (`claude --agent <name> -p ...` responded in the persona's own voice).
+function renderClaudeSubagent(persona: Persona): CompiledPersona {
+  return {
+    fileName: `${persona.name}.md`,
+    content: `---
 name: ${persona.name}
-description: ${description}
+description: ${personaDescription(persona)}
 ---
 
 ${persona.body.trim()}
-`;
+`
+  };
 }
 
-function renderFallbackInstructions(name: string, persona: Persona): string {
-  return `<!-- Compiled by \`ctxhub personas sync\` from agents/personas/${name}.md -- edit that file, not this one. -->
+// Codex CLI: .codex/agents/<name>.toml -- TOML, required fields name/description/
+// developer_instructions (https://developers.openai.com/codex/subagents). Distinct from the other
+// three: TOML, not Markdown, and the instructions live in a named field, not the file body.
+function renderCodexSubagent(persona: Persona): CompiledPersona {
+  return {
+    fileName: `${persona.name}.toml`,
+    content: stringify({
+      name: persona.name,
+      description: personaDescription(persona),
+      developer_instructions: persona.body.trim()
+    })
+  };
+}
+
+// GitHub Copilot CLI: .github/agents/<name>.agent.md -- YAML frontmatter where `description` is
+// the only strictly required field (name/tools/model are optional and inherit sensible defaults)
+// (https://docs.github.com/en/copilot/reference/custom-agents-configuration). Note the distinct
+// `.agent.md` filename, not plain `.md`.
+function renderCopilotSubagent(persona: Persona): CompiledPersona {
+  return {
+    fileName: `${persona.name}.agent.md`,
+    content: `---
+name: ${persona.name}
+description: ${personaDescription(persona)}
+---
 
 ${persona.body.trim()}
-`;
+`
+  };
+}
+
+// Cursor: .cursor/agents/<name>.md -- YAML frontmatter (name, description; optional model,
+// defaulting to "inherit") plus the persona body as the prompt (https://cursor.com/docs/subagents).
+function renderCursorSubagent(persona: Persona): CompiledPersona {
+  return {
+    fileName: `${persona.name}.md`,
+    content: `---
+name: ${persona.name}
+description: ${personaDescription(persona)}
+---
+
+${persona.body.trim()}
+`
+  };
+}
+
+function personaDescription(persona: Persona): string {
+  return persona.description ?? `ctxhub persona: ${persona.name}`;
 }
 
 async function configuredRepoRoots(config: CtxhubConfig | undefined, workspaceRoot: string): Promise<string[]> {

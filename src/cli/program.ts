@@ -305,6 +305,7 @@ export function buildProgram(): Command {
     .option('--fix', 'Apply safe, low-risk automatic fixes (missing dirs, default privacy config)')
     .option('--dry-run', 'With --fix, explain intended changes without applying them')
     .option('--fix-skills', 'With --fix, reinstall stale skill files (overwrites installed skill files)')
+    .option('--fix-personas', 'With --fix, recompile stale persona files (overwrites installed persona files)')
     .option('--plain', 'Print plain health-check output')
     .option('--no-interactive', 'Disable the live checklist')
     .addOption(

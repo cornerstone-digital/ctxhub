@@ -5,6 +5,7 @@ import { defaultConfig } from '../config/defaultConfig.js';
 import { ensureDir, pathExists } from '../utils/fs.js';
 import { detectDrift } from '../utils/drift.js';
 import { skillsInstallCommand } from './skills.js';
+import { personasSyncCommand } from './personas.js';
 import { CONFIG_WRITERS, SUPPORTED_AGENTS, type SupportedAgent } from './agent.js';
 import { buildDoctorChecks, printCheckLine, runDoctorChecks } from './doctorChecks.js';
 import { runDoctorChecklist } from '../tui/progress/DoctorChecklistApp.js';
@@ -15,6 +16,7 @@ export type DoctorFixOptions = {
   dryRun?: boolean;
   fixSkills?: boolean;
   fixAgent?: string;
+  fixPersonas?: boolean;
   interactive?: boolean;
   plain?: boolean;
 };
@@ -71,6 +73,18 @@ export async function doctorCommand(opts: DoctorFixOptions = {}) {
     }
   } else if (drift.staleSkills.length) {
     console.log(chalk.gray(`  (${drift.staleSkills.length} stale skill file(s) found — re-run with --fix-skills to reinstall them)`));
+  }
+
+  if (opts.fixPersonas) {
+    const staleAgents = [...new Set(drift.stalePersonas.map(key => key.split(':')[0]))];
+    for (const agent of staleAgents) {
+      actions.push({
+        description: `Recompile stale ${agent} persona file(s)`,
+        apply: () => personasSyncCommand([agent])
+      });
+    }
+  } else if (drift.stalePersonas.length) {
+    console.log(chalk.gray(`  (${drift.stalePersonas.length} stale persona file(s) found — re-run with --fix-personas to recompile them)`));
   }
 
   if (opts.fixAgent) {
