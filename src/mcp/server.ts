@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { loadWorkspaceConfig, STATS_PATH } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
-import { readMempalaceStatusSummary, searchMempalace, timelineMempalace } from '../memory/mempalaceCli.js';
+import { addDrawerMempalace, readMempalaceStatusSummary, searchMempalace, timelineMempalace, writeDiaryMempalace } from '../memory/mempalaceCli.js';
 import { createContextPack } from '../context/pack.js';
 import { getFileContext } from '../context/fileContext.js';
 import { indexWorkspace } from '../indexing/indexer.js';
@@ -45,11 +45,14 @@ export function createCtxhubMcpServer(
   cwd = process.cwd(),
   opts: {
     allowIndex?: boolean;
+    allowMemoryWrite?: boolean;
     startedAt?: number;
     runAgentPromptFn?: typeof runAgentPrompt;
     readMempalaceStatusSummaryFn?: typeof readMempalaceStatusSummary;
     searchMempalaceFn?: typeof searchMempalace;
     timelineMempalaceFn?: typeof timelineMempalace;
+    addDrawerMempalaceFn?: typeof addDrawerMempalace;
+    writeDiaryMempalaceFn?: typeof writeDiaryMempalace;
   } = {}
 ): McpServer {
   const server = new McpServer({ name: 'ctxhub', version: getPackageVersion() });
@@ -330,6 +333,66 @@ export function createCtxhubMcpServer(
     );
   }
 
+  // A separate opt-in gate from --allow-index: writing to durable MemPalace memory is a
+  // different kind of mutation than re-indexing this workspace's own content, so allowing one
+  // shouldn't silently allow the other. Thin passthroughs to the same ctxhub memory add/diary
+  // CLI commands -- not a second memory implementation, see ROADMAP.md's "Not planned" section.
+  if (opts.allowMemoryWrite) {
+    server.registerTool(
+      'memory_add',
+      {
+        title: 'Add durable MemPalace memory',
+        description:
+          'Opt-in mutating tool. File a durable memory drawer in MemPalace (not the repo/source index). Only ' +
+          'available when ctxhub mcp starts with --allow-memory-write. Thin passthrough to `ctxhub memory add`.',
+        inputSchema: {
+          content: z.string().describe('The memory content to store'),
+          wing: z.string().describe('MemPalace wing/project to file this under'),
+          room: z.string().describe('MemPalace room within the wing'),
+          source_file: z.string().optional().describe('Optional source file this memory relates to'),
+          added_by: z.string().optional().describe('Optional attribution (default: ctxhub-memory-add)')
+        }
+      },
+      async ({ content, wing, room, source_file, added_by }) => {
+        const { config, workspaceRoot } = await workspace(cwd);
+        const result = await (opts.addDrawerMempalaceFn ?? addDrawerMempalace)(config, workspaceRoot, {
+          wing,
+          room,
+          content,
+          sourceFile: source_file,
+          addedBy: added_by
+        });
+        return textResult(result);
+      }
+    );
+
+    server.registerTool(
+      'diary_write',
+      {
+        title: 'Write a MemPalace diary entry',
+        description:
+          'Opt-in mutating tool. Write a diary-style session note to MemPalace. Only available when ctxhub mcp ' +
+          'starts with --allow-memory-write. Thin passthrough to `ctxhub memory diary`.',
+        inputSchema: {
+          entry: z.string().describe('The diary entry content'),
+          agent_name: z.string().describe('Name of the agent writing this entry'),
+          topic: z.string().optional().describe('Optional topic label (default: general)'),
+          wing: z.string().optional().describe('Optional MemPalace wing/project to scope this to')
+        }
+      },
+      async ({ entry, agent_name, topic, wing }) => {
+        const { config, workspaceRoot } = await workspace(cwd);
+        const result = await (opts.writeDiaryMempalaceFn ?? writeDiaryMempalace)(config, workspaceRoot, {
+          agentName: agent_name,
+          entry,
+          topic,
+          wing
+        });
+        return textResult(result);
+      }
+    );
+  }
+
   server.registerTool(
     'architecture_search',
     {
@@ -420,7 +483,7 @@ function countResultTypes(results: Array<Parameters<typeof classifyResult>[0]>):
 // either way, but there's no reason to spend more of it than a minute's worth of latency.
 const STALE_POLL_MS = 60_000;
 
-export async function startMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean; restartOnStale?: boolean } = {}): Promise<void> {
+export async function startMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean; allowMemoryWrite?: boolean; restartOnStale?: boolean } = {}): Promise<void> {
   const startedAt = Date.now();
   const server = createCtxhubMcpServer(cwd, { ...opts, startedAt });
   const transport = new StdioServerTransport();

@@ -13,7 +13,13 @@ import { indexWorkspace } from '../indexing/indexer.js';
 async function withConnectedClient(
   cwd: string,
   run: (client: Client) => Promise<void>,
-  opts: { allowIndex?: boolean; runAgentPromptFn?: (config: unknown, prompt: string) => Promise<unknown> } = {}
+  opts: {
+    allowIndex?: boolean;
+    allowMemoryWrite?: boolean;
+    runAgentPromptFn?: (config: unknown, prompt: string) => Promise<unknown>;
+    addDrawerMempalaceFn?: (...args: unknown[]) => Promise<unknown>;
+    writeDiaryMempalaceFn?: (...args: unknown[]) => Promise<unknown>;
+  } = {}
 ) {
   const server = createCtxhubMcpServer(cwd, opts);
   const client = new Client({ name: 'test-client', version: '0.0.0' });
@@ -129,6 +135,64 @@ test('mcp mutating index tools are only listed when explicitly enabled', () => {
       assert.ok(names.includes('index_workspace'));
       assert.ok(names.includes('sync_workspace'));
     }, { allowIndex: true })
+  );
+});
+
+test('mcp mutating memory-write tools are absent by default and only listed with --allow-memory-write', () => {
+  return withWorkspace(async cwd => {
+    await withConnectedClient(cwd, async client => {
+      const { tools } = await client.listTools();
+      const names = tools.map(t => t.name);
+      assert.ok(!names.includes('memory_add'));
+      assert.ok(!names.includes('diary_write'));
+    });
+
+    await withConnectedClient(cwd, async client => {
+      const { tools } = await client.listTools();
+      const names = tools.map(t => t.name).sort();
+      assert.ok(names.includes('memory_add'));
+      assert.ok(names.includes('diary_write'));
+    }, { allowMemoryWrite: true });
+  });
+});
+
+test('mcp memory_add tool passes wing/room/content through to MemPalace and returns its result', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(cwd, async client => {
+      const result = await client.callTool({
+        name: 'memory_add',
+        arguments: { content: 'we chose JWT for auth', wing: 'app', room: 'decisions', source_file: 'auth.ts' }
+      });
+      const payload = firstTextPayload(result as never) as { success: boolean; drawer_id: string };
+      assert.equal(payload.success, true);
+      assert.equal(payload.drawer_id, 'drawer-123');
+    }, {
+      allowMemoryWrite: true,
+      addDrawerMempalaceFn: async (_config, _workspaceRoot, input) => {
+        assert.deepEqual(input, { wing: 'app', room: 'decisions', content: 'we chose JWT for auth', sourceFile: 'auth.ts', addedBy: undefined });
+        return { success: true, drawer_id: 'drawer-123' };
+      }
+    } as never)
+  );
+});
+
+test('mcp diary_write tool passes agent/entry/topic through to MemPalace and returns its result', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(cwd, async client => {
+      const result = await client.callTool({
+        name: 'diary_write',
+        arguments: { entry: 'Investigated the auth flow today', agent_name: 'claude', topic: 'auth-migration' }
+      });
+      const payload = firstTextPayload(result as never) as { success: boolean; entry_id: string };
+      assert.equal(payload.success, true);
+      assert.equal(payload.entry_id, 'diary-123');
+    }, {
+      allowMemoryWrite: true,
+      writeDiaryMempalaceFn: async (_config, _workspaceRoot, input) => {
+        assert.deepEqual(input, { agentName: 'claude', entry: 'Investigated the auth flow today', topic: 'auth-migration', wing: undefined });
+        return { success: true, entry_id: 'diary-123' };
+      }
+    } as never)
   );
 });
 

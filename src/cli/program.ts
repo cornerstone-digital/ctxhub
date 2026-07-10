@@ -281,6 +281,7 @@ export function buildProgram(): Command {
     .command('mcp')
     .description('Start the ctxhub MCP server (stdio) for AI agent tool use')
     .option('--allow-index', 'Expose opt-in mutating index/sync tools over MCP')
+    .option('--allow-memory-write', 'Expose opt-in mutating MemPalace write tools (memory_add, diary_write) over MCP')
     .option('--restart-on-stale', 'Exit when a newer build is detected on disk (only an effective restart if your MCP host auto-respawns a stopped server)')
     .action(mcpCommand);
 

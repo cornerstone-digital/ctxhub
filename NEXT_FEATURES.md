@@ -7,7 +7,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [ ] Report-first memory workspace UX
 - [ ] Memory provenance and backlinks
 - [ ] Graph interaction and navigation polish
-- [ ] MCP write-surface parity for durable memory
+- [x] MCP write-surface parity for durable memory
 - [ ] Memory workflow automation and promotion paths
 - [ ] Collaborative review mode with built-in reviewer personas
 - [ ] Reviewer profiles (custom, pluggable reviewer personas)
@@ -163,7 +163,7 @@ Acceptance criteria:
 
 ## 25. MCP Write-Surface Parity For Durable Memory
 
-**Status:** Not started
+**Status:** Done
 
 **MCP:** extend `ctxhub mcp`
 
@@ -192,9 +192,23 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Agents can file durable memory through ctxhub-shaped MCP tools without losing wing/room control.
-- The wrappers are clearly documented as passthroughs to MemPalace, not a second storage system.
-- The read/write split between ctxhub and MemPalace becomes simpler, not more confusing.
+- Agents can file durable memory through ctxhub-shaped MCP tools without losing wing/room control. ✓
+  (`memory_add(content, wing, room, source_file?, added_by?)`, `diary_write(entry, agent_name,
+  topic?, wing?)`.)
+- The wrappers are clearly documented as passthroughs to MemPalace, not a second storage system. ✓
+- The read/write split between ctxhub and MemPalace becomes simpler, not more confusing. ✓ (one
+  ctxhub-shaped tool family for both read and write, same wing/room vocabulary throughout.)
+
+Implemented as a **separate** opt-in gate from `--allow-index`: `ctxhub mcp --allow-memory-write`.
+Deliberately not reusing `--allow-index` -- re-indexing this workspace's own content and writing to
+a user's durable MemPalace memory are different kinds of mutation, and allowing one shouldn't
+silently allow the other. Both tools are thin passthroughs to the already-existing
+`addDrawerMempalace`/`writeDiaryMempalace` (now fixed, see the 2026-07-10 update below), following
+the exact `if (opts.allowX) { registerTool(...) }` precedent already used for
+`index_workspace`/`sync_workspace`. Verified via a real MCP client/server round trip
+(`InMemoryTransport`, not a mock of the MCP layer) with injected backend functions -- the
+underlying MemPalace calls themselves were already proven against a real palace while fixing the
+stdout/stderr bug below, so this item's testing focused on the new wiring, not repeating that.
 
 **2026-07-10 update:** before building this, a real bug was found and fixed in the underlying
 passthroughs this item would wrap. `timelineMempalace`/`addDrawerMempalace`/`writeDiaryMempalace`
