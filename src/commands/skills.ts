@@ -5,8 +5,9 @@ import chalk from 'chalk';
 import { ensureDir, pathExists, readText, writeText } from '../utils/fs.js';
 import { loadWorkspaceConfig } from '../config/config.js';
 import type { CtxhubConfig } from '../config/types.js';
+import { agentsWithCapability } from '../llm/harness.js';
 
-export const SUPPORTED_SKILL_AGENTS = ['claude', 'codex', 'copilot', 'cursor'] as const;
+export const SUPPORTED_SKILL_AGENTS = agentsWithCapability('skills');
 export type SkillAgent = (typeof SUPPORTED_SKILL_AGENTS)[number];
 const SUPPORTED_SKILL_IDS = ['ctxhub', 'ctxhub-search', 'ctxhub-context', 'ctxhub-note', 'ctxhub-diagram'] as const;
 type SkillId = (typeof SUPPORTED_SKILL_IDS)[number];

@@ -11,7 +11,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Memory workflow automation and promotion paths
 - [x] Collaborative review mode with built-in reviewer personas
 - [x] Reviewer profiles (custom, pluggable reviewer personas)
-- [ ] Harness capability abstraction
+- [x] Harness capability abstraction
 - [ ] Evidence-backed confidence scoring
 - [ ] OSS adoption kit
 
@@ -440,7 +440,7 @@ a `--profiles`-pointed custom persona) plus the live `claude` CLI run described 
 
 ## 29. Harness Capability Abstraction
 
-**Status:** Not started
+**Status:** Done
 
 **Refactor:** `src/commands/agent.ts`, `src/commands/skills.ts`, `src/llm/runAgent.ts`
 
@@ -469,8 +469,23 @@ Implementation notes:
 Acceptance criteria:
 
 - Adding a new harness (or a new capability to an existing one) requires touching one place, not
-  three independently-maintained lists.
-- No behavior change for `claude`/`codex`/`copilot`/`cursor` support as it exists today.
+  three independently-maintained lists. ✓ (new `src/llm/harness.ts` exports one
+  `AGENT_CAPABILITIES: Record<LlmAgentName, { mcpConfig; skills; headlessInvocation }>` table;
+  `SUPPORTED_AGENTS`/`SUPPORTED_SKILL_AGENTS`/`LLM_AGENTS` are now one-line derivations
+  (`agentsWithCapability('mcpConfig' | 'skills' | 'headlessInvocation')`) instead of independently
+  hand-maintained arrays.)
+- No behavior change for `claude`/`codex`/`copilot`/`cursor` support as it exists today. ✓ (a
+  type-predicate filter (`isCapableOf`) preserves each list's exact historical narrow TypeScript
+  type -- e.g. `SupportedAgent` still excludes `"cursor"`, so `Record<SupportedAgent, ...>`
+  exhaustiveness checks like `agent.ts`'s `CONFIG_WRITERS` still fail to compile if a `cursor` case
+  is missing, exactly as before. Verified live: `ctxhub agent cursor --help`/`ctxhub agent --help`
+  still show only claude/codex/copilot as valid choices, `ctxhub skills install --help` still shows
+  all 4 -- unchanged from before this refactor.)
+
+Verified via a new `src/llm/harness.test.ts` pinning all three derived lists to their historical
+exact membership, plus the standard revert-and-confirm-fail check: temporarily flipping
+`cursor.mcpConfig` to `true` in `AGENT_CAPABILITIES` was confirmed to fail that pinning test before
+being reverted.
 
 ## 30. Evidence-Backed Confidence Scoring
 

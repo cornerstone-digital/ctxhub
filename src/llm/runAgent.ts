@@ -4,8 +4,9 @@ import { rm } from 'node:fs/promises';
 import { execa } from '../utils/execa-lite.js';
 import { readText } from '../utils/fs.js';
 import type { CtxhubConfig, LlmAgentName } from '../config/types.js';
+import { agentsWithCapability } from './harness.js';
 
-export const LLM_AGENTS = ['claude', 'codex', 'copilot', 'cursor'] as const satisfies readonly LlmAgentName[];
+export const LLM_AGENTS = agentsWithCapability('headlessInvocation');
 
 export type RunAgentResult =
   | { ok: true; text: string }

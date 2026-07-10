@@ -6,10 +6,11 @@ import { parse, stringify } from 'smol-toml';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 import { loadConfig, loadWorkspaceConfig } from '../config/config.js';
 import { isMempalaceAvailable } from '../memory/LocalJsonMemory.js';
+import { agentsWithCapability } from '../llm/harness.js';
 
 export const MCP_CONFIG_FILE = '.mcp.json';
 export const CODEX_CONFIG_FILE = path.join('.codex', 'config.toml');
-export const SUPPORTED_AGENTS = ['claude', 'codex', 'copilot'] as const;
+export const SUPPORTED_AGENTS = agentsWithCapability('mcpConfig');
 export type SupportedAgent = (typeof SUPPORTED_AGENTS)[number];
 
 export type AgentConfigResult = { path: string; changed: boolean; note?: string };
