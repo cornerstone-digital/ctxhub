@@ -141,6 +141,44 @@ test('reportCommand emits a syntactically valid client-side script whose jump-to
   });
 });
 
+test('reportCommand attaches an evidence-backed confidence score to every item and graph node (NEXT_FEATURES #30)', () => {
+  return withWorkspace(async cwd => {
+    await indexWorkspace(cwd);
+    const output = path.join(cwd, 'report.html');
+    await captureLog(() => reportCommand(
+      { output, memoryQuery: 'setup' },
+      {
+        readMempalaceSummary: async () => ({ available: true, items: [] }),
+        searchMempalaceFn: async () => ({
+          query: 'setup',
+          results: [{ wing: 'app', room: 'decisions', source_file: 'README.md', text: 'How to set this up, per the README.', created_at: '2026-01-01T00:00:00.000Z' }]
+        })
+      }
+    ));
+
+    const html = await readText(output);
+    const dataMatch = html.match(/<script id="ctxhub-report-data"[^>]*>([\s\S]*?)<\/script>/);
+    const items = JSON.parse(dataMatch?.[1].replaceAll('<\\/', '</') ?? '[]');
+    assert.ok(items.length > 0);
+    for (const item of items) {
+      assert.ok(item.confidence, `every item should carry a confidence score: ${JSON.stringify(item)}`);
+      assert.ok(item.confidence.score >= 0 && item.confidence.score <= 1);
+    }
+
+    const graphMatch = html.match(/<script id="ctxhub-report-graph"[^>]*>([\s\S]*?)<\/script>/);
+    const graph = JSON.parse(graphMatch?.[1].replaceAll('<\\/', '</') ?? '{}');
+    const fileNode = graph.nodes.find((node: { id: string }) => node.id === 'file:app:README.md');
+    assert.ok(fileNode.confidence, 'file node should carry confidence');
+    const hitNode = graph.nodes.find((node: { type: string }) => node.type === 'memory-hit');
+    assert.ok(hitNode.confidence, 'memory-hit node should carry confidence');
+
+    // The client script must render the score itself plus a factor breakdown, not just a bare number.
+    assert.match(html, /confidence.*Math\.round\(item\.confidence\.score \* 100\)/s);
+    assert.match(html, /Source type weight/);
+    assert.match(html, /Corroborating sources/);
+  });
+});
+
 test('reportCommand embeds graph node-class checkboxes, a focus-neighborhood toggle, and resolves repo nodes to absolute paths (NEXT_FEATURES #24)', () => {
   return withWorkspace(async cwd => {
     await indexWorkspace(cwd);

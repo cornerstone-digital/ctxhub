@@ -7,6 +7,7 @@ import { attachFreshness } from '../context/freshness.js';
 import { writeText } from '../utils/fs.js';
 import type { SearchResult } from '../config/types.js';
 import { readMempalaceStatusSummary, searchMempalace, timelineMempalace } from '../memory/mempalaceCli.js';
+import { computeConfidence, type ConfidenceResult } from '../context/confidence.js';
 
 const RECENT_LIMIT = 40;
 
@@ -26,6 +27,9 @@ type ReportItem = {
   // MemPalace hit says it's about, used to build backlinks to the matching file node below.
   sourceFile?: string;
   timestamp?: string;
+  // NEXT_FEATURES #30 -- computed once the full item set is known (needs `allItems` for
+  // corroboration), so it's populated after construction rather than at each item's literal.
+  confidence?: ConfidenceResult;
 };
 
 type ReportGraphNode = {
@@ -39,6 +43,7 @@ type ReportGraphNode = {
   stale?: boolean;
   sourceFile?: string;
   timestamp?: string;
+  confidence?: ConfidenceResult;
 };
 
 type ReportGraphEdge = {
@@ -151,6 +156,9 @@ export async function reportCommand(
     ...memory.items,
     ...reportMemorySearchItems(memoryHits)
   ];
+  for (const item of items) {
+    item.confidence = computeConfidence(item, items);
+  }
   // Resolve to absolute paths (NEXT_FEATURES #24 "jump to file") so the client can construct a
   // real file:// link from a repo node's path + a file node's repo-relative path, without needing
   // the workspace root embedded separately.
@@ -176,6 +184,7 @@ export async function reportCommand(
   .item .meta{color:#666;font-size:.85rem}
   .badge{display:inline-block;font-size:.75rem;padding:.1rem .4rem;border-radius:4px;background:#eee;margin-left:.4rem}
   .badge.stale{background:#e0a800;color:#fff}
+  .badge.confidence{background:#0f766e;color:#fff}
   .toolbar{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem}
   .toolbar button{padding:.45rem .7rem;border:1px solid #ccc;border-radius:999px;background:#fff;cursor:pointer}
   .toolbar button.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
@@ -409,7 +418,8 @@ export async function reportCommand(
       .map(function (item) {
         shown++;
         var badges = '<span class="badge">' + escapeHtml(item.section) + '</span>' +
-          (item.stale ? '<span class="badge stale">stale</span>' : '');
+          (item.stale ? '<span class="badge stale">stale</span>' : '') +
+          (item.confidence ? '<span class="badge confidence" title="Evidence-backed confidence, not a model self-rating">' + Math.round(item.confidence.score * 100) + '% confidence</span>' : '');
         return '<li class="item' + (item.stale ? ' stale' : '') + '">' +
           '<strong>' + escapeHtml(item.repo) + '</strong> ' + escapeHtml(item.path) + badges +
           '<div class="meta">' + escapeHtml(item.title) + (item.lastIndexed ? ' &middot; indexed ' + escapeHtml(item.lastIndexed) : '') + '</div>' +
@@ -561,6 +571,22 @@ export async function reportCommand(
       '<a href="file://' + encodeURI(fullPath) + '">Open</a></p>';
   }
 
+  // NEXT_FEATURES #30: the score alone isn't inspectable -- show the signals it's made of, not
+  // just the number, so a user can judge whether they trust it themselves.
+  function confidenceBreakdown(node) {
+    if (!node.confidence) return '';
+    var factors = node.confidence.factors;
+    return [
+      '<p><strong>Confidence:</strong> ' + Math.round(node.confidence.score * 100) + '%</p>',
+      '<ul>',
+      '<li>Source type weight: ' + Math.round(factors.sourceTypeWeight * 100) + '%</li>',
+      '<li>Recency: ' + Math.round(factors.recencyScore * 100) + '%</li>',
+      '<li>Doc/code agreement: ' + escapeHtml(factors.docCodeAgreement) + '</li>',
+      '<li>Corroborating sources: ' + factors.corroboratingSources + '</li>',
+      '</ul>'
+    ].join('');
+  }
+
   function updateSelection() {
     var selectedNode = graphElements.nodes.find(function (entry) { return entry.data.id === selectedNodeId; });
     var selectedEdge = graphElements.edges.find(function (entry) { return edgeKey(entry.data) === selectedEdgeKey; });
@@ -615,6 +641,7 @@ export async function reportCommand(
       selectedNode.data.title ? '<p><strong>Title:</strong> ' + escapeHtml(selectedNode.data.title) + '</p>' : '',
       selectedNode.data.snippet ? '<p><strong>Snippet:</strong> ' + escapeHtml(selectedNode.data.snippet) + '</p>' : '',
       jumpToFileLink(selectedNode.data),
+      confidenceBreakdown(selectedNode.data),
       '<p><strong>Neighbors:</strong></p>',
       neighbors.length ? '<ul>' + neighbors.map(function (value) { return '<li>' + escapeHtml(value) + '</li>'; }).join('') + '</ul>' : '<p>None</p>'
     ].join('');
@@ -735,7 +762,8 @@ export function buildReportGraphData(
           title: item.title,
           snippet: item.snippet,
           sourceFile: item.sourceFile,
-          timestamp: item.timestamp
+          timestamp: item.timestamp,
+          confidence: item.confidence
         });
       }
       addEdge(edges, { source: wingId, target: roomId, type: 'memory-contains' });
@@ -754,7 +782,8 @@ export function buildReportGraphData(
         path: item.path,
         title: item.title,
         snippet: item.snippet,
-        stale: item.stale
+        stale: item.stale,
+        confidence: item.confidence
       });
     }
     addEdge(edges, { source: repoId, target: fileId, type: 'contains' });

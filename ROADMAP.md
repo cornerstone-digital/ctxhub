@@ -33,6 +33,8 @@
 
 - Internal refactor: `src/llm/harness.ts`'s `AGENT_CAPABILITIES` table is now the single source of truth for what "supporting a harness" means (MCP config writing, skill install, headless LLM invocation), replacing three independently-maintained agent-name lists in `agent.ts`/`skills.ts`/`runAgent.ts`. Pure consolidation, no user-facing behavior change -- `cursor` still has no MCP-config-writing support, now visible in one place instead of three.
 
+- `src/context/confidence.ts`'s `computeConfidence()` scores a provenance-bearing item (0-1) from real, inspectable signals only -- source type weight, recency decay, doc/code agreement (does it still match current repo state, or a resolved source file's state), and count of independent corroborating sources -- never a model's own self-reported confidence, and never an LLM call. Wired into `ctxhub report`'s list badges and graph detail panel; not yet wired into `ctxhub review` since review findings aren't structured evidence items yet.
+
 ## Planned
 
 - AI-generated documentation validation

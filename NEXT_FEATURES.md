@@ -12,7 +12,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Collaborative review mode with built-in reviewer personas
 - [x] Reviewer profiles (custom, pluggable reviewer personas)
 - [x] Harness capability abstraction
-- [ ] Evidence-backed confidence scoring
+- [x] Evidence-backed confidence scoring
 - [ ] OSS adoption kit
 
 Items 6-10 above come from an external competitive/positioning deep-dive
@@ -489,7 +489,7 @@ being reverted.
 
 ## 30. Evidence-Backed Confidence Scoring
 
-**Status:** Not started
+**Status:** Done
 
 **Depends on:** #23 (Memory Provenance And Backlinks)
 
@@ -515,9 +515,27 @@ Implementation notes:
 Acceptance criteria:
 
 - Score is computed from real, inspectable signals; a user can see why a result scored the way it
-  did, not just the number.
-- Available without `llm.enabled`.
-- Does not block on or require #27/#28 to land first, only #23.
+  did, not just the number. ✓ (`computeConfidence()` returns `{ score, factors: { sourceTypeWeight,
+  recencyScore, docCodeAgreement, corroboratingSources } }`; `ctxhub report`'s graph detail panel
+  renders all four factors, not just the score, and the list view shows the score as a badge.)
+- Available without `llm.enabled`. ✓ (pure function, no `runAgentPrompt`/LLM call anywhere in
+  `src/context/confidence.ts`.)
+- Does not block on or require #27/#28 to land first, only #23. ✓ (only consumes the
+  `sourceFile`/`timestamp`/`stale` fields #23 already added to `ReportItem`.)
+
+Implemented as new `src/context/confidence.ts` (`computeConfidence(item, allItems, now?)`),
+deliberately decoupled from `commands/report.ts`'s `ReportItem` type (a structurally-compatible
+`ConfidenceEvidenceItem` type instead), so it stays a `context/`-layer primitive rather than
+depending on a specific command. Wired into `ctxhub report`: every item and its corresponding
+file/memory-hit graph node now carries a `confidence` score, visible as a list-view badge and a
+full factor breakdown in the graph detail panel. Not yet wired into `ctxhub review` (#27/#28) --
+review findings are currently free-text lines, not structured provenance items with repo/path/
+timestamp, so there is nothing yet to hand `computeConfidence()` there; restructuring review
+findings into evidence items is a reasonable follow-up, not silently skipped scope, just not forced
+into this item for its own sake. Verified with 11 pure unit tests (weighting, recency decay,
+corroboration independence rules, all four `docCodeAgreement` outcomes, score clamping) plus a real
+end-to-end `reportCommand` render confirming the embedded client script stays syntactically valid
+and scores compute correctly against real item data.
 
 ## 31. OSS Adoption Kit
 
