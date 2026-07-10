@@ -247,24 +247,45 @@ prerequisite for every later phase without requiring any of them to exist.
       workspace, and confirmed `list_workspaces` and `call_workspace_tool` → `search` returned the
       workspace's real indexed content, while an unregistered workspace name cleanly errored.
 
-### Phase 6 — Fleet Captain / Workspace Captain (the orchestration pillar's core deliverable)
+### Phase 6 — Fleet Captain / Workspace Captain (shipped: manual trigger, scheduled trigger deferred)
 
-- [ ] Sequenced last because it depends on every earlier phase (registry, service, Execution
-      Profiles, MCP Gateway) actually existing, not because it's in doubt — this is the piece that
-      makes ctxhub a genuine personal orchestration framework rather than a set of building blocks
-      for one. A Captain is a scheduled/triggered task dispatcher that picks a workspace + persona +
-      execution profile and calls `runAgentPrompt` headlessly (same mechanism as every other
-      LLM-backed feature today, just triggered by the service instead of a person typing a command)
-      — not a new autonomous-execution runtime; it still delegates to whichever harness CLI is
-      configured.
-- [ ] Approval gating (the brief's "Approvals queue") is not optional for this phase: anything a
-      Captain does unattended needs a human-in-the-loop checkpoint before it writes anything,
-      consistent with how invasive fixes already require opt-in flags elsewhere in ctxhub
-      (`--fix-skills`, `--fix-personas`, `--allow-index`, `--allow-memory-write`).
-- [ ] This is also where "customizable" should show up concretely: Captain routing rules, which
-      persona/execution-profile combination handles which kind of trigger, and approval thresholds
-      should be plain, editable config (mirroring how personas/policies/execution profiles are all
-      already just files a user edits), not hardcoded dispatch logic.
+- [x] A Captain task is plain, editable config (`~/.ctxhub/captains.json` via
+      `src/captains/tasks.ts` -- `ctxhub captain add/list/remove`): `{ name, workspace, query,
+      persona?, profile? }`. Deliberately *not* a bare free-floating prompt: running a task means
+      calling the exact same evidence-grounded `createExplainResult` machinery every other
+      persona-driven command already uses, headlessly, against the named registered workspace --
+      "a Captain" is "run `ctxhub explain` unattended, on a trigger, against a workspace," not a
+      new inference path. `persona`/`profile` reuse Phases 4's Execution Profile resolution
+      exactly as `explain --as`/`--profile` already do.
+- [x] `ctxhub captain run <name>` (`src/captains/runner.ts`) is the trigger for this phase --
+      manual, on demand. **Scheduled/triggered-by-the-service execution was not built in this
+      pass**: the natural next step is the Phase 2 service polling task definitions on an interval
+      and calling the same `runCaptainTask` function; tracked as a real, small follow-up, not
+      silently dropped -- `ctxhub captain run` alone is already useful and fully proves the
+      dispatch model this phase exists to validate.
+- [x] Approval gating (the brief's "Approvals queue") is real, not optional: `runCaptainTask`
+      *never* writes to a repo. It only ever writes its full result to a user-level, non-git-tracked
+      pending-runs queue (`~/.ctxhub/captains/<task>/<runId>.json`, `ctxhub captain approvals
+      <task>` lists them). The one deliberate, human-invoked action that turns a pending run into
+      a real, team-visible artifact is `ctxhub captain promote <task> <runId> <repo>` -- which
+      reuses `note.ts`'s existing `draftedNoteTemplate` unmodified (the exact same "AI draft,
+      review before merge" shape `note add --draft` already produces) rather than inventing a
+      second promoted-content format. This mirrors the same human-in-the-loop discipline every
+      other invasive/write-capable ctxhub feature already requires (`--fix-skills`,
+      `--fix-personas`, `--allow-index`, `--allow-memory-write`).
+- [x] "Customizable" shows up concretely here: task definitions (which workspace, what question,
+      which persona/profile) are a plain JSON file a user edits directly -- the same "config, not
+      hardcoded dispatch logic" pattern personas/policies/execution profiles already established.
+- [x] Unit tests: `src/captains/tasks.test.ts` (CRUD, duplicate-name rejection),
+      `src/captains/runner.test.ts` (unregistered-workspace rejection, real run against a real
+      indexed workspace, run listing, promotion into the correct workspace's repo, unknown-run/
+      unknown-repo rejection), `src/commands/captain.test.ts` (full CLI flow: add → list → run →
+      approvals → promote → remove).
+- [x] Live verification against the real `claude` CLI: defined a task, ran it (got a real,
+      evidence-cited answer about a fictional payments flow), listed it via `captain approvals`,
+      promoted it, and confirmed the resulting note file's frontmatter/body matched
+      `draftedNoteTemplate` exactly, while the original pending JSON record remained in the
+      non-git-tracked queue untouched.
 
 ### Phase 7 — Gateway adapters (OpenRouter, Bedrock, generic OpenAI-compatible, etc.)
 

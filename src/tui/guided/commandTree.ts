@@ -63,7 +63,8 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   ci: 'Quality & CI',
   report: 'Reports',
   workspace: 'Fleet',
-  service: 'Fleet'
+  service: 'Fleet',
+  captain: 'Fleet'
 };
 
 export function extractGuidedCommands(program: Command): GuidedCommand[] {

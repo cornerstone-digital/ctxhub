@@ -205,3 +205,22 @@ the gateway and the service read the same `~/.ctxhub/registry.json` directly, an
 was found for the gateway to depend on the service process being alive at all. Workspaces are
 never merged into one global search space — a caller always names exactly which one a tool call
 targets.
+
+## Fleet/Workspace Captains
+
+`src/captains/` implements Phase 6. A Captain task (`src/captains/tasks.ts`, `~/.ctxhub/captains.json`
+via `ctxhub captain add/list/remove`) is plain, editable config — `{ name, workspace, query,
+persona?, profile? }` — deliberately not a bare free-floating prompt: `runCaptainTask`
+(`src/captains/runner.ts`) runs a task by calling the exact same evidence-grounded
+`createExplainResult` function every other persona-driven command already uses, headlessly,
+against the named registered workspace. `persona`/`profile` reuse Phase 4's Execution Profile
+resolution exactly as `explain --as`/`--profile` do.
+
+`ctxhub captain run <name>` is the trigger for this phase — manual, on demand; a scheduled trigger
+(the Phase 2 service polling task definitions on an interval) wasn't built yet, tracked as a real
+follow-up. Approval gating is real: `runCaptainTask` never writes to a repo, only to a user-level,
+non-git-tracked pending-runs queue (`~/.ctxhub/captains/<task>/<runId>.json`, listed via
+`ctxhub captain approvals <task>`). The one human-invoked action that promotes a pending run into
+a real, team-visible artifact is `ctxhub captain promote <task> <runId> <repo>`, which reuses
+`note.ts`'s existing `draftedNoteTemplate` unmodified — the same "AI draft, review before merge"
+shape `note add --draft` already produces, not a second promoted-content format.

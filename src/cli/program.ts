@@ -22,6 +22,14 @@ import { reviewCommand } from '../commands/review.js';
 import { personasInitCommand, personasSyncCommand, SUPPORTED_PERSONA_SYNC_AGENTS } from '../commands/personas.js';
 import { workspaceListCommand, workspaceRegisterCommand, workspaceRemoveCommand } from '../commands/workspace.js';
 import { serviceStartCommand, serviceStopCommand, serviceStatusCommand } from '../commands/service.js';
+import {
+  captainAddCommand,
+  captainApprovalsCommand,
+  captainListCommand,
+  captainPromoteCommand,
+  captainRemoveCommand,
+  captainRunCommand
+} from '../commands/captain.js';
 import { DEFAULT_SERVICE_PORT } from '../service/server.js';
 import { evalCommand } from '../commands/eval.js';
 import { validateDocsCommand } from '../commands/validate.js';
@@ -386,6 +394,51 @@ export function buildProgram(): Command {
     .command('status')
     .description('Report whether the control-plane service is running')
     .action(serviceStatusCommand);
+
+  const captain = program.command('captain').description('Define and run Captain tasks against registered workspaces (docs/control-plane.md, Phase 6)');
+
+  captain
+    .command('add')
+    .argument('<name>', 'Captain task name')
+    .requiredOption('--workspace <name>', 'Registered workspace name to target (see: ctxhub workspace list)')
+    .requiredOption('--query <query>', 'Question to ask the workspace, evidence-grounded via the same machinery as ctxhub explain')
+    .option('--persona <persona>', 'Frame the answer through a persona defined in the target workspace\'s agents/personas/')
+    .option('--profile <name>', 'Use a named executionProfiles entry from the target workspace to pick which harness/model runs this task')
+    .description('Define a captain task: plain, editable config, not hardcoded dispatch logic')
+    .action(captainAddCommand);
+
+  captain
+    .command('list')
+    .description('List defined captain tasks')
+    .action(captainListCommand);
+
+  captain
+    .command('remove')
+    .argument('<name>', 'Captain task name')
+    .description('Remove a captain task definition')
+    .action(captainRemoveCommand);
+
+  captain
+    .command('run')
+    .argument('<name>', 'Captain task name')
+    .description('Run a captain task now, writing its result to the pending-approval queue (never directly to a repo)')
+    .action(captainRunCommand);
+
+  captain
+    .command('approvals')
+    .argument('<name>', 'Captain task name')
+    .description('List a captain task\'s pending (not-yet-promoted) runs')
+    .action(captainApprovalsCommand);
+
+  captain
+    .command('promote')
+    .argument('<name>', 'Captain task name')
+    .argument('<runId>', 'Run id (see: ctxhub captain approvals)')
+    .argument('<repo>', 'Repository to write the promoted note into')
+    .option('--title <title>', 'Note title (default: the task\'s query)')
+    .option('--agent <agent>', 'Attribution recorded in the note frontmatter')
+    .description('The one human-invoked action that turns a pending run into a real, git-tracked AI-draft note')
+    .action(captainPromoteCommand);
 
   const skills = program.command('skills').description('Install chat-native ctxhub usage guidance for coding agents');
 
