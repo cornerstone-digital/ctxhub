@@ -9,6 +9,18 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [ ] Graph interaction and navigation polish
 - [ ] MCP write-surface parity for durable memory
 - [ ] Memory workflow automation and promotion paths
+- [ ] Collaborative review mode with built-in reviewer personas
+- [ ] Reviewer profiles (custom, pluggable reviewer personas)
+- [ ] Harness capability abstraction
+- [ ] Evidence-backed confidence scoring
+- [ ] OSS adoption kit
+
+Items 6-10 above come from an external competitive/positioning deep-dive
+([deep-research-report.md](./deep-research-report.md), a ChatGPT-authored survey of ctxhub against
+Copilot, Claude Code, Codex, Cursor, Cody, and several agent frameworks). Its other recommendations
+(report-first console, provenance, write-parity, promotion workflows) matched items 1-5 already in
+this backlog rather than adding anything new, which is a reasonable independent confirmation that
+those five are the right near-term focus.
 
 ## Suggested Order
 
@@ -17,10 +29,25 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 3. Graph interaction and navigation polish
 4. MCP write-surface parity for durable memory
 5. Memory workflow automation and promotion paths
+6. Collaborative review mode with built-in reviewer personas
+7. Reviewer profiles
+8. Evidence-backed confidence scoring
+9. Harness capability abstraction
+10. OSS adoption kit
 
 The first three make the existing graph/memory surface feel like one coherent product instead of a
-set of adjacent capabilities. The final two tighten the developer/agent write path so durable
+set of adjacent capabilities. The next two tighten the developer/agent write path so durable
 memory is easier to use consistently and easier to explain.
+
+**A genuine disagreement worth surfacing rather than quietly resolving:** the deep-research report
+argues review mode should be *first* priority, not sixth — its reasoning is that review unifies a
+large fraction of the existing surface (`pr-context`, `ask`/`explain`, graph/architecture evidence,
+memory, eval, handoff) and meets a clearer, more marketable user need than workspace-UX polish
+does. That's a defensible position. This list keeps 1-5 first anyway, on the theory that a
+half-coherent workspace console makes a new review-mode surface harder to discover and trust, not
+easier — but this is exactly the kind of sequencing call that should be made deliberately, not by
+whichever list happened to get written down first. Worth revisiting once items 1-5 are further
+along, or sooner if review feels like the more urgent gap in practice.
 
 ## Next Wave Details
 
@@ -221,6 +248,174 @@ Acceptance criteria:
   manual decisions.
 - A user or agent can promote durable memory into a repo note without copy/paste churn.
 - The workflow makes the boundary between private memory and team-shared notes clearer, not blurrier.
+
+## 27. Collaborative Review Mode With Built-In Reviewer Personas
+
+**Status:** Not started
+
+**Command:** new `ctxhub review <topic>`, likely extending `ctxhub pr-context`
+
+**Source:** [deep-research-report.md](./deep-research-report.md) — flagged as the single clearest
+gap versus commercial tools (Copilot code review, Cursor Bugbot, Claude/Copilot GitHub Actions
+review), and the recommendation most other items in this list are absent without.
+
+Developer/agent value:
+
+- Turns several already-shipped primitives (`pr-context`'s contract-risk review, `graph --drift`,
+  eval, handoff, architecture search) into one named workflow instead of a list of separate
+  commands a user has to already know to reach for.
+- Gives a repeatable, explainable answer to "review this change" instead of an ad hoc combination
+  of tools.
+
+Implementation notes:
+
+- Built-in reviewer personas to start with (per the report): bug hunter, contract reviewer
+  (already has real substance via #13's cross-repo risk review), security reviewer, performance
+  reviewer, docs/diagram reviewer (pairs with `validate docs`/`graph --drift`).
+- Each persona is really just a distinct `runAgentPrompt` prompt template plus a choice of which
+  existing evidence sources to pull from (context pack, diff, architecture graph, eval history) --
+  this is orchestration over existing primitives, not a new evidence engine.
+- Requires `llm.enabled`, same as every other LLM-backed feature; without it, fall back to
+  printing the raw evidence bundle each persona would have used (mirrors `pr-context`'s existing
+  disabled-path behavior).
+- Never invents findings beyond the evidence it was given -- same citation discipline as
+  `explain`/`pr-context`/`handoff`.
+
+Acceptance criteria:
+
+- `ctxhub review <topic> --as <persona>` (or similar) produces persona-specific findings grounded
+  only in real evidence, with citations.
+- Falls back to a plain evidence bundle, not an error, when `llm.enabled` is false.
+- At least the contract-reviewer persona can reuse #13's existing risk-review logic directly
+  rather than reimplementing it.
+
+## 28. Reviewer Profiles
+
+**Status:** Not started
+
+**Command:** extend `ctxhub review` (from #27)
+
+**Source:** [deep-research-report.md](./deep-research-report.md) — "how you get from 'cool demo'
+to 'workflow primitive'."
+
+Developer/agent value:
+
+- Makes review mode extensible without a code change per new reviewer: a team can define its own
+  reviewer (e.g. "our API style guide reviewer") the same way `ctxhub eval`'s suite is a JSON file
+  a team edits, not a hardcoded list.
+
+Implementation notes:
+
+- A reviewer profile encodes: prompt/persona instructions, which evidence sources it prioritizes
+  (context pack, diff, architecture graph, eval history), and expected output shape.
+- Store profiles the same way `ctxhub eval`'s suite lives in `.ctxhub/cache/` -- a reviewable,
+  editable JSON/YAML file, not a database.
+- Depends on #27 existing first; this is explicitly a follow-up, not bundled into the same PR.
+
+Acceptance criteria:
+
+- A team can add a new reviewer persona by editing a file, without a ctxhub code change.
+- Built-in personas from #27 are expressed using the same profile shape, not a separate mechanism.
+
+## 29. Harness Capability Abstraction
+
+**Status:** Not started
+
+**Refactor:** `src/commands/agent.ts`, `src/commands/skills.ts`, `src/llm/runAgent.ts`
+
+**Source:** [deep-research-report.md](./deep-research-report.md) — noted that harness support
+today is "partial": `agent.ts`'s `SUPPORTED_AGENTS` (MCP config writing), `skills.ts`'s
+`SUPPORTED_SKILL_AGENTS` (skill install), and `runAgent.ts`'s `LLM_AGENTS` (headless invocation)
+are three separate, not-quite-aligned lists (confirmed this session while building the LLM
+infra -- cursor is deliberately absent from `SUPPORTED_AGENTS` since it has no MCP-config-writing
+support yet, for instance).
+
+Developer/agent value:
+
+- Makes it clearer, in one place, what "supporting a harness" actually means (MCP config? skill
+  install? headless LLM invocation? all three?), instead of three lists that happen to overlap.
+- Lowers the bar for a community contribution adding a new harness.
+
+Implementation notes:
+
+- Model each harness's capabilities explicitly (e.g. `{ mcpConfig: boolean; skills: boolean;
+  headlessInvocation: boolean }`) rather than three independent string-literal union types that
+  must be kept in sync by convention.
+- This is an internal refactor, not a new user-facing surface -- low risk of behavior change if
+  done as a pure consolidation of the existing three lists.
+- Explicitly not urgent: correctness doesn't depend on it, only contributor ergonomics do.
+
+Acceptance criteria:
+
+- Adding a new harness (or a new capability to an existing one) requires touching one place, not
+  three independently-maintained lists.
+- No behavior change for `claude`/`codex`/`copilot`/`cursor` support as it exists today.
+
+## 30. Evidence-Backed Confidence Scoring
+
+**Status:** Not started
+
+**Depends on:** #23 (Memory Provenance And Backlinks)
+
+**Source:** [deep-research-report.md](./deep-research-report.md) — explicitly framed as
+provenance-derived, not model self-confidence: "you are right not to invent confidence... an
+evidence score based on number of corroborating repos, recency, doc/code agreement, and source
+type would be genuinely useful."
+
+Developer/agent value:
+
+- Lets a user or agent triage many results by more than raw lexical score -- e.g. prefer a claim
+  corroborated by both a doc and the actual source over one mentioned in a single stale note.
+- Useful directly in review mode (#27) and handoff for flagging shaky evidence explicitly.
+
+Implementation notes:
+
+- Explicitly not a new confidence *model* -- a scoring function over signals #23 already
+  surfaces: number of independent corroborating sources, recency, doc/code agreement, source type
+  (durable memory vs. git-tracked note vs. raw source).
+- Must not require an LLM call -- this should be cheap, deterministic, and available even with
+  `llm.enabled: false`.
+
+Acceptance criteria:
+
+- Score is computed from real, inspectable signals; a user can see why a result scored the way it
+  did, not just the number.
+- Available without `llm.enabled`.
+- Does not block on or require #27/#28 to land first, only #23.
+
+## 31. OSS Adoption Kit
+
+**Status:** Not started
+
+**Scope:** packaging, docs, examples -- not a single command
+
+**Source:** [deep-research-report.md](./deep-research-report.md) — rated low-medium complexity,
+high value; "probably the highest ROI community move after review mode."
+
+Developer value:
+
+- Lowers the barrier from "clone, build, link" to an actual install, which the report calls out
+  as a concrete, current adoption barrier.
+- A reference multi-repo workspace and a "why ctxhub?" example give a new user something to run
+  in five minutes instead of reading the whole command list first.
+
+Implementation notes:
+
+- Revisit the existing "npm publishing intentionally disabled until ready to ship" note in
+  [ROADMAP.md](./ROADMAP.md) -- this item is the point at which that gate is deliberately
+  reconsidered, not a silent reversal of it.
+- A small reference workspace (2-3 toy repos with docs, an architecture diagram, and a couple of
+  MemPalace-style notes) that a new user can `ctxhub onboard` against immediately.
+- Split docs along the lines the report suggests: philosophy (why this shape of tool), quickstart
+  (fastest path to first value), architecture (how it actually works) -- rather than one long
+  README carrying all three jobs.
+
+Acceptance criteria:
+
+- A new user can go from clone to a working, demonstrable multi-repo setup in one short quickstart
+  pass.
+- Publishing (npm/Homebrew) is a deliberate decision made when picking this item up, not implied
+  by simply writing this entry.
 
 ## Completed Archive
 
@@ -956,5 +1151,3 @@ during indexing: when a file already qualifies for a summary chunk, `llm.enabled
 file is large enough to be worth it, ctxhub asks `runAgentPrompt` for a short prose summary grounded
 in the redacted file content. Disabled/unavailable/failed calls fall straight back to the previous
 heading/symbol-list summary, so the default indexing path stays unchanged.
-
-
