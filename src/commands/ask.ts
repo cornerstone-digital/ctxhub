@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { loadWorkspaceConfig } from '../config/config.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import { createExplainResult, type ExplainResult } from './explain.js';
+import { notify } from '../utils/notify.js';
 
 export type AskResult = {
   question: string;
@@ -13,12 +14,14 @@ export type AskResult = {
 
 export async function askCommand(
   question: string,
-  opts: { limit?: string; json?: boolean; llm?: boolean } = {}
+  opts: { limit?: string; json?: boolean; llm?: boolean; notify?: boolean } = {}
 ): Promise<void> {
   const result = await createAskResult(question, Number(opts.limit ?? 8), process.cwd(), {
     llmOverride: opts.llm,
     runAgentPromptFn: runAgentPrompt
   });
+
+  if (opts.notify) notify('ctxhub ask', result.unavailableNotice ? 'Answer unavailable' : `Answer ready for: ${question}`);
 
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));

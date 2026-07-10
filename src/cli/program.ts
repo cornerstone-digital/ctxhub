@@ -112,6 +112,7 @@ export function buildProgram(): Command {
     .option('-f, --force', 'Force re-index all files')
     .option('--plain', 'Use plain progress output')
     .option('--no-interactive', 'Disable the live progress view')
+    .option('--notify', 'Send a desktop notification when indexing completes')
     .action(indexCommand);
 
   program
@@ -120,6 +121,7 @@ export function buildProgram(): Command {
     .option('--no-pull', 'Skip git pull')
     .option('--plain', 'Use plain progress output')
     .option('--no-interactive', 'Disable the live progress view')
+    .option('--notify', 'Send a desktop notification when sync completes')
     .action(syncCommand);
 
   program
@@ -155,6 +157,7 @@ export function buildProgram(): Command {
     .option('--json', 'Print JSON')
     .option('--llm', 'Force LLM-backed answer synthesis for this call, even if disabled in config')
     .option('--no-llm', 'Force the non-LLM evidence scaffold for this call, even if enabled in config')
+    .option('--notify', 'Send a desktop notification when the answer is ready')
     .description('Create a citation-first explanation from indexed context, LLM-synthesized when llm.enabled')
     .action(explainCommand);
 
@@ -165,6 +168,7 @@ export function buildProgram(): Command {
     .option('--json', 'Print JSON')
     .option('--llm', 'Force LLM-backed ask synthesis for this call, even if disabled in config')
     .option('--no-llm', 'Disable ask synthesis for this call and print the fallback guidance')
+    .option('--notify', 'Send a desktop notification when the answer is ready')
     .description('Answer a question from indexed evidence using the configured agent CLI; unlike explain, this command has no non-LLM answer mode')
     .action(askCommand);
 
@@ -189,6 +193,7 @@ export function buildProgram(): Command {
     .option('--json', 'Print JSON')
     .option('--llm', 'Force cross-repo contract-risk review for this call, even if disabled in config')
     .option('--no-llm', 'Force skipping contract-risk review for this call, even if enabled in config')
+    .option('--notify', 'Send a desktop notification when PR context is ready')
     .description('Build a context pack for files changed on the current branch, with LLM-backed contract-risk review when llm.enabled')
     .action(prContextCommand);
 
@@ -202,6 +207,7 @@ export function buildProgram(): Command {
     .option('-l, --limit <limit>', 'Max context results', '8')
     .option('--llm', 'Force a synthesized summary for this call, even if disabled in config')
     .option('--no-llm', 'Force skipping the synthesized summary for this call, even if enabled in config')
+    .option('--notify', 'Send a desktop notification when the handoff bundle is ready')
     .description('Create a markdown handoff bundle for another agent or teammate, with an LLM-synthesized summary when llm.enabled')
     .action(handoffCommand);
 
@@ -215,6 +221,7 @@ export function buildProgram(): Command {
     .option('--json', 'Print JSON')
     .option('--llm', 'Force LLM-backed findings for this call, even if disabled in config')
     .option('--no-llm', 'Force skipping LLM-backed findings for this call, even if enabled in config')
+    .option('--notify', 'Send a desktop notification when the review is ready')
     .description('Review a topic/change with a named reviewer persona, grounded in existing context-pack/diff/architecture evidence')
     .action(reviewCommand);
 
@@ -372,6 +379,7 @@ export function buildProgram(): Command {
     .option('--plain', 'Print plain eval output')
     .option('--no-interactive', 'Disable interactive terminal summaries')
     .option('--agent-report', 'Check whether an agent reaches for the tool ctxhub\'s skill docs recommend (requires llm.enabled)')
+    .option('--notify', 'Send a desktop notification when an LLM-backed eval mode (--agent-report/--suggest-queries) finishes')
     .description('Run golden query checks against the workspace index')
     .action(evalCommand);
 
@@ -400,8 +408,12 @@ export function buildProgram(): Command {
 
   program
     .command('watch')
-    .option('--interval <seconds>', 'Polling interval in seconds', '30')
-    .description('Continuously re-index changed workspace files')
+    .option('--interval <seconds>', 'Fallback full-reindex interval in seconds, alongside instant file-change detection', '30')
+    .option('--detach', 'Run in the background (detached process, PID file, logs to .ctxhub/cache/watch.log)')
+    .option('--stop', 'Stop a background watch process started with --detach')
+    .option('--status', 'Show whether a background watch process is running')
+    .option('--notify', 'Send a desktop notification whenever a watch cycle actually indexes or deletes something')
+    .description('Watch workspace files and re-index on change (instantly via filesystem events, with a periodic fallback pass)')
     .action(watchCommand);
 
   program

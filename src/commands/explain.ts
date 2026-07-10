@@ -3,6 +3,7 @@ import type { CtxhubConfig, SearchResult } from '../config/types.js';
 import { loadWorkspaceConfig } from '../config/config.js';
 import { createContextPack } from '../context/pack.js';
 import { llmDisabledNotice, runAgentPrompt, type RunAgentResult } from '../llm/runAgent.js';
+import { notify } from '../utils/notify.js';
 
 export type ExplainEvidence = {
   ref: string;
@@ -31,8 +32,10 @@ export type ExplainResult = {
   llmNotice?: string;
 };
 
-export async function explainCommand(query: string, opts: { limit?: string; json?: boolean; llm?: boolean } = {}) {
+export async function explainCommand(query: string, opts: { limit?: string; json?: boolean; llm?: boolean; notify?: boolean } = {}) {
   const result = await createExplainResult(query, Number(opts.limit ?? 8), process.cwd(), { llmOverride: opts.llm });
+
+  if (opts.notify) notify('ctxhub explain', `Answer ready for: ${query}`);
 
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));

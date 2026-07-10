@@ -9,6 +9,7 @@ import { runSyncWithProgress } from '../tui/progress/SyncProgressApp.js';
 import type { RepoStatus } from '../tui/progress/RepoStatusList.js';
 import { updateSpinnerOnProgress } from '../tui/progress/spinnerProgress.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
+import { notify } from '../utils/notify.js';
 
 function printRepoStatuses(label: string, repos: RepoStatus[]) {
   console.log(chalk.bold(label));
@@ -18,11 +19,13 @@ function printRepoStatuses(label: string, repos: RepoStatus[]) {
   }
 }
 
-export async function syncCommand(opts: { pull?: boolean; interactive?: boolean; plain?: boolean }) {
+export async function syncCommand(opts: { pull?: boolean; interactive?: boolean; plain?: boolean; notify?: boolean }) {
   // Commander's `--no-pull` option surfaces as `opts.pull === false`, not `opts.noPull`
   // (there is no `noPull` property) -- `--no-pull` silently never worked before this fix.
   const noPull = opts.pull === false;
   const { config, workspaceRoot } = await loadWorkspaceConfig();
+  let indexed: number;
+  let skipped: number;
 
   if (shouldUseInteractive(opts)) {
     const { pullResults, indexResults, result } = await runSyncWithProgress(process.cwd(), noPull);
@@ -32,6 +35,8 @@ export async function syncCommand(opts: { pull?: boolean; interactive?: boolean;
     }
     printRepoStatuses('Re-indexed repositories', indexResults);
     console.log(`${chalk.green('✓')} indexed ${result.indexed} changed file(s), skipped ${result.skipped}`);
+    indexed = result.indexed;
+    skipped = result.skipped;
   } else {
     if (!noPull) {
       for (const repo of config.repositories) {
@@ -51,6 +56,12 @@ export async function syncCommand(opts: { pull?: boolean; interactive?: boolean;
     const result = await indexWorkspace(workspaceRoot, false, updateSpinnerOnProgress(spinner, 'Re-indexing changed knowledge'));
     spinner.succeed('Workspace synced');
     console.log(`${chalk.green('✓')} indexed ${result.indexed} changed file(s), skipped ${result.skipped}`);
+    indexed = result.indexed;
+    skipped = result.skipped;
+  }
+
+  if (opts.notify) {
+    notify('ctxhub sync', `Synced: indexed ${indexed} changed file(s), skipped ${skipped}.`);
   }
 
   await runConfiguredHook(config, 'postIndex');

@@ -26,6 +26,10 @@ export type CtxhubConfig = {
     table: string;
     incremental: boolean;
     chunkSize: number;
+    // How many files' read/hash/chunk/summarize "prepare" step runs concurrently during
+    // indexing. Optional -- indexer.ts falls back to a sane default when unset. The actual
+    // write to the index provider always stays sequential regardless of this value.
+    concurrency?: number;
   };
   hooks: {
     postPull?: string;

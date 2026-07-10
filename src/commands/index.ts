@@ -7,6 +7,7 @@ import { runIndexWithProgress } from '../tui/progress/IndexProgressApp.js';
 import type { RepoStatus } from '../tui/progress/RepoStatusList.js';
 import { updateSpinnerOnProgress } from '../tui/progress/spinnerProgress.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
+import { notify } from '../utils/notify.js';
 
 function printSummary(result: IndexResult) {
   console.log(`${chalk.green('✓')} scanned: ${result.scanned}`);
@@ -22,16 +23,22 @@ function printRepoStatuses(repos: RepoStatus[]) {
   }
 }
 
-export async function indexCommand(opts: { force?: boolean; interactive?: boolean; plain?: boolean }) {
+export async function indexCommand(opts: { force?: boolean; interactive?: boolean; plain?: boolean; notify?: boolean }) {
+  let result: IndexResult;
   if (shouldUseInteractive(opts)) {
-    const { result, repos } = await runIndexWithProgress(process.cwd(), Boolean(opts.force));
+    const { result: interactiveResult, repos } = await runIndexWithProgress(process.cwd(), Boolean(opts.force));
+    result = interactiveResult;
     printRepoStatuses(repos);
     printSummary(result);
   } else {
     const spinner = ora('Indexing workspace knowledge').start();
-    const result = await indexWorkspace(process.cwd(), Boolean(opts.force), updateSpinnerOnProgress(spinner, 'Indexing workspace knowledge'));
+    result = await indexWorkspace(process.cwd(), Boolean(opts.force), updateSpinnerOnProgress(spinner, 'Indexing workspace knowledge'));
     spinner.succeed('Index complete');
     printSummary(result);
+  }
+
+  if (opts.notify) {
+    notify('ctxhub index', `Indexed ${result.indexed}, skipped ${result.skipped}, deleted ${result.deleted}.`);
   }
 
   const { config } = await loadWorkspaceConfig();

@@ -6,6 +6,7 @@ import { createContextPack } from '../context/pack.js';
 import { runGit } from '../git/git.js';
 import { writeText } from '../utils/fs.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
+import { notify } from '../utils/notify.js';
 
 export type HandoffOptions = {
   repo?: string;
@@ -14,6 +15,7 @@ export type HandoffOptions = {
   base?: string;
   limit?: string;
   llm?: boolean;
+  notify?: boolean;
 };
 
 type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
@@ -43,6 +45,7 @@ export async function handoffCommand(topic: string, opts: HandoffOptions = {}) {
 
   console.log(chalk.green(`Created ${path.relative(process.cwd(), outputPath) || outputPath}`));
   if (llmNotice) console.log(chalk.dim(llmNotice));
+  if (opts.notify) notify('ctxhub handoff', `Handoff ready: ${topic}`);
 }
 
 export async function synthesizeHandoffSummary(

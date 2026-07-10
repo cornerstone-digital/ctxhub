@@ -7,6 +7,7 @@ import { loadManifest } from '../indexing/manifest.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
+import { notify } from '../utils/notify.js';
 
 export type EvalExpected = { repo?: string; path?: string };
 export type EvalCase = { query: string; expected: EvalExpected[]; rationale?: string };
@@ -38,7 +39,7 @@ const EVAL_RUNS_DIR = path.join(CACHE_DIR, 'evals');
 const DEFAULT_AGENT_EVAL_PATH = path.join(CACHE_DIR, 'agent-eval.json');
 
 export async function evalCommand(
-  opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean; agentReport?: boolean; suggestQueries?: boolean } = {}
+  opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean; agentReport?: boolean; suggestQueries?: boolean; notify?: boolean } = {}
 ) {
   const { config, workspaceRoot } = await loadWorkspaceConfig();
 
@@ -80,6 +81,7 @@ export async function evalCommand(
       console.log(chalk.yellow('No new eval query suggestions were appended.'));
     }
     if (llmNotice) console.log(chalk.dim(llmNotice));
+    if (opts.notify) notify('ctxhub eval', `${added.length} suggested query/queries appended`);
     return;
   }
 
@@ -146,7 +148,7 @@ const TOOL_PRIMER = [
 async function runAgentEvalReport(
   config: CtxhubConfig,
   workspaceRoot: string,
-  opts: { file?: string; json?: boolean }
+  opts: { file?: string; json?: boolean; notify?: boolean }
 ): Promise<void> {
   if (!config.llm.enabled) {
     console.log(llmDisabledNotice('agent tool-choice reports'));
@@ -162,6 +164,8 @@ async function runAgentEvalReport(
   const suite = JSON.parse(await readText(filePath)) as AgentEvalSuite;
   const run = await evaluateAgentSuite(suite, config);
   const reportPath = await writeAgentEvalReport(run, workspaceRoot);
+
+  if (opts.notify) notify('ctxhub eval', `Agent tool-choice report: ${run.summary.matched}/${run.summary.total} matched`);
 
   if (opts.json) {
     console.log(JSON.stringify({ ...run, reportPath }, null, 2));

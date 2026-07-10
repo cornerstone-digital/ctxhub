@@ -32,6 +32,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@toon-format/toon": "^2.3.0",
     "chalk": "^5.4.1",
+    "chokidar": "^4.0.3",
     "commander": "^13.1.0",
     "fast-glob": "^3.3.3",
     "ink": "^7.1.0",

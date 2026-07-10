@@ -8,6 +8,7 @@ import { pathExists, readText, writeText } from '../utils/fs.js';
 import { gatherRepoDiffs, reviewContractRisks } from './prContext.js';
 import { analyzeArchitectureDrift, suggestDriftRepairs, type GraphPackage } from './graph.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
+import { notify } from '../utils/notify.js';
 
 type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
 
@@ -62,6 +63,7 @@ export type ReviewOptions = {
   json?: boolean;
   llm?: boolean;
   profiles?: string;
+  notify?: boolean;
 };
 
 export async function reviewCommand(topic: string, opts: ReviewOptions) {
@@ -79,6 +81,8 @@ export async function reviewCommand(topic: string, opts: ReviewOptions) {
   }
 
   const { changed, findings, llmNotice } = await gatherPersonaFindings(profile, topic, config, workspaceRoot, base, pack);
+
+  if (opts.notify) notify('ctxhub review', `${profile.name}: ${findings.length} finding(s) for ${topic}`);
 
   const payload = {
     topic,

@@ -24,6 +24,24 @@ secret-like patterns are redacted before a chunk is stored (`config.privacy.reda
 current HEAD/dirty state, so a result can be flagged `stale` when the repo has moved on since it
 was indexed — this is a signal about the *index*, not a judgment about the content's truth.
 
+Each file's "prepare" step (read, hash, redact, chunk, optional LLM summary) runs concurrently
+across files (`index.concurrency`, default 8, via `src/utils/concurrency.ts`'s dependency-free
+`mapWithConcurrencyLimit()`) — this work is I/O/subprocess-bound, not CPU-bound, so real OS threads
+wouldn't help here the way concurrent async I/O does. The actual write to the index provider stays
+strictly sequential, one file at a time in original file order, since overlapping multi-step writes
+(remove-then-add, conditional full-text-index creation) isn't safe for every `IndexProvider` —
+`LocalJsonIndex`'s naive whole-file read-mutate-write in particular would silently lose writes under
+real concurrency.
+
+`ctxhub watch` reacts to real filesystem events (via [chokidar](https://github.com/paulmillr/chokidar))
+rather than only polling on a timer, debouncing a burst of changes into one re-index pass; `--interval`
+remains as a periodic fallback, not the primary trigger. `--detach` runs it as a real background
+process (PID file + logs under `.ctxhub/cache/watch.{pid,log}`, `--status`/`--stop` to manage it) —
+intentionally not an OS-level service (launchd/systemd), matching the project's bias toward not
+adding new infrastructure. `src/utils/notify.ts` provides opt-in (`--notify`) desktop notifications
+for commands that can take a while, by shelling out to the OS's own notifier — the same
+"reuse platform tools, no new dependency" pattern `report.ts`'s browser launch already uses.
+
 ## Memory: two layers, one clear boundary
 
 ctxhub does not reimplement a memory engine. `src/memory/mempalaceCli.ts` shells out to MemPalace's

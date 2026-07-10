@@ -69,6 +69,32 @@ test('indexWorkspace emits repo-progress events with the correct file counts, th
   });
 });
 
+test('indexWorkspace never loses a write despite concurrent prepare, even against a non-locking index provider', () => {
+  // local-json's provider does a naive whole-file read-mutate-write with no locking (see
+  // LocalJsonIndex.ts) -- if indexWorkspace's parallel "prepare" phase ever let two files'
+  // actual index writes (indexDocuments/removeDocuments) overlap, this provider would silently
+  // lose one of them (last writer wins). This test proves the commit phase really does stay
+  // serialized: enough files that the default concurrency=8 batches genuinely overlap in
+  // prepare, then assert every single one still made it into the index.
+  return withWorkspace(async cwd => {
+    const fileCount = 24;
+    for (let i = 0; i < fileCount; i++) {
+      await writeFile(path.join(cwd, 'app', `doc-${i}.md`), `# Doc ${i}\n\nUnique marker doc-marker-${i}.\n`);
+    }
+
+    const result = await indexWorkspace(cwd);
+    // +1 for the original thing.ts from withWorkspace's fixture.
+    assert.equal(result.indexed, fileCount + 1);
+
+    const config = await loadConfig(cwd);
+    const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, cwd);
+    for (let i = 0; i < fileCount; i++) {
+      const results = await index.search(`doc-marker-${i}`, 5);
+      assert.ok(results.some(r => r.content.includes(`doc-marker-${i}`)), `doc-${i}.md's write was lost`);
+    }
+  });
+});
+
 test('indexWorkspace tags source-code chunks with symbol metadata that search results carry through', () => {
   return withWorkspace(async cwd => {
     await indexWorkspace(cwd);

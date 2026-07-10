@@ -23,6 +23,8 @@ index:
   table: ctxhub_chunks
   incremental: true
   chunkSize: 1800
+  # concurrency: 8   # optional -- how many files' read/hash/chunk/summarize step runs at once
+                      # during indexing (the actual index write always stays sequential)
 hooks:
   postPull: "npm --prefix ./app install"
   postIndex: "echo indexed workspace $CTXHUB_WORKSPACE"

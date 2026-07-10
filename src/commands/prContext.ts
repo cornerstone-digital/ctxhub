@@ -5,10 +5,11 @@ import { runGit } from '../git/git.js';
 import { createContextPack } from '../context/pack.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import type { CtxhubConfig } from '../config/types.js';
+import { notify } from '../utils/notify.js';
 
 const MAX_DIFF_CHARS_PER_REPO = 4000;
 
-export async function prContextCommand(opts: { base?: string; json?: boolean; limit?: string; llm?: boolean } = {}) {
+export async function prContextCommand(opts: { base?: string; json?: boolean; limit?: string; llm?: boolean; notify?: boolean } = {}) {
   const { config, workspaceRoot } = await loadWorkspaceConfig();
   const base = opts.base ?? 'origin/main';
   const { changed, diffs } = await gatherRepoDiffs(config, workspaceRoot, base);
@@ -18,6 +19,8 @@ export async function prContextCommand(opts: { base?: string; json?: boolean; li
 
   const effectiveConfig: CtxhubConfig = opts.llm === undefined ? config : { ...config, llm: { ...config.llm, enabled: opts.llm } };
   const { risks, llmNotice } = await reviewContractRisks(changed, diffs, pack.repos.map(repo => repo.name), effectiveConfig);
+
+  if (opts.notify) notify('ctxhub pr-context', risks.length ? `${risks.length} possible contract risk(s) found` : 'PR context ready');
 
   const payload = { base, changed: Object.fromEntries(changed), contextPack: pack, ...(risks.length ? { risks } : {}), ...(llmNotice ? { llmNotice } : {}) };
 
