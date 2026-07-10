@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFileSummaryChunk,
+  buildFileSummaryChunkWithLlm,
   chunkDocument,
   chunkMarkdown,
   chunkPlainText,
@@ -11,6 +12,7 @@ import {
   extractDiagramRelationships,
   extractTitle
 } from './chunk.js';
+import { defaultConfig } from '../config/defaultConfig.js';
 
 test('extractTitle finds the first H1', () => {
   assert.equal(extractTitle('# Hello World\n\nBody text.'), 'Hello World');
@@ -42,6 +44,42 @@ test('buildFileSummaryChunk returns undefined when no sub-chunk has a heading to
   const parts = chunkPlainText('paragraph one\n\n' + 'x'.repeat(2000), 1800);
   assert.ok(parts.length > 1);
   assert.equal(buildFileSummaryChunk('notes.txt', undefined, parts), undefined);
+});
+
+test('buildFileSummaryChunkWithLlm falls back to the non-LLM summary when llm.enabled is false', async () => {
+  const content = '# Guide\n\n## Install\n\n' + 'x'.repeat(2500) + '\n\n## Usage\n\n' + 'y'.repeat(2500);
+  const parts = chunkMarkdown(content, 1800);
+  const summary = await buildFileSummaryChunkWithLlm('docs/guide.md', 'Guide', parts, content, defaultConfig);
+  assert.match(summary?.content ?? '', /Contains: Guide, Install, Usage/);
+});
+
+test('buildFileSummaryChunkWithLlm uses the synthesized prose summary for large files when the LLM call succeeds', async () => {
+  const content = '# Guide\n\n## Install\n\n' + 'x'.repeat(2500) + '\n\n## Usage\n\n' + 'y'.repeat(2500);
+  const parts = chunkMarkdown(content, 1800);
+  const summary = await buildFileSummaryChunkWithLlm(
+    'docs/guide.md',
+    'Guide',
+    parts,
+    content,
+    { ...defaultConfig, llm: { ...defaultConfig.llm, enabled: true } },
+    async () => ({ ok: true, text: 'This guide covers install and usage for the app.' })
+  );
+  assert.match(summary?.content ?? '', /This guide covers install and usage for the app\./);
+  assert.doesNotMatch(summary?.content ?? '', /Contains:/);
+});
+
+test('buildFileSummaryChunkWithLlm falls back when the LLM call fails', async () => {
+  const content = '# Guide\n\n## Install\n\n' + 'x'.repeat(2500) + '\n\n## Usage\n\n' + 'y'.repeat(2500);
+  const parts = chunkMarkdown(content, 1800);
+  const summary = await buildFileSummaryChunkWithLlm(
+    'docs/guide.md',
+    'Guide',
+    parts,
+    content,
+    { ...defaultConfig, llm: { ...defaultConfig.llm, enabled: true } },
+    async () => ({ ok: false, reason: 'timeout' })
+  );
+  assert.match(summary?.content ?? '', /Contains: Guide, Install, Usage/);
 });
 
 test('chunkMarkdown splits on headings and keeps heading metadata', () => {

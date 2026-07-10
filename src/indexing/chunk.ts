@@ -1,3 +1,5 @@
+import type { CtxhubConfig } from '../config/types.js';
+import { runAgentPrompt } from '../llm/runAgent.js';
 import { isSourceFile, topLevelSymbols, type SymbolKind } from '../context/symbols.js';
 
 export type TextChunk = {
@@ -13,6 +15,7 @@ export type TextChunk = {
 
 const frontmatterPattern = /^---\n[\s\S]*?\n---\n?/;
 const mermaidFencePattern = /```(?:mermaid|mmd)\s*\n([\s\S]*?)```/gi;
+const LLM_FILE_SUMMARY_MIN_CHARS = 2000;
 
 export function chunkText(content: string, maxChars: number): TextChunk[] {
   return chunkMarkdown(content, maxChars);
@@ -127,6 +130,30 @@ export function buildFileSummaryChunk(filePath: string, title: string | undefine
   };
 }
 
+export async function buildFileSummaryChunkWithLlm(
+  filePath: string,
+  title: string | undefined,
+  parts: TextChunk[],
+  fullContent: string,
+  config: CtxhubConfig,
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt
+): Promise<TextChunk | undefined> {
+  const fallback = buildFileSummaryChunk(filePath, title, parts);
+  if (!fallback) return undefined;
+  if (!config.llm.enabled || fullContent.length < LLM_FILE_SUMMARY_MIN_CHARS) return fallback;
+
+  const result = await runAgentPromptFn(config, buildFileSummaryPrompt(filePath, title, parts, fullContent));
+  if (!result.ok) return fallback;
+
+  const summary = result.text.trim();
+  if (!summary) return fallback;
+
+  return {
+    ...fallback,
+    content: [`File summary: ${title ?? filePath}`, summary].join('\n')
+  };
+}
+
 export function extractMermaidBlocks(content: string): string[] {
   return [...content.matchAll(mermaidFencePattern)].map(match => match[1]?.trim()).filter(Boolean) as string[];
 }
@@ -205,4 +232,19 @@ function isMermaidKeyword(value: string): boolean {
     'subgraph',
     'end'
   ].includes(value);
+}
+
+function buildFileSummaryPrompt(filePath: string, title: string | undefined, parts: TextChunk[], fullContent: string): string {
+  const headings = [...new Set(parts.map(part => part.heading).filter((heading): heading is string => Boolean(heading)))];
+  return [
+    `Summarize this indexed file for fast orientation.`,
+    `Path: ${filePath}`,
+    title ? `Title: ${title}` : undefined,
+    headings.length ? `Known sections/symbols: ${headings.join(', ')}` : undefined,
+    '',
+    'File content:',
+    fullContent,
+    '',
+    'Write one short paragraph grounded only in the file content above. Do not invent capabilities or dependencies not present in the file.'
+  ].filter(Boolean).join('\n');
 }

@@ -26,7 +26,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Eval golden-query expansion
 - [x] Standalone `ctxhub ask`
 - [x] Natural-language query rewriting in front of search
-- [ ] LLM-authored file summaries at index time
+- [x] LLM-authored file summaries at index time
 
 ## 1. Cited Explain Command
 
@@ -718,7 +718,7 @@ the original query and surface a clear notice instead.
 
 ## 21. LLM-Authored File Summaries at Index Time
 
-**Status:** Not started
+**Status:** Done
 
 **Indexing:** extend `buildFileSummaryChunk` (`src/indexing/chunk.ts`)
 
@@ -747,9 +747,15 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Summary content is grounded in the actual file, no invented capabilities.
-- Falls back to the non-LLM summary when disabled, unavailable, or the call fails/times out.
-- Indexing a large workspace with `llm.enabled: false` (the default) is exactly as fast as today.
+- Summary content is grounded in the actual file, no invented capabilities. ✓
+- Falls back to the non-LLM summary when disabled, unavailable, or the call fails/times out. ✓
+- Indexing a large workspace with `llm.enabled: false` (the default) is exactly as fast as today. ✓
+
+Implemented by upgrading the existing `buildFileSummaryChunk` path with an async wrapper used only
+during indexing: when a file already qualifies for a summary chunk, `llm.enabled` is on, and the
+file is large enough to be worth it, ctxhub asks `runAgentPrompt` for a short prose summary grounded
+in the redacted file content. Disabled/unavailable/failed calls fall straight back to the previous
+heading/symbol-list summary, so the default indexing path stays unchanged.
 
 ## Suggested Order
 

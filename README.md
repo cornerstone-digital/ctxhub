@@ -174,6 +174,7 @@ Today, `llm.enabled` gates:
 - **`ctxhub eval --suggest-queries`** — inspect the current indexed repo/file set and append suggested golden queries plus a short rationale to the eval suite for human review, never replacing curated cases.
 - **`ctxhub ask`** — ask a direct question and get an LLM-synthesized, citation-grounded answer from ctxhub’s index. Unlike `explain`, this has no non-LLM answer mode: when unavailable, it tells you to use `explain` or `pack` instead of faking an answer.
 - **`ctxhub search --rewrite-query` / MCP `search(rewriteQuery: true)`** — ask the configured agent CLI to rewrite a vague query into a better-scoped query plus result type before searching. When a rewrite happens, ctxhub always surfaces both the original and rewritten values.
+- **Index-time file summaries** — for larger multi-chunk files, `llm.enabled` upgrades the synthetic heading/symbol list summary into a short prose summary grounded in the file content itself; disabled or failed LLM calls fall back to the existing non-LLM summary.
 
 If a command's LLM path is unavailable (disabled, no agent CLI found, timed out), it always falls back to its non-LLM behavior and explains why in the output — it never just silently does less. `ctxhub doctor` reports whether LLM-backed features are enabled, which agent is configured/detected, and whether that agent's CLI is actually reachable on PATH.
 
