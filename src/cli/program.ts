@@ -18,7 +18,7 @@ import { explainCommand } from '../commands/explain.js';
 import { askCommand } from '../commands/ask.js';
 import { replayCommand } from '../commands/replay.js';
 import { handoffCommand } from '../commands/handoff.js';
-import { reviewCommand, REVIEW_PERSONAS } from '../commands/review.js';
+import { reviewCommand } from '../commands/review.js';
 import { evalCommand } from '../commands/eval.js';
 import { validateDocsCommand } from '../commands/validate.js';
 import { graphCommand } from '../commands/graph.js';
@@ -208,7 +208,8 @@ export function buildProgram(): Command {
   program
     .command('review')
     .argument('<topic>', 'Topic or change to review')
-    .addOption(new Option('--as <persona>', 'Reviewer persona to use').choices(REVIEW_PERSONAS).makeOptionMandatory())
+    .requiredOption('--as <persona>', 'Reviewer persona to use (see .ctxhub/cache/review-profiles.json for available/custom personas)')
+    .option('--profiles <path>', 'Path to a reviewer-profiles JSON file (default: .ctxhub/cache/review-profiles.json, seeded with built-ins on first run)')
     .option('--base <ref>', 'Base git ref for diff-based personas', 'origin/main')
     .option('-l, --limit <limit>', 'Max context results', '8')
     .option('--json', 'Print JSON')

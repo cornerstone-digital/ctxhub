@@ -10,7 +10,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] MCP write-surface parity for durable memory
 - [x] Memory workflow automation and promotion paths
 - [x] Collaborative review mode with built-in reviewer personas
-- [ ] Reviewer profiles (custom, pluggable reviewer personas)
+- [x] Reviewer profiles (custom, pluggable reviewer personas)
 - [ ] Harness capability abstraction
 - [ ] Evidence-backed confidence scoring
 - [ ] OSS adoption kit
@@ -396,7 +396,7 @@ a real git+index workspace fixture, and the live `claude` CLI run described abov
 
 ## 28. Reviewer Profiles
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub review` (from #27)
 
@@ -419,8 +419,24 @@ Implementation notes:
 
 Acceptance criteria:
 
-- A team can add a new reviewer persona by editing a file, without a ctxhub code change.
+- A team can add a new reviewer persona by editing a file, without a ctxhub code change. ✓
+  (`{ "name": "...", "kind": "generic", "focus": "..." }` in `.ctxhub/cache/review-profiles.json`
+  or a `--profiles`-pointed file; verified live with a fully custom `naming-convention` persona
+  against the real `claude` CLI, which correctly flagged snake_case identifiers per that persona's
+  `focus` text alone.)
 - Built-in personas from #27 are expressed using the same profile shape, not a separate mechanism.
+  ✓ (`DEFAULT_REVIEWER_PROFILES` in `review.ts` is exactly the 5 built-ins as `ReviewerProfile`
+  data -- `contract`/`docs` as `kind: "contract"`/`"docs"`, the rest as `kind: "generic"` with a
+  `focus` string -- seeded to disk on first run exactly like `eval.ts`'s `DEFAULT_AGENT_SUITE`.)
+
+Implemented in the same `src/commands/review.ts` as #27 (a deliberate exception to "not bundled
+into the same PR" -- in practice, replacing the hardcoded persona switch with data loading touched
+the same small file enough that splitting it into a second PR would have meant re-deriving the
+same context immediately after, not a real scope boundary). `reviewCommand`'s `--as <persona>` no
+longer validates against a fixed CLI choice list (personas are dynamic now); an unknown persona
+name throws a clear error naming the available ones instead of silently doing nothing. Verified via
+unit tests (`loadReviewerProfiles` seed-vs-read-existing behavior, a full `reviewCommand` test using
+a `--profiles`-pointed custom persona) plus the live `claude` CLI run described above.
 
 ## 29. Harness Capability Abstraction
 

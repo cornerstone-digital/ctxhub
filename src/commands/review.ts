@@ -1,28 +1,67 @@
 import chalk from 'chalk';
-import { loadWorkspaceConfig } from '../config/config.js';
+import path from 'node:path';
+import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
 import type { CtxhubConfig } from '../config/types.js';
 import { createContextPack } from '../context/pack.js';
 import { createIndexProvider } from '../indexing/providers.js';
-import { pathExists, readText } from '../utils/fs.js';
-import path from 'node:path';
+import { pathExists, readText, writeText } from '../utils/fs.js';
 import { gatherRepoDiffs, reviewContractRisks } from './prContext.js';
 import { analyzeArchitectureDrift, suggestDriftRepairs, type GraphPackage } from './graph.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 
-// NEXT_FEATURES #27: five built-in reviewer personas, all orchestrating existing primitives
-// rather than a new evidence engine. #28 will replace this hardcoded map with loadable profiles;
-// this hardcoded version is the deliberate, explicitly-scoped-out first step.
-export const REVIEW_PERSONAS = ['bug-hunter', 'contract', 'security', 'performance', 'docs'] as const;
-export type ReviewPersona = typeof REVIEW_PERSONAS[number];
-
 type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
 
+// NEXT_FEATURES #28: a reviewer profile is data, not code. `kind` picks which existing engine
+// answers it -- `contract`/`docs` reuse #13's contract-risk review and #14's drift-repair
+// suggestions unmodified; `generic` is a freeform LLM persona defined entirely by its `focus`
+// text. This is how a team adds "our API style guide reviewer" without a ctxhub code change:
+// append a `kind: "generic"` entry to review-profiles.json.
+export type ReviewerProfile = { name: string; kind: 'contract' | 'docs' | 'generic'; focus?: string };
+export type ReviewerProfileSuite = { profiles: ReviewerProfile[] };
+
+const DEFAULT_REVIEW_PROFILES_PATH = path.join(CACHE_DIR, 'review-profiles.json');
+
+// The exact 5 built-in personas from #27, now expressed as data instead of a hardcoded switch --
+// #28's acceptance criteria requires built-ins to use the same profile shape as anything a team
+// adds, not a separate mechanism.
+export const DEFAULT_REVIEWER_PROFILES: ReviewerProfileSuite = {
+  profiles: [
+    {
+      name: 'bug-hunter',
+      kind: 'generic',
+      focus: 'Look for concrete correctness bugs: logic errors, off-by-one mistakes, unhandled edge cases, incorrect error handling, or behavior that contradicts what the surrounding code/comments say it should do.'
+    },
+    { name: 'contract', kind: 'contract' },
+    {
+      name: 'security',
+      kind: 'generic',
+      focus: 'Look for concrete security issues: injection risks, missing input validation at trust boundaries, secrets/credential handling, authN/authZ gaps, or unsafe use of user-controlled data.'
+    },
+    {
+      name: 'performance',
+      kind: 'generic',
+      focus: 'Look for concrete performance issues: unnecessary repeated work, N+1-style patterns, unbounded loops/allocations, or blocking operations that should be async/batched.'
+    },
+    { name: 'docs', kind: 'docs' }
+  ]
+};
+
+// Seeds the file on first run, exactly like eval.ts's DEFAULT_AGENT_SUITE -- a reviewable,
+// editable JSON file under .ctxhub/cache/, not a database.
+export async function loadReviewerProfiles(filePath: string): Promise<ReviewerProfileSuite> {
+  if (!(await pathExists(filePath))) {
+    await writeText(filePath, JSON.stringify(DEFAULT_REVIEWER_PROFILES, null, 2));
+  }
+  return JSON.parse(await readText(filePath)) as ReviewerProfileSuite;
+}
+
 export type ReviewOptions = {
-  as: ReviewPersona;
+  as: string;
   base?: string;
   limit?: string;
   json?: boolean;
   llm?: boolean;
+  profiles?: string;
 };
 
 export async function reviewCommand(topic: string, opts: ReviewOptions) {
@@ -31,11 +70,19 @@ export async function reviewCommand(topic: string, opts: ReviewOptions) {
   const base = opts.base ?? 'origin/main';
   const pack = await createContextPack(topic, Number(opts.limit ?? 8));
 
-  const { changed, findings, llmNotice } = await gatherPersonaFindings(opts.as, topic, config, workspaceRoot, base, pack);
+  const profilesPath = opts.profiles ? path.resolve(process.cwd(), opts.profiles) : path.resolve(workspaceRoot, DEFAULT_REVIEW_PROFILES_PATH);
+  const suite = await loadReviewerProfiles(profilesPath);
+  const profile = suite.profiles.find(candidate => candidate.name === opts.as);
+  if (!profile) {
+    const available = suite.profiles.map(candidate => candidate.name).join(', ');
+    throw new Error(`Unknown review persona: ${opts.as}. Available personas: ${available} (edit ${path.relative(process.cwd(), profilesPath)} to add more).`);
+  }
+
+  const { changed, findings, llmNotice } = await gatherPersonaFindings(profile, topic, config, workspaceRoot, base, pack);
 
   const payload = {
     topic,
-    persona: opts.as,
+    persona: profile.name,
     changed: Object.fromEntries(changed),
     contextPack: pack,
     findings,
@@ -47,7 +94,7 @@ export async function reviewCommand(topic: string, opts: ReviewOptions) {
     return;
   }
 
-  console.log(chalk.bold(`Review (${opts.as}): ${topic}`));
+  console.log(chalk.bold(`Review (${profile.name}): ${topic}`));
   for (const [repo, files] of changed) {
     console.log(`\n${chalk.green(repo)}`);
     for (const file of files) console.log(`- ${file}`);
@@ -66,29 +113,25 @@ export async function reviewCommand(topic: string, opts: ReviewOptions) {
 }
 
 async function gatherPersonaFindings(
-  persona: ReviewPersona,
+  profile: ReviewerProfile,
   topic: string,
   config: CtxhubConfig,
   workspaceRoot: string,
   base: string,
   pack: ContextPack
 ): Promise<{ changed: Map<string, string[]>; findings: string[]; llmNotice?: string }> {
-  if (!REVIEW_PERSONAS.includes(persona)) {
-    throw new Error(`Unknown review persona: ${persona}. Valid personas: ${REVIEW_PERSONAS.join(', ')}`);
-  }
-
-  if (persona === 'docs') {
+  if (profile.kind === 'docs') {
     return reviewDocsPersona(config, workspaceRoot);
   }
 
   const { changed, diffs } = await gatherRepoDiffs(config, workspaceRoot, base);
 
-  if (persona === 'contract') {
+  if (profile.kind === 'contract') {
     const { risks, llmNotice } = await reviewContractRisks(changed, diffs, pack.repos.map(repo => repo.name), config);
     return { changed, findings: risks.map(risk => `${risk.repo}: ${risk.risk}`), llmNotice };
   }
 
-  const { findings, llmNotice } = await synthesizeReviewFindings(persona, topic, changed, diffs, pack, config);
+  const { findings, llmNotice } = await synthesizeReviewFindings(profile.name, profile.focus ?? '', topic, changed, diffs, pack, config);
   return { changed, findings, llmNotice };
 }
 
@@ -124,14 +167,9 @@ async function reviewDocsPersona(
   return { changed: new Map(), findings, llmNotice: repair.llmNotice };
 }
 
-const PERSONA_FOCUS: Record<'bug-hunter' | 'security' | 'performance', string> = {
-  'bug-hunter': 'Look for concrete correctness bugs: logic errors, off-by-one mistakes, unhandled edge cases, incorrect error handling, or behavior that contradicts what the surrounding code/comments say it should do.',
-  security: 'Look for concrete security issues: injection risks, missing input validation at trust boundaries, secrets/credential handling, authN/authZ gaps, or unsafe use of user-controlled data.',
-  performance: 'Look for concrete performance issues: unnecessary repeated work, N+1-style patterns, unbounded loops/allocations, or blocking operations that should be async/batched.'
-};
-
 export async function synthesizeReviewFindings(
-  persona: 'bug-hunter' | 'security' | 'performance',
+  personaName: string,
+  focus: string,
   topic: string,
   changed: Map<string, string[]>,
   diffs: Map<string, string>,
@@ -142,12 +180,12 @@ export async function synthesizeReviewFindings(
   if (!changed.size) return { findings: [] };
 
   if (!config.llm.enabled) {
-    return { findings: [], llmNotice: llmDisabledNotice(`${persona} review`) };
+    return { findings: [], llmNotice: llmDisabledNotice(`${personaName} review`) };
   }
 
-  const result = await runAgentPromptFn(config, buildReviewPrompt(persona, topic, changed, diffs, pack));
+  const result = await runAgentPromptFn(config, buildReviewPrompt(personaName, focus, topic, changed, diffs, pack));
   if (!result.ok) {
-    return { findings: [], llmNotice: `${persona} review was unavailable (${result.reason}); showing the changed files and evidence bundle only.` };
+    return { findings: [], llmNotice: `${personaName} review was unavailable (${result.reason}); showing the changed files and evidence bundle only.` };
   }
 
   const findings = result.text
@@ -158,7 +196,8 @@ export async function synthesizeReviewFindings(
 }
 
 function buildReviewPrompt(
-  persona: 'bug-hunter' | 'security' | 'performance',
+  personaName: string,
+  focus: string,
   topic: string,
   changed: Map<string, string[]>,
   diffs: Map<string, string>,
@@ -172,8 +211,8 @@ function buildReviewPrompt(
     .join('\n');
 
   return [
-    `You are a ${persona.replace('-', ' ')} reviewing a code change on topic: ${topic}.`,
-    PERSONA_FOCUS[persona],
+    `You are a "${personaName}" reviewer looking at a code change on topic: ${topic}.`,
+    focus || 'Look for concrete issues relevant to your persona name; do not invent generic filler feedback.',
     '',
     `Changed files:\n${changedBlock || '(none found vs the requested base)'}`,
     '',
