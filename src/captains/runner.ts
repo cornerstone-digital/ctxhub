@@ -1,11 +1,13 @@
 import path from 'node:path';
 import { readdir } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { createExplainResult, type ExplainResult } from '../commands/explain.js';
 import { loadWorkspaceConfig } from '../config/config.js';
 import { draftedNoteTemplate, NOTES_DIR, slugify, todayIsoDate } from '../commands/note.js';
 import { getCtxhubHome, listWorkspaces } from '../workspaces/registry.js';
 import type { CaptainTask } from './tasks.js';
 import { ensureDir, pathExists, readText, writeText } from '../utils/fs.js';
+import { eventBus } from '../events/eventBus.js';
 
 // docs/control-plane.md Phase 6: a Captain never writes to a repo on its own. `runCaptainTask`
 // only ever writes to this user-level, non-git-tracked pending-runs queue -- the "Approvals
@@ -35,18 +37,33 @@ export async function runCaptainTask(task: CaptainTask): Promise<CaptainRunRecor
     throw new Error(`Workspace "${task.workspace}" is registered but its path no longer exists: ${workspaceEntry.path}`);
   }
 
-  const result = await createExplainResult(task.query, 8, workspaceEntry.path, {
-    persona: task.persona,
-    profile: task.profile
-  });
+  eventBus.publish({ type: 'captain.run.started', task: task.name, workspace: task.workspace });
+
+  let result;
+  try {
+    result = await createExplainResult(task.query, 8, workspaceEntry.path, {
+      persona: task.persona,
+      profile: task.profile
+    });
+  } catch (error) {
+    eventBus.publish({
+      type: 'captain.run.failed',
+      task: task.name,
+      workspace: task.workspace,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
 
   const startedAt = new Date().toISOString();
-  const runId = startedAt.replace(/[:.]/g, '-');
+  const runId = `${startedAt.replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}`;
   const record: CaptainRunRecord = { runId, task: task.name, workspace: task.workspace, startedAt, result };
 
   const runsDir = getCaptainRunsDir(task.name);
   await ensureDir(runsDir);
   await writeText(path.join(runsDir, `${runId}.json`), `${JSON.stringify(record, null, 2)}\n`);
+
+  eventBus.publish({ type: 'captain.run.completed', task: task.name, workspace: task.workspace, runId });
 
   return record;
 }

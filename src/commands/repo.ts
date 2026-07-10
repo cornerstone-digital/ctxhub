@@ -10,6 +10,8 @@ import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import { pathExists, writeText } from '../utils/fs.js';
 import { runRepoDiscoverReview } from '../tui/RepoDiscoverApp.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
+import { listWorkspaces } from '../workspaces/registry.js';
+import { DEFAULT_SERVICE_PORT } from '../service/server.js';
 
 export type DiscoveredRepo = {
   name: string;
@@ -44,6 +46,30 @@ export async function repoAddCommand(name: string, repoPath: string, opts: { sug
 
   if (opts.suggestGlobs) {
     await printRepoGlobSuggestion(repo, absolutePath, config);
+  }
+
+  await triggerBackgroundIndex(workspaceRoot);
+}
+
+// Best-effort only, same "nice-to-have, never load-bearing" pattern as utils/notify.ts: if this
+// workspace isn't registered with the control plane, or the local service isn't running, this
+// silently no-ops and the repo is still added -- the user just falls back to running
+// `ctxhub index` themselves, exactly like before this existed.
+async function triggerBackgroundIndex(workspaceRoot: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => path.resolve(entry.path) === path.resolve(workspaceRoot));
+  if (!workspace) return;
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${DEFAULT_SERVICE_PORT}/workspaces/${encodeURIComponent(workspace.name)}/index`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(1000)
+    });
+    if (res.ok) {
+      console.log(chalk.gray(`  Indexing "${workspace.name}" in the background — see the dashboard for progress.`));
+    }
+  } catch {
+    // Service not running or unreachable -- nothing to do.
   }
 }
 

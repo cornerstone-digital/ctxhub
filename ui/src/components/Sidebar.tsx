@@ -1,12 +1,16 @@
-import { Network, Users, BookOpen } from 'lucide-react'
-import { useWorkspaces, useHealth, useWorkspaceStatus } from '../api/client'
+import { Network, Users, BookOpen, RefreshCw } from 'lucide-react'
+import { useWorkspaces, useHealth, useWorkspaceStatus, useIndexStatus } from '../api/client'
 import { useFleetStore } from '../store/fleet'
 import { healthColor } from '../lib/utils'
 import type { Workspace } from '../types'
 
+// Completion/failure activity rows and the desktop notification both come from the shared SSE
+// subscription (useEventStream, mounted once in App.tsx) -- this row only needs to render
+// *current* progress, not detect transitions itself.
 function WorkspaceRow({ ws }: { ws: Workspace }) {
   const { selectedWorkspace, setSelectedWorkspace } = useFleetStore()
   const { data: status, isLoading } = useWorkspaceStatus(ws.name)
+  const { data: indexJob } = useIndexStatus(ws.name)
   const isSelected = selectedWorkspace === ws.name
 
   const checks = status?.checks ?? []
@@ -52,9 +56,14 @@ function WorkspaceRow({ ws }: { ws: Workspace }) {
           {ws.name}
         </span>
         <span className="text-[10px] truncate font-mono" style={{ color: 'var(--text-muted)' }}>
-          {shortPath}
+          {indexJob?.status === 'running'
+            ? `Indexing ${indexJob.repo ?? ''} ${indexJob.total > 0 ? `${indexJob.scanned}/${indexJob.total}` : ''}`.trim()
+            : shortPath}
         </span>
       </div>
+      {indexJob?.status === 'running' && (
+        <RefreshCw size={12} className="animate-spin flex-shrink-0" style={{ color: 'var(--accent)' }} />
+      )}
     </button>
   )
 }

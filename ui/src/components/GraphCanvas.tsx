@@ -5,6 +5,7 @@ import { useFleetStore } from '../store/fleet'
 import { healthColor } from '../lib/utils'
 import { GraphToolbar } from './GraphToolbar'
 import { DetailPanel } from './DetailPanel'
+import { EventDetailPanel } from './EventDetailPanel'
 import type { Workspace } from '../types'
 
 interface NodeDatum extends d3.SimulationNodeDatum {
@@ -62,7 +63,7 @@ export function GraphCanvas() {
 
   const { data: wsData } = useWorkspaces()
   const workspaces = wsData?.workspaces ?? []
-  const { selectedWorkspace, setSelectedWorkspace, frozen, addActivity } = useFleetStore()
+  const { selectedWorkspace, setSelectedWorkspace, selectedEvent, frozen, addActivity } = useFleetStore()
 
   const [healthMap, setHealthMap] = useState<Record<string, 'ok' | 'warn' | 'error' | 'loading'>>({})
 
@@ -532,7 +533,7 @@ export function GraphCanvas() {
         className="absolute rounded-lg"
         style={{
           bottom: 16,
-          right: selectedWorkspace ? 292 : 16,
+          right: selectedWorkspace ? 292 : selectedEvent ? 336 : 16,
           transition: 'right 0.25s ease',
           opacity: 0.85,
         }}
@@ -540,6 +541,7 @@ export function GraphCanvas() {
 
       {/* Detail panel */}
       <DetailPanel />
+      <EventDetailPanel />
     </div>
   )
 }

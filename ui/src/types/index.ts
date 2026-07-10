@@ -16,6 +16,38 @@ export interface WorkspaceStatus {
   checks: CheckLine[];
 }
 
+export interface IndexResult {
+  scanned: number;
+  indexed: number;
+  skipped: number;
+  deleted: number;
+}
+
+export interface IndexJobState {
+  status: 'idle' | 'running' | 'done' | 'error';
+  repo?: string;
+  scanned: number;
+  total: number;
+  startedAt?: string;
+  finishedAt?: string;
+  result?: IndexResult;
+  error?: string;
+}
+
+// Mirrors src/events/eventBus.ts's CtxhubEvent -- kept as a hand-written twin rather than a
+// shared package since this is the only place the UI crosses that boundary; if the event
+// catalog grows much further this should probably become a generated/shared type instead.
+export type CtxhubEvent =
+  | { type: 'index.started'; workspace: string }
+  | { type: 'index.progress'; workspace: string; repo: string; scanned: number; total: number }
+  | { type: 'index.completed'; workspace: string; result: IndexResult }
+  | { type: 'index.failed'; workspace: string; error: string }
+  | { type: 'captain.run.started'; task: string; workspace: string }
+  | { type: 'captain.run.completed'; task: string; workspace: string; runId: string }
+  | { type: 'captain.run.failed'; task: string; workspace: string; error: string };
+
+export type CtxhubEventEnvelope = CtxhubEvent & { id: string; at: string };
+
 export interface ExplainResult {
   query: string;
   workspace: string;
@@ -40,4 +72,8 @@ export interface ActivityEvent {
   text: string;
   type: 'ok' | 'warn' | 'error' | 'info';
   timestamp: Date;
+  // Present when this row was produced by a real eventBus event (vs. a local UI interaction
+  // like "manual refresh clicked") -- the Event Log's detail panel needs the untouched envelope
+  // to show full metadata, not just the human-readable summary text.
+  raw?: CtxhubEventEnvelope;
 }
