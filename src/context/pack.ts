@@ -4,21 +4,30 @@ import { attachFreshness } from './freshness.js';
 import { classifyResult, localRgHints } from './searchFacets.js';
 import type { SearchResult } from '../config/types.js';
 
+// The architecture sub-query prepends fixed keywords to the *entire* raw question
+// (below), which dilutes lexical scoring for long natural-language questions -- a
+// diagram's compact indexed content (component/relationship lists) can lose to
+// `limit` unrelated results before ever reaching the kind==='architecture-diagram'
+// filter. Search a much wider pool here, then filter and slice to the requested
+// limit afterward, so a long question doesn't crowd out the one diagram that matters.
+const ARCHITECTURE_SEARCH_POOL = 30;
+
 export async function createContextPack(query: string, limit = 8, cwd = process.cwd()) {
   const { loadWorkspaceConfig } = await import('../config/config.js');
   const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
   const memory = createMemoryAdapter(config.memory.provider, config.memory.path, workspaceRoot);
-  const [searchResults, architectureResults, memoryStatus, indexStatus] = await Promise.all([
+  const [searchResults, architectureCandidates, memoryStatus, indexStatus] = await Promise.all([
     index.search(query, limit),
-    index.search(`architecture diagram mermaid ${query}`, limit),
+    index.search(`architecture diagram mermaid ${query}`, Math.max(limit, ARCHITECTURE_SEARCH_POOL)),
     memory.status(),
     index.status()
   ]);
 
   const search = await attachFreshness(config, searchResults, workspaceRoot);
-  const architecture = (await attachFreshness(config, architectureResults, workspaceRoot))
-    .filter(result => result.kind === 'architecture-diagram');
+  const architecture = (await attachFreshness(config, architectureCandidates, workspaceRoot))
+    .filter(result => result.kind === 'architecture-diagram')
+    .slice(0, limit);
 
   return {
     query,
