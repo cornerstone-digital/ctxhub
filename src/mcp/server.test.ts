@@ -65,8 +65,21 @@ test('mcp server lists the read-only ctxhub tools', () => {
         'memory_status',
         'open_chunk',
         'repo_list',
-        'search'
+        'search',
+        'server_status'
       ]);
+    })
+  );
+});
+
+test('mcp server_status tool reports staleness based on the entry file mtime vs. process start time', () => {
+  return withWorkspace(cwd =>
+    withConnectedClient(cwd, async client => {
+      const result = await client.callTool({ name: 'server_status', arguments: {} });
+      const status = firstTextPayload(result as never) as { mode: string; stale: boolean; version: string };
+      assert.equal(status.mode, 'dev');
+      assert.equal(status.stale, false);
+      assert.equal(typeof status.version, 'string');
     })
   );
 });

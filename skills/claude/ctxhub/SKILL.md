@@ -21,8 +21,9 @@ Also treat the index as possibly stale after the user mentions pulling new chang
 
 ## How to use it
 
-- If the `ctxhub` MCP server is connected, prefer its tools: `context_pack`, `search`, `open_chunk`, `get_file_context`, `architecture_search`, `architecture_map`, `memory_status`, `repo_list`.
+- If the `ctxhub` MCP server is connected, prefer its tools: `context_pack`, `search`, `open_chunk`, `get_file_context`, `architecture_search`, `architecture_map`, `memory_status`, `repo_list`, `server_status`.
 - For broad questions, use `context_pack` first; it bundles search, architecture, freshness, repo list, and suggested reading order.
+- If a ctxhub tool result seems to contradict a recent change (a fix you know landed, a skill wording update, etc.), or once near the start of a long session, call `server_status`. If it reports `stale: true`, ctxhub was rebuilt after this MCP server process started and cannot restart itself — tell the user their ctxhub connection is stale and ask them to restart/reconnect the ctxhub MCP server (or restart the agent/harness) rather than trying to work around it.
 - Otherwise, run the CLI directly: `ctxhub search --plain "<query>"`, `ctxhub memory status --plain`, `ctxhub repo list`.
 - Use typed search when intent is clear: `ctxhub search --plain --code "<query>"` for implementation/symbol lookup, `--docs` for README/decision docs, `--architecture` for Mermaid diagrams, and `--notes` for team notes.
 - For precise code edits, use ctxhub to find the right repo/file, then use local file reads and `rg` in that repo for exact method bodies.

@@ -10,6 +10,7 @@ import { getFileContext } from '../context/fileContext.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { pullRepo } from '../git/git.js';
 import { getPackageVersion } from '../utils/version.js';
+import { checkServerStaleness } from '../utils/serverStatus.js';
 import { SEARCH_FACETS, classifyResult, filterResults, localRgHints, normalizeSearchFacet } from '../context/searchFacets.js';
 
 function textResult(value: unknown) {
@@ -20,8 +21,23 @@ async function workspace(cwd: string) {
   return loadWorkspaceConfig(cwd);
 }
 
-export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean } = {}): McpServer {
+export function createCtxhubMcpServer(cwd = process.cwd(), opts: { allowIndex?: boolean; startedAt?: number } = {}): McpServer {
   const server = new McpServer({ name: 'ctxhub', version: getPackageVersion() });
+  const startedAt = opts.startedAt ?? Date.now();
+
+  server.registerTool(
+    'server_status',
+    {
+      title: 'ctxhub MCP server status',
+      description:
+        'Report whether THIS running ctxhub MCP server process is stale -- i.e. ctxhub was rebuilt or reinstalled ' +
+        'after this process started, so it may be running out-of-date code in memory. Call this if tool results ' +
+        'seem to contradict a recent ctxhub change, or once at the start of a long session. If `stale` is true, ' +
+        'follow the `instructions` field -- ctxhub cannot restart itself, only the client/harness can.',
+      inputSchema: {}
+    },
+    async () => textResult(checkServerStaleness(startedAt))
+  );
 
   server.registerTool(
     'search',
