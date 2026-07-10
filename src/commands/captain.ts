@@ -4,13 +4,28 @@ import { listCaptainRuns, promoteCaptainRun, runCaptainTask } from '../captains/
 
 export async function captainAddCommand(
   name: string,
-  opts: { workspace?: string; query?: string; persona?: string; profile?: string } = {}
+  opts: { workspace?: string; query?: string; persona?: string; profile?: string; scheduleEveryMinutes?: string } = {}
 ) {
   if (!opts.workspace) throw new Error('--workspace is required.');
   if (!opts.query) throw new Error('--query is required.');
 
-  await addCaptainTask({ name, workspace: opts.workspace, query: opts.query, persona: opts.persona, profile: opts.profile });
+  const everyMinutes = opts.scheduleEveryMinutes ? Number(opts.scheduleEveryMinutes) : undefined;
+  if (everyMinutes !== undefined && (!Number.isFinite(everyMinutes) || everyMinutes <= 0)) {
+    throw new Error('--schedule-every-minutes must be a positive number.');
+  }
+
+  await addCaptainTask({
+    name,
+    workspace: opts.workspace,
+    query: opts.query,
+    persona: opts.persona,
+    profile: opts.profile,
+    schedule: everyMinutes ? { everyMinutes } : undefined
+  });
   console.log(chalk.green(`Added captain task "${name}" targeting workspace "${opts.workspace}".`));
+  if (everyMinutes) {
+    console.log(chalk.gray(`Scheduled: runs every ${everyMinutes} minute(s) while \`ctxhub service\` is running.`));
+  }
 }
 
 export async function captainListCommand() {
@@ -21,7 +36,11 @@ export async function captainListCommand() {
   }
 
   for (const task of file.tasks) {
-    const extras = [task.persona ? `persona=${task.persona}` : undefined, task.profile ? `profile=${task.profile}` : undefined]
+    const extras = [
+      task.persona ? `persona=${task.persona}` : undefined,
+      task.profile ? `profile=${task.profile}` : undefined,
+      task.schedule ? `every=${task.schedule.everyMinutes}m` : undefined
+    ]
       .filter(Boolean)
       .join(' ');
     console.log(`${chalk.green('✓')} ${task.name} ${chalk.gray(`(${task.workspace})`)} "${task.query}"${extras ? ` ${chalk.gray(extras)}` : ''}`);

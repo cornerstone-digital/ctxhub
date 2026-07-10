@@ -13,6 +13,11 @@ export type CaptainTask = {
   query: string;
   persona?: string;
   profile?: string;
+  // Opt-in scheduled trigger: when the ctxhub service (Phase 2) is running in the background, it
+  // polls task definitions and runs any that are due. Absent means manual-only (`ctxhub captain
+  // run <name>`) -- the default, since nothing should start running unattended without an
+  // explicit opt-in.
+  schedule?: { everyMinutes: number };
 };
 
 export type CaptainTaskFile = {

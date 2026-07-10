@@ -258,11 +258,16 @@ prerequisite for every later phase without requiring any of them to exist.
       new inference path. `persona`/`profile` reuse Phases 4's Execution Profile resolution
       exactly as `explain --as`/`--profile` already do.
 - [x] `ctxhub captain run <name>` (`src/captains/runner.ts`) is the trigger for this phase --
-      manual, on demand. **Scheduled/triggered-by-the-service execution was not built in this
-      pass**: the natural next step is the Phase 2 service polling task definitions on an interval
-      and calling the same `runCaptainTask` function; tracked as a real, small follow-up, not
-      silently dropped -- `ctxhub captain run` alone is already useful and fully proves the
-      dispatch model this phase exists to validate.
+      manual, on demand. **Scheduled/triggered-by-the-service execution is now also shipped**, as
+      a fast follow: `CaptainTask` gained an optional `schedule: { everyMinutes }` field
+      (`ctxhub captain add ... --schedule-every-minutes <n>`); the running `ctxhub service`
+      (`src/commands/service.ts`'s `runForegroundService`) polls task definitions every 60s
+      (`src/captains/scheduler.ts`'s `runDueCaptainTasks`/`isCaptainTaskDue`, due-ness computed
+      from each task's own most recent pending-run timestamp -- no separate "last run" state file
+      needed) and runs any that are due, calling the exact same `runCaptainTask` function
+      `ctxhub captain run` uses manually. A tick is skipped entirely while a previous poll is still
+      in flight, so a slow task can never be triggered twice concurrently by an over-fast poll.
+      Absent `schedule`, a task stays manual-only, unchanged from before.
 - [x] Approval gating (the brief's "Approvals queue") is real, not optional: `runCaptainTask`
       *never* writes to a repo. It only ever writes its full result to a user-level, non-git-tracked
       pending-runs queue (`~/.ctxhub/captains/<task>/<runId>.json`, `ctxhub captain approvals
@@ -286,6 +291,23 @@ prerequisite for every later phase without requiring any of them to exist.
       promoted it, and confirmed the resulting note file's frontmatter/body matched
       `draftedNoteTemplate` exactly, while the original pending JSON record remained in the
       non-git-tracked queue untouched.
+- [x] Scheduled-trigger unit tests (`src/captains/scheduler.test.ts`, `src/commands/service.test.ts`):
+      due-ness math against the most recent run (not the oldest), unscheduled tasks always skipped,
+      a real registered/indexed workspace's scheduled task actually running via a real
+      `runForegroundService` instance. Live-verified end to end against the real detached
+      background service: started it with a `--schedule-every-minutes 1` task, waited past the
+      poll interval, and confirmed a real pending run appeared via `captain approvals`, then
+      confirmed the service log recorded the scheduled run.
+- [x] **A real concurrency bug was caught and fixed while building this, not shipped
+      silently.** The first version tracked only the most-recently-fired poll's promise for
+      `stop()` to await; under a fast poll interval (as in the test, not the real 60s default) a
+      new tick could fire before the previous `runDueCaptainTasks()` call finished, both would see
+      the same "not yet run" state and both would start writing to the same task's pending-runs
+      directory concurrently -- losing track of the earlier, still-in-flight write and (in tests)
+      racing directory cleanup against an active write (`ENOTEMPTY` on `rmdir`). Fixed by skipping
+      a tick entirely whenever a previous poll is still in flight, rather than letting polls
+      overlap -- confirmed by running the full suite 5 times in a row clean after the fix, having
+      seen it fail intermittently before.
 
 ### Phase 7 — Gateway adapters (shipped: the generic OpenAI-compatible adapter)
 

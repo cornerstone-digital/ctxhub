@@ -89,6 +89,27 @@ test('captainAddCommand requires --workspace and --query, then lists and removes
   });
 });
 
+test('captainAddCommand --schedule-every-minutes validates and records the schedule', () => {
+  return withIsolatedCtxhubHome(async () => {
+    await assert.rejects(
+      () => captainAddCommand('t', { workspace: 'ws1', query: 'q', scheduleEveryMinutes: '0' }),
+      /--schedule-every-minutes must be a positive number/
+    );
+    await assert.rejects(
+      () => captainAddCommand('t', { workspace: 'ws1', query: 'q', scheduleEveryMinutes: 'nope' }),
+      /--schedule-every-minutes must be a positive number/
+    );
+
+    const lines = await captureLog(() =>
+      captainAddCommand('nightly-audit', { workspace: 'ws1', query: 'any risks?', scheduleEveryMinutes: '30' })
+    );
+    assert.ok(lines.some(line => line.includes('Scheduled: runs every 30 minute(s)')));
+
+    const listLines = await captureLog(() => captainListCommand());
+    assert.ok(listLines.some(line => line.includes('every=30m')));
+  });
+});
+
 test('captainRemoveCommand reports cleanly when the task does not exist', () => {
   return withIsolatedCtxhubHome(async () => {
     const lines = await captureLog(() => captainRemoveCommand('not-real'));

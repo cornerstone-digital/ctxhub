@@ -2,10 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import { isServiceRunning, serviceStatusCommand, serviceStopCommand, servicePidFile } from './service.js';
+import { isServiceRunning, runForegroundService, serviceStatusCommand, serviceStopCommand, servicePidFile } from './service.js';
 import { pathExists, writeText } from '../utils/fs.js';
+import { addCaptainTask } from '../captains/tasks.js';
+import { registerWorkspace } from '../workspaces/registry.js';
+import { initConfig, loadConfig, saveConfig } from '../config/config.js';
+import { indexWorkspace } from '../indexing/indexer.js';
 
 async function withIsolatedCtxhubHome(run: () => Promise<void>) {
   const ctxhubHome = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-service-home-'));
@@ -90,5 +94,48 @@ test('service stop / status report cleanly when nothing is running', () => {
 
     const statusLines = await captureLog(() => serviceStatusCommand());
     assert.ok(statusLines.some(line => line.includes('not running in the background')));
+  });
+});
+
+// docs/control-plane.md Phase 6 follow-up: the running service is what turns a captain task's
+// schedule into a real trigger.
+test('runForegroundService polls and runs due captain tasks on its own interval', () => {
+  return withIsolatedCtxhubHome(async () => {
+    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-service-captain-ws-'));
+    try {
+      await initConfig('service-captain-ws', workspaceDir);
+      await mkdir(path.join(workspaceDir, 'app'), { recursive: true });
+      await writeFile(path.join(workspaceDir, 'app', 'README.md'), '# App\n\n## Authentication flow\n\nAuth via JWT.\n');
+
+      const config = await loadConfig(workspaceDir);
+      config.repositories.push({ name: 'app', path: './app', git: false });
+      config.index.provider = 'local-json';
+      config.index.path = '.ctxhub/index/local.json';
+      await saveConfig(config, workspaceDir);
+      await indexWorkspace(workspaceDir);
+      await registerWorkspace(workspaceDir, 'service-captain-ws');
+
+      await addCaptainTask({
+        name: 'auto-audit',
+        workspace: 'service-captain-ws',
+        query: 'how does auth work',
+        schedule: { everyMinutes: 30 }
+      });
+
+      const lines: string[] = [];
+      const handle = await runForegroundService(0, { captainPollIntervalMs: 20, log: line => lines.push(line) });
+
+      try {
+        const deadline = Date.now() + 2000;
+        while (Date.now() < deadline && !lines.some(line => line.includes('scheduled captain run'))) {
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        assert.ok(lines.some(line => line.includes('scheduled captain run: auto-audit')));
+      } finally {
+        await handle.stop();
+      }
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
   });
 });

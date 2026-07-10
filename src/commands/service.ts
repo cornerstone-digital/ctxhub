@@ -5,7 +5,13 @@ import { openSync } from 'node:fs';
 import chalk from 'chalk';
 import { getCtxhubHome } from '../workspaces/registry.js';
 import { createServiceServer, DEFAULT_SERVICE_PORT } from '../service/server.js';
+import { runDueCaptainTasks } from '../captains/scheduler.js';
 import { ensureDir, pathExists, readText, writeText } from '../utils/fs.js';
+
+// docs/control-plane.md Phase 6 follow-up: how often the running service checks captain task
+// schedules. Schedules are expressed in whole minutes, so a 60s poll gives at most ~1 minute of
+// latency on a due task -- the same "periodic fallback pass" granularity ctxhub watch already uses.
+const CAPTAIN_POLL_INTERVAL_MS = 60_000;
 
 // docs/control-plane.md Phase 2: reuses `ctxhub watch --detach`'s exact established pattern
 // (detached child process, PID + log file, signal-based liveness/stop) at user scope instead of
@@ -30,11 +36,54 @@ export async function serviceStartCommand(opts: ServiceStartOptions = {}): Promi
   await startBackgroundService(opts);
 }
 
-async function runForegroundService(port: number): Promise<void> {
+export type ForegroundServiceHandle = { stop(): Promise<void> };
+
+// Exported (mirrors watch.ts's startForegroundWatch/ForegroundWatchHandle pattern exactly) so
+// tests can start this, control time, and clean it up deterministically instead of waiting on a
+// real 60s interval.
+export async function runForegroundService(
+  port: number,
+  opts: { captainPollIntervalMs?: number; log?: (line: string) => void } = {}
+): Promise<ForegroundServiceHandle> {
+  const log = opts.log ?? (line => console.log(line));
+
   const server = createServiceServer();
   await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve));
-  console.log(chalk.green(`ctxhub control-plane service listening on http://127.0.0.1:${port}`));
-  console.log(chalk.gray('Press Ctrl+C to stop.'));
+  log(chalk.green(`ctxhub control-plane service listening on http://127.0.0.1:${port}`));
+  log(chalk.gray('Press Ctrl+C to stop.'));
+
+  // docs/control-plane.md Phase 6 follow-up: the running service is what turns a captain task's
+  // `schedule` into an actual trigger -- ctxhub captain run remains the manual path regardless.
+  const pollIntervalMs = opts.captainPollIntervalMs ?? CAPTAIN_POLL_INTERVAL_MS;
+  // A tick is skipped entirely while the previous poll is still running, rather than letting
+  // polls overlap -- a slow task (or a poll interval faster than one full run) must never trigger
+  // the same task twice concurrently. This also means at most one poll is ever in flight, so
+  // `stop()` can reliably wait for it to finish before tearing anything down.
+  let pendingPoll: Promise<unknown> = Promise.resolve();
+  let pollInFlight = false;
+  const intervalHandle = setInterval(() => {
+    if (pollInFlight) return;
+    pollInFlight = true;
+
+    pendingPoll = runDueCaptainTasks()
+      .then(
+        ran => {
+          for (const record of ran) log(chalk.gray(`[ctxhub] scheduled captain run: ${record.task} (${record.runId})`));
+        },
+        error => log(chalk.red(`[ctxhub] captain scheduler error: ${(error as Error).message}`))
+      )
+      .finally(() => {
+        pollInFlight = false;
+      });
+  }, pollIntervalMs);
+
+  return {
+    async stop() {
+      clearInterval(intervalHandle);
+      await pendingPoll;
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  };
 }
 
 async function startBackgroundService(opts: ServiceStartOptions): Promise<void> {

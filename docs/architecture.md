@@ -216,9 +216,17 @@ persona?, profile? }` — deliberately not a bare free-floating prompt: `runCapt
 against the named registered workspace. `persona`/`profile` reuse Phase 4's Execution Profile
 resolution exactly as `explain --as`/`--profile` do.
 
-`ctxhub captain run <name>` is the trigger for this phase — manual, on demand; a scheduled trigger
-(the Phase 2 service polling task definitions on an interval) wasn't built yet, tracked as a real
-follow-up. Approval gating is real: `runCaptainTask` never writes to a repo, only to a user-level,
+`ctxhub captain run <name>` is the manual trigger. `CaptainTask` also supports an optional
+`schedule: { everyMinutes }` (`--schedule-every-minutes` on `ctxhub captain add`): the running
+`ctxhub service` (`src/commands/service.ts`'s `runForegroundService`) polls task definitions every
+60s via `src/captains/scheduler.ts`'s `runDueCaptainTasks`/`isCaptainTaskDue`, computing due-ness
+from each task's own most recent pending-run timestamp rather than a separate "last run" state
+file. A tick is skipped entirely while a previous poll is still in flight, so an aggressive or slow
+poll can never trigger the same task twice concurrently — a real bug along these lines was caught
+and fixed while building this (see `docs/control-plane.md`'s Phase 6 section for the story).
+Absent a `schedule`, a task stays manual-only, unchanged from before.
+
+Approval gating is real: `runCaptainTask` never writes to a repo, only to a user-level,
 non-git-tracked pending-runs queue (`~/.ctxhub/captains/<task>/<runId>.json`, listed via
 `ctxhub captain approvals <task>`). The one human-invoked action that promotes a pending run into
 a real, team-visible artifact is `ctxhub captain promote <task> <runId> <repo>`, which reuses
