@@ -6,7 +6,9 @@ import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { execa } from '../utils/execa-lite.js';
 import { readText, pathExists } from '../utils/fs.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
-import { repoDiscoverCommand, repoHookCommand } from './repo.js';
+import { repoDiscoverCommand, repoHookCommand, renderRepoGlobSuggestionDiff, suggestRepoGlobs } from './repo.js';
+import { defaultConfig } from '../config/defaultConfig.js';
+import type { CtxhubConfig } from '../config/types.js';
 
 async function withGitRepoWorkspace(run: (cwd: string, repoPath: string) => Promise<void>) {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-repohook-'));
@@ -44,6 +46,10 @@ async function captureLog(run: () => Promise<void>): Promise<string[]> {
     console.log = original;
   }
   return lines;
+}
+
+function config(overrides: Partial<CtxhubConfig['llm']> = {}): CtxhubConfig {
+  return { ...defaultConfig, llm: { ...defaultConfig.llm, ...overrides } };
 }
 
 test('repoHookCommand installs an executable post-commit hook', () => {
@@ -100,4 +106,50 @@ test('repoDiscoverCommand summarizes discovered and already-configured repositor
     process.chdir(originalCwd);
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test('suggestRepoGlobs reports the disabled notice and no suggestion when llm.enabled is false', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-repoglobs-'));
+  try {
+    await mkdir(path.join(cwd, 'app', 'src'), { recursive: true });
+    const result = await suggestRepoGlobs({ name: 'app', path: './app', git: true }, path.join(cwd, 'app'), config({ enabled: false }));
+    assert.equal(result.suggestion, undefined);
+    assert.match(result.llmNotice ?? '', /llm\.enabled: true/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('suggestRepoGlobs parses structured include/exclude suggestions from the LLM response', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-repoglobs-'));
+  try {
+    await mkdir(path.join(cwd, 'app', 'src'), { recursive: true });
+    const result = await suggestRepoGlobs(
+      { name: 'app', path: './app', git: true },
+      path.join(cwd, 'app'),
+      config({ enabled: true }),
+      async () => ({ ok: true, text: '{"include":["README.md","src/**/*.{ts,tsx}"],"exclude":["dist/**"],"rationale":["Small TypeScript repo."]}' })
+    );
+
+    assert.deepEqual(result.suggestion, {
+      include: ['README.md', 'src/**/*.{ts,tsx}'],
+      exclude: ['dist/**'],
+      rationale: ['Small TypeScript repo.']
+    });
+    assert.equal(result.llmNotice, undefined);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('renderRepoGlobSuggestionDiff renders a repo-entry config diff without mutating config', () => {
+  const diff = renderRepoGlobSuggestionDiff(
+    { name: 'app', path: './app', git: true },
+    { include: ['README.md'], exclude: ['dist/**'], rationale: [] }
+  );
+
+  assert.match(diff, /\+    include:/);
+  assert.match(diff, /\+      - README\.md/);
+  assert.match(diff, /\+    exclude:/);
+  assert.match(diff, /\+      - dist\/\*\*/);
 });

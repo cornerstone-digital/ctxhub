@@ -22,7 +22,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Architecture/doc drift repair suggestions
 - [x] PR/handoff description synthesis (scoped to `ctxhub handoff`)
 - [x] Auto-drafted note/diagram content
-- [ ] Tailored onboarding globs for new repos
+- [x] Tailored onboarding globs for new repos
 - [ ] Eval golden-query expansion
 - [ ] Standalone `ctxhub ask`
 - [ ] Natural-language query rewriting in front of search
@@ -582,7 +582,7 @@ disabled, success, and fallback branches for both note and diagram synthesis.
 
 ## 17. Tailored Onboarding Globs for New Repos
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub repo discover` / `ctxhub repo add`
 
@@ -604,8 +604,16 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Suggested globs are shown as a diff to `ctxhub.yaml`, not written automatically.
-- Falls back cleanly to today's default-glob behavior when disabled.
+- Suggested globs are shown as a diff to `ctxhub.yaml`, not written automatically. ✓
+  (`repo add --suggest-globs` and `repo discover --suggest-globs` print a diff-like repo-entry patch
+  showing suggested `include`/`exclude` keys; they never mutate config beyond adding the repo.)
+- Falls back cleanly to today's default-glob behavior when disabled. ✓
+
+Implemented as an opt-in suggestion path on `ctxhub repo add` and `ctxhub repo discover`, using
+the repo's top-level entries plus representative file samples to ask `runAgentPrompt` for a small,
+repo-relative `include`/`exclude` set. Invalid/failed/disabled LLM paths print a clear notice and
+leave the repo on the workspace defaults. Focused tests cover disabled fallback, structured parsing,
+and diff rendering.
 
 ## 18. Eval Golden-Query Expansion
 

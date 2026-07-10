@@ -170,6 +170,7 @@ Today, `llm.enabled` gates:
 - **`ctxhub graph --drift`** — for each drift finding with an existing diagram to fix, suggests a specific repair (e.g. renaming a component to match the real repo/package name), shown as a diff against the real file content for review. Never auto-applied, never affects `--fail-on-drift`'s CI behavior.
 - **`ctxhub handoff`** — adds a synthesized `## Summary` section citing only the evidence already in the bundle, alongside (not replacing) the existing structured sections.
 - **`ctxhub note add --draft` / `ctxhub diagram add --draft`** — replace the empty scaffold body with an AI-drafted note or Mermaid diagram grounded in recent commits plus indexed ctxhub evidence, clearly marked as pending human review.
+- **`ctxhub repo add --suggest-globs` / `ctxhub repo discover --suggest-globs`** — inspect a newly added repo and print a suggested per-repo `include`/`exclude` diff for `ctxhub.yaml`, grounded in the repo's layout, without auto-applying it.
 
 If a command's LLM path is unavailable (disabled, no agent CLI found, timed out), it always falls back to its non-LLM behavior and explains why in the output — it never just silently does less. `ctxhub doctor` reports whether LLM-backed features are enabled, which agent is configured/detected, and whether that agent's CLI is actually reachable on PATH.
 
@@ -205,9 +206,9 @@ ctxhub eval --json            # CI-friendly eval payload
 - `ctxhub menu`: launch the interactive guided menu (see [Guided mode](#guided-mode) above) — also the default when you run bare `ctxhub` with no arguments in a terminal.
 - `ctxhub init`: create workspace config and local ctxhub directories.
 - `ctxhub onboard`: live terminal setup wizard — init, repo discovery, hooks, memory provider, agents, skills, and an initial index, in one guided flow. Requires a real terminal; use the [Quick Start](#quick-start) commands for non-interactive scripts.
-- `ctxhub repo add <name> <path>`: add a repo, validate the path, and detect Git.
+- `ctxhub repo add <name> <path> [--suggest-globs]`: add a repo, validate the path, and detect Git. `--suggest-globs` asks the configured agent CLI for a repo-specific `include`/`exclude` diff without changing config automatically.
 - `ctxhub repo list`: print configured repos.
-- `ctxhub repo discover [path]`: find Git repositories below a folder. In a real terminal it opens a review screen so you can choose which new repos to add; use `--plain` to auto-add new repos.
+- `ctxhub repo discover [path] [--suggest-globs]`: find Git repositories below a folder. In a real terminal it opens a review screen so you can choose which new repos to add; use `--plain` to auto-add new repos. `--suggest-globs` prints repo-specific `include`/`exclude` diff suggestions for each newly added repo when `llm.enabled`.
 - `ctxhub repo hook <name>`: install a `post-commit` Git hook in that repo which re-indexes the workspace in the background after each commit (`-f/--force` to overwrite an existing hook).
 - `ctxhub ci init [--with-eval]`: create a GitHub Actions workflow that runs build, `ctxhub validate docs`, and optionally `ctxhub eval` on pull requests.
 - `ctxhub index`: index changed workspace files. In a real terminal it shows per-repo progress, then prints the durable summary; use `--plain` to force plain progress output.

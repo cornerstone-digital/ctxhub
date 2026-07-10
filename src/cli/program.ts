@@ -69,6 +69,7 @@ export function buildProgram(): Command {
     .command('add')
     .argument('<name>', 'Repository name')
     .argument('<path>', 'Repository path')
+    .option('--suggest-globs', 'Ask the configured agent CLI for repo-specific include/exclude glob suggestions after adding the repo')
     .description('Add a repository to the workspace')
     .action(repoAddCommand);
 
@@ -82,7 +83,8 @@ export function buildProgram(): Command {
     .argument('[root]', 'Root folder to scan', '.')
     .option('--plain', 'Add discovered repos without the interactive review screen')
     .option('--no-interactive', 'Disable the interactive review screen')
-    .description('Discover Git repositories under a folder')
+    .option('--suggest-globs', 'Ask the configured agent CLI for repo-specific include/exclude glob suggestions for each newly added repo')
+    .description('Discover Git repositories under a folder, with optional repo-specific glob suggestions when llm.enabled')
     .action(repoDiscoverCommand);
 
   repo
