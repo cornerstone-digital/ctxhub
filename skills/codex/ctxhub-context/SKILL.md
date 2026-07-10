@@ -18,7 +18,7 @@ Treat the invocation text as the question to gather context for. If no question 
 
 1. If the `ctxhub` MCP server is connected, call `context_pack` with the question.
 2. Otherwise, run: `ctxhub pack --plain "<question>"`.
-3. Read the suggested order and cited files before answering. Prefer `get_file_context` for repo files when you need surrounding lines, and `open_chunk` when the indexed chunk itself is enough.
+3. Read the suggested order and cited files before answering. Prefer `get_file_context` for repo files when you need surrounding lines, and `open_chunk` when the indexed chunk itself is enough. If the results look like ownership/boilerplate only (e.g. repeated "Ownership" sections across several repos) and don't actually answer a "how does this work" question, follow up with `search` using `type: "docs"` and a sharper query before concluding — context_pack's fixed result limit can bury the one section that answers "how" under near-duplicate ownership text from unrelated repos.
 4. Summarize the answer with repo/file citations where possible.
 5. Use `localFollowUpCommands` from the context pack, or local `rg`, when the next step is exact source-code inspection rather than workspace orientation.
 6. If freshness warnings appear, include a confidence caveat in the answer (e.g. "based on possibly-stale/dirty repo state") and suggest `ctxhub sync --plain` before relying on dirty/stale results for final decisions.
