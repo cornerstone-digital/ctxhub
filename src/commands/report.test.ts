@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { openReportCommand, reportCommand } from './report.js';
+import { buildReportGraphData, openReportCommand, reportCommand } from './report.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { readText } from '../utils/fs.js';
@@ -68,10 +68,35 @@ test('reportCommand writes an HTML report with status, repos, architecture, and 
     assert.match(html, /app/);
     assert.match(html, /"section":"architecture"/);
     assert.match(html, /"section":"recent"/);
+    assert.match(html, /id="graph"/, 'should include the graph svg container');
+    assert.match(html, /ctxhub-report-graph/, 'should include graph JSON payload');
     assert.match(html, /id="filter"/, 'should include the client-side filter input');
     assert.ok(lines.some(line => line.includes('Wrote report:')));
     assert.ok(lines.some(line => line.includes('architecture item')));
   });
+});
+
+test('buildReportGraphData links repos to files and architecture components', () => {
+  const graph = buildReportGraphData(
+    [{ name: 'app', path: './app' }],
+    [{
+      section: 'architecture',
+      repo: 'app',
+      path: 'architecture.mmd',
+      title: 'Mermaid flowchart',
+      snippet: 'app --> db',
+      stale: false,
+      components: ['app', 'db'],
+      relationships: ['app --> db']
+    }]
+  );
+
+  assert.ok(graph.nodes.some(node => node.id === 'repo:app' && node.type === 'repo'));
+  assert.ok(graph.nodes.some(node => node.id === 'file:app:architecture.mmd' && node.type === 'file'));
+  assert.ok(graph.nodes.some(node => node.id === 'component:app' && node.type === 'component'));
+  assert.ok(graph.edges.some(edge => edge.source === 'repo:app' && edge.target === 'file:app:architecture.mmd' && edge.type === 'contains'));
+  assert.ok(graph.edges.some(edge => edge.source === 'file:app:architecture.mmd' && edge.target === 'component:db' && edge.type === 'documents'));
+  assert.ok(graph.edges.some(edge => edge.source === 'component:app' && edge.target === 'component:db' && edge.type === 'depends-on'));
 });
 
 test('openReportCommand picks the platform launcher without shell interpolation', () => {
