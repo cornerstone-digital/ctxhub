@@ -9,30 +9,29 @@ plan, in the same spirit as [docs/personas.md](./personas.md) did for the Portab
 Specification — but this is explicitly a **planning-only** pass, not an implementation one. Nothing
 in this document has been built yet.
 
-## The real tension this vision creates
+## Orchestration is now a first-class pillar, not a hedge
 
-Before phasing anything, it's worth naming the thing the source documents don't: this is a
-materially bigger commitment than anything ctxhub has built so far, and it pulls in a direction
-`deep-research-report.md` (the competitive-analysis pass, also in this repo) explicitly warned
-against. That report's conclusion was that ctxhub's durable niche is being **the open context and
-memory fabric around whichever harness a developer already uses** — not becoming "yet another
-agent product." Its closing line: *"every time ctxhub adds another bounded LLM path, it becomes
-easier to slide from 'context and control plane' into 'yet another agent product'... the pressure
-will increase as you add review and automation features."* Fleet Captains, Workspace Captains, and
-a Mission Control UI are exactly that pressure, taken to its logical extreme — a persistent
-orchestration daemon with its own desktop-app-shaped UI is a different kind of thing than a CLI
-that shells out to a harness for one bounded answer.
+An earlier draft of this document raised a real tension: `deep-research-report.md` (the
+competitive-analysis pass, also in this repo) had warned that ctxhub's durable niche was being
+**the open context and memory fabric around whichever harness a developer already uses**, and that
+adding an orchestration/automation layer risked sliding into "yet another agent product." That
+caution was worth naming, but it's now resolved deliberately in the other direction: the explicit
+goal is a **personal, customizable orchestration framework** for running agentic workflows across
+work and personal projects — not something to hedge against, but the second core pillar of what
+ctxhub is, alongside the context/memory fabric it already does well. Fleet Captains, Workspace
+Captains, and Mission Control are in scope as real, wanted destinations, not speculative extras to
+keep re-litigating.
 
-That doesn't mean don't build it — the brief's framing (**ctxhub owns orchestration, personas,
-policies, routing, evidence, approvals, workspace management; external systems own inference,
-model hosting, provider APIs, agent execution**) is a genuinely coherent boundary, and it's
-consistent with the "harnesses handle execution" principle already established in
-[docs/philosophy.md](./philosophy.md). It means: build the parts that are a natural, additive
-extension of what already exists first (Workspace Registry, a thin service, Execution Profiles
-wired into the persona system that's already shipped), and treat the parts that most resemble "a
-new agent platform" (Fleet/Workspace Captains autonomously routing and executing tasks, gateway
-adapters for direct model access) as a later, separately-justified decision — not something that
-rides along for free once the service process exists.
+This doesn't discard the boundary the brief itself drew — **ctxhub owns orchestration, personas,
+policies, routing, evidence, approvals, workspace management; external systems own inference, model
+hosting, provider APIs, agent execution** — and it doesn't discard the "harnesses handle execution"
+principle either: Captains dispatch to configured harness CLIs the same way every other LLM-backed
+feature already does, rather than adding a second inference engine. What changes is *how much
+ctxhub actively decides and schedules*, not *who actually runs the model*. The phasing below still
+starts with the lowest-risk, most natural extensions of what's already shipped (Workspace Registry,
+a thin service, Execution Profiles on top of the already-built persona system) before the daemon/UI
+and Captain layers — not because those later phases are in doubt, but because each phase is real,
+usable infrastructure the next one builds on, and sequencing that way surfaces problems early.
 
 ## What's a step change vs. what's a natural extension
 
@@ -176,17 +175,24 @@ prerequisite for every later phase without requiring any of them to exist.
       one global search space — this was already a hard constraint in the brief and matches
       ctxhub's existing "read-only index" discipline.
 
-### Phase 6 — Fleet Captain / Workspace Captain (the part closest to "a new agent product")
+### Phase 6 — Fleet Captain / Workspace Captain (the orchestration pillar's core deliverable)
 
-- [ ] Deliberately last, and deliberately the phase most worth re-confirming is wanted before
-      building, given the tension named above. If built: a Captain is a scheduled/triggered task
-      dispatcher that picks a workspace + persona + execution profile and calls `runAgentPrompt`
-      headlessly (same mechanism as every other LLM-backed feature today, just triggered by the
-      service instead of a person typing a command) — not a new autonomous-execution runtime.
-      Approval gating (the brief's "Approvals queue") is not optional for this phase: anything a
+- [ ] Sequenced last because it depends on every earlier phase (registry, service, Execution
+      Profiles, MCP Gateway) actually existing, not because it's in doubt — this is the piece that
+      makes ctxhub a genuine personal orchestration framework rather than a set of building blocks
+      for one. A Captain is a scheduled/triggered task dispatcher that picks a workspace + persona +
+      execution profile and calls `runAgentPrompt` headlessly (same mechanism as every other
+      LLM-backed feature today, just triggered by the service instead of a person typing a command)
+      — not a new autonomous-execution runtime; it still delegates to whichever harness CLI is
+      configured.
+- [ ] Approval gating (the brief's "Approvals queue") is not optional for this phase: anything a
       Captain does unattended needs a human-in-the-loop checkpoint before it writes anything,
       consistent with how invasive fixes already require opt-in flags elsewhere in ctxhub
       (`--fix-skills`, `--fix-personas`, `--allow-index`, `--allow-memory-write`).
+- [ ] This is also where "customizable" should show up concretely: Captain routing rules, which
+      persona/execution-profile combination handles which kind of trigger, and approval thresholds
+      should be plain, editable config (mirroring how personas/policies/execution profiles are all
+      already just files a user edits), not hardcoded dispatch logic.
 
 ### Phase 7 — Gateway adapters (OpenRouter, Bedrock, generic OpenAI-compatible, etc.)
 
@@ -214,14 +220,10 @@ prerequisite for every later phase without requiring any of them to exist.
 
 ## Open questions still requiring a decision from the user, not derivable from the codebase
 
-1. **Is the Fleet/Workspace Captain layer (Phase 6) actually wanted**, given the tension this
-   document opens with? This is the one phase that most changes what kind of project ctxhub is.
-   Worth an explicit go/no-go conversation once Phases 1–5 exist and there's a concrete sense of
-   whether the registry/service/UI already feels valuable without autonomous execution on top.
-2. **Mission Control tech stack** — this plan recommends a local web UI over Electron (see above),
+1. **Mission Control tech stack** — this plan recommends a local web UI over Electron (see above),
    but it's a real product-shape call worth confirming before Phase 3 build work starts, not
    something to silently lock in.
-3. **VF3 / enterprise client model** — workspace policies, IAM integration, private-connectivity
+2. **VF3 / enterprise client model** — workspace policies, IAM integration, private-connectivity
    requirements for the Bedrock adapter (Phase 7). This needs actual input about VF3's real AWS
    setup and isn't something to design from first principles; the `executionPolicy`
    (`requireTags`/`denyGateways`/`allowRegions`/`requirePrivateConnectivity`) sketch in the brief

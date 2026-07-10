@@ -1,6 +1,6 @@
 # ctxhub CLI
 
-`ctxhub` is a reusable CLI for AI-assisted development workspaces. It manages multi-repo context, indexes local documentation and source files in LanceDB, and leaves durable agent memory to MemPalace by default.
+`ctxhub` is a reusable CLI for AI-assisted development workspaces. It manages multi-repo context, indexes local documentation and source files in LanceDB, and leaves durable agent memory to MemPalace by default. It's also growing into a customizable orchestration framework — a local control plane (see [docs/control-plane.md](./docs/control-plane.md)) for running your own agentic workflows across workspaces, on top of the same context/memory fabric.
 
 New here? **[docs/quickstart.md](./docs/quickstart.md)** gets you to a working demo in minutes (including a pre-built [reference workspace](./examples/reference-workspace/), no setup required). **[docs/philosophy.md](./docs/philosophy.md)** explains why ctxhub is shaped the way it is. **[docs/architecture.md](./docs/architecture.md)** explains how the pieces underneath actually work. This README is the command/config reference.
 

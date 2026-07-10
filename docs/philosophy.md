@@ -4,6 +4,30 @@ This is the "why," not the "how" (see [architecture.md](./architecture.md)) or t
 first" (see [quickstart.md](./quickstart.md)). A few decisions recur throughout the codebase and
 are worth stating explicitly, since they explain choices that might otherwise look arbitrary.
 
+## Two pillars: context/memory fabric, and a customizable orchestration framework
+
+ctxhub is the open context and memory fabric around whichever coding harness you already use
+(Claude Code, Codex, Copilot, Cursor) — that's everything described below this section, and it
+isn't going away. Alongside it, ctxhub is also becoming a **personal, customizable orchestration
+framework**: a local control plane (see [docs/control-plane.md](./control-plane.md)) for running
+your own agentic workflows — across multiple workspaces, with personas, execution profiles, and
+scheduled/triggered Captains — rather than only answering one bounded question at a time. Both
+pillars share the same discipline: evidence-grounded, opt-in, local-first, and legible enough that
+a user can see and edit exactly what's configured. The orchestration pillar doesn't change who
+actually runs a model — see "Harnesses execute; ctxhub decides what and when," below — it changes
+how much of the *decision-making* (which workspace, which persona, which harness, on what trigger)
+ctxhub is trusted to do on your behalf.
+
+## Harnesses execute; ctxhub decides what and when
+
+Every LLM-backed feature, from a one-shot `ctxhub explain` to a scheduled Workspace Captain,
+shells out to a harness CLI you already have configured (`runAgentPrompt`) rather than adding a
+second inference engine or model-hosting layer of its own. This holds as ctxhub grows into an
+orchestration framework: a Captain deciding *when* to run a task and *which* persona/execution
+profile to use is still ctxhub; the model call itself still belongs to Claude Code, Codex, Copilot,
+Cursor, or (for direct API access with no harness CLI installed) an explicit gateway adapter. This
+keeps ctxhub vendor-neutral and out of the business of hosting or wrapping inference itself.
+
 ## The index is a read-only mirror; memory is a separate, writable layer
 
 ctxhub's own index (LanceDB or `local-json`) is deliberately **read-only** — a mirror of what's
