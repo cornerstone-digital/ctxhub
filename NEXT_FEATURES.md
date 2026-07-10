@@ -24,7 +24,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Auto-drafted note/diagram content
 - [x] Tailored onboarding globs for new repos
 - [x] Eval golden-query expansion
-- [ ] Standalone `ctxhub ask`
+- [x] Standalone `ctxhub ask`
 - [ ] Natural-language query rewriting in front of search
 - [ ] LLM-authored file summaries at index time
 
@@ -651,7 +651,7 @@ the suite unchanged and print a clear notice.
 
 ## 19. Standalone `ctxhub ask`
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** `ctxhub ask "<question>"`
 
@@ -673,8 +673,14 @@ Implementation notes:
 
 Acceptance criteria:
 
-- `ctxhub ask "<question>"` answers grounded in ctxhub's index only, with citations.
-- Clear, actionable message when `llm.enabled` is false (this command has no fallback mode).
+- `ctxhub ask "<question>"` answers grounded in ctxhub's index only, with citations. ✓
+- Clear, actionable message when `llm.enabled` is false (this command has no fallback mode). ✓
+
+Implemented as a thin wrapper around `createExplainResult`'s existing retrieval + synthesis path,
+but with stricter behavior than `explain`: if LLM synthesis is disabled or unavailable, it does
+not emit the non-LLM scaffold as if it were an answer. Instead it prints a clear notice pointing
+the user at `ctxhub explain` or `ctxhub pack` for the raw evidence view. Focused tests cover the
+disabled, success, and timeout/unavailable branches.
 
 ## 20. Natural-Language Query Rewriting in Front of `search`
 

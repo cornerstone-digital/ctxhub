@@ -15,6 +15,7 @@ import { noteAddCommand } from '../commands/note.js';
 import { diagramAddCommand } from '../commands/diagram.js';
 import { packCommand } from '../commands/pack.js';
 import { explainCommand } from '../commands/explain.js';
+import { askCommand } from '../commands/ask.js';
 import { replayCommand } from '../commands/replay.js';
 import { handoffCommand } from '../commands/handoff.js';
 import { evalCommand } from '../commands/eval.js';
@@ -154,6 +155,16 @@ export function buildProgram(): Command {
     .option('--no-llm', 'Force the non-LLM evidence scaffold for this call, even if enabled in config')
     .description('Create a citation-first explanation from indexed context, LLM-synthesized when llm.enabled')
     .action(explainCommand);
+
+  program
+    .command('ask')
+    .argument('<question>', 'Question to answer from indexed evidence')
+    .option('-l, --limit <limit>', 'Max context results', '8')
+    .option('--json', 'Print JSON')
+    .option('--llm', 'Force LLM-backed ask synthesis for this call, even if disabled in config')
+    .option('--no-llm', 'Disable ask synthesis for this call and print the fallback guidance')
+    .description('Answer a question from indexed evidence using the configured agent CLI; unlike explain, this command has no non-LLM answer mode')
+    .action(askCommand);
 
   program
     .command('replay')
