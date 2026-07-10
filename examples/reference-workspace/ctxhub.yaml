@@ -1,0 +1,33 @@
+version: 1
+workspace:
+  name: reference-workspace
+repositories:
+  - name: web-app
+    path: ./web-app
+    git: false
+  - name: notifications-service
+    path: ./notifications-service
+    git: false
+  - name: billing-service
+    path: ./billing-service
+    git: false
+memory:
+  # local-json needs no external install, so this reference workspace works out of the box.
+  # A real workspace typically uses `memory.provider: mempalace` instead -- see the main
+  # README's "Two kinds of agent memory" section.
+  provider: local-json
+  path: .ctxhub/memory/local.json
+index:
+  provider: lancedb
+  path: .ctxhub/index/lancedb
+  table: ctxhub_chunks
+  incremental: true
+  chunkSize: 1800
+hooks: {}
+privacy:
+  redactPatterns:
+    - "(api[_-]?key|token|secret|password)\\s*[:=]\\s*[^\\s]+"
+    - "AKIA[0-9A-Z]{16}"
+llm:
+  enabled: false
+  timeoutMs: 120000

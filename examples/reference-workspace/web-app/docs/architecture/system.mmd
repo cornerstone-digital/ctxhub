@@ -1,0 +1,4 @@
+flowchart LR
+  web-app -->|creates invoice| billing-service
+  billing-service -->|invoice.paid event| notifications-service
+  notifications-service -->|receipt email| web-app

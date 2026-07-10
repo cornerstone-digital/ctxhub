@@ -539,9 +539,12 @@ and scores compute correctly against real item data.
 
 ## 31. OSS Adoption Kit
 
-**Status:** Not started
+**Status:** 31a done; 31b (npm publish) intentionally pending a maintainer decision
 
-**Scope:** packaging, docs, examples -- not a single command
+**Scope:** packaging, docs, examples -- not a single command. Split into two independent pieces
+per the implementation plan: **31a** (docs split + reference workspace, done, no gate) and **31b**
+(actually flipping `npmPublish` on, gated on an explicit "yes, ready to be public on npm" decision
+from whoever owns that call -- not implied by 31a being done).
 
 **Source:** [deep-research-report.md](./deep-research-report.md) — rated low-medium complexity,
 high value; "probably the highest ROI community move after review mode."
@@ -567,9 +570,28 @@ Implementation notes:
 Acceptance criteria:
 
 - A new user can go from clone to a working, demonstrable multi-repo setup in one short quickstart
-  pass.
+  pass. ✓ (31a: `examples/reference-workspace/` -- a checked-in, pre-configured 3-repo fictional
+  workspace with real docs, one architecture diagram, and two team notes -- goes from `git clone` +
+  `npm link` to a working `ctxhub search`/`graph`/`report --open` demo with zero additional setup,
+  no MemPalace install required. Verified live against the real built CLI.)
 - Publishing (npm/Homebrew) is a deliberate decision made when picking this item up, not implied
-  by simply writing this entry.
+  by simply writing this entry. 31b: still open, on purpose -- see below.
+
+31a implemented: `docs/philosophy.md` (why ctxhub is shaped this way -- the index/memory split,
+the local-first/no-server bias, the LLM opt-in-and-grounded discipline, the dual CLI/MCP surface,
+not reimplementing what already works), `docs/quickstart.md` (the reference workspace as the
+fastest path, the `onboard` wizard and day-to-day workflow, the manual step-by-step equivalent --
+consolidated from README's old "Way of working"/"Quick Start" sections), `docs/architecture.md`
+(config discovery, indexing, the memory split, MCP server, the LLM-backed-feature pattern, review
+mode, report/graph/confidence, skills -- distilled from ROADMAP.md's "Shipped" history into a
+"how it works" narrative). README.md is trimmed to a command/config reference with pointers to
+all three. Verified: `npx markdownlint-cli2` clean except pre-existing/unenforced MD013
+(line-length); a real `ctxhub index`/`search`/`graph`/`report --open` run against
+`examples/reference-workspace/` using the actual built CLI.
+
+31b (flip `"npmPublish": false` -> `true` in `.releaserc.json`) is intentionally **not** done as
+part of this pass -- it needs an explicit "yes, we're ready to be public on npm" go-ahead from
+whoever owns that decision, not an autonomous judgment call bundled in with the docs work.
 
 ## Completed Archive
 

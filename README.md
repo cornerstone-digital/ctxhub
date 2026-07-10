@@ -2,10 +2,10 @@
 
 `ctxhub` is a reusable CLI for AI-assisted development workspaces. It manages multi-repo context, indexes local documentation and source files in LanceDB, and leaves durable agent memory to MemPalace by default.
 
+New here? **[docs/quickstart.md](./docs/quickstart.md)** gets you to a working demo in minutes (including a pre-built [reference workspace](./examples/reference-workspace/), no setup required). **[docs/philosophy.md](./docs/philosophy.md)** explains why ctxhub is shaped the way it is. **[docs/architecture.md](./docs/architecture.md)** explains how the pieces underneath actually work. This README is the command/config reference.
+
 - [Prerequisites](#prerequisites)
 - [Install](#install)
-- [Way of working](#way-of-working) — start here for the actual day-to-day workflow
-- [Quick Start](#quick-start) — manual step-by-step equivalent of `onboard`
 - [Config](#config)
 - [Guided mode](#guided-mode)
 - [Interactive defaults and automation](#interactive-defaults-and-automation)
@@ -46,61 +46,12 @@ For local development, run against source without building:
 npm run ctxhub -- --help
 ```
 
-## Way of working
+## Way of working and Quick Start
 
-**One-time, per workspace:**
-
-```bash
-ctxhub onboard
-```
-
-Run this once in the folder containing your multi-repo workspace (a parent directory holding several git repos, or a single repo). It opens a live terminal wizard, sets up the index, wires up the MCP server and skills for whichever agents you use, and optionally a git hook to keep the index fresh — see [Quick Start](#quick-start) below for the manual, step-by-step equivalent if you'd rather not use the wizard.
-
-**Day to day: you mostly don't touch the CLI.** That's the point of the MCP server and skills — once set up:
-
-- Ask Claude Code, Codex, or Copilot a question about the codebase as normal. The installed `ctxhub` skill nudges the agent to check the index first when the answer might live in a *different* repo than the one you have open, without you needing to remember ctxhub exists.
-- Want a search right now, on demand? `/ctxhub-search <query>` in Claude Code or Codex triggers it explicitly (see [Installable skills](#installable-skills)).
-- The index stays current however you set it up during onboarding: an automatic `post-commit` git hook per repo, or a manual `ctxhub sync` (which also pulls each repo first; use `ctxhub sync --no-pull` when you only want to re-index).
-- Learned something worth remembering? Two different paths depending on who it's for — see [Two kinds of agent memory](#two-kinds-of-agent-memory): personal/session notes go to MemPalace (already wired up by `ctxhub agent <name>` if configured), team-shared notes go through `ctxhub note add <repo> "<title>"` and a normal PR.
-
-**Worked example**, inside a Claude Code session at the workspace root or inside any configured child repo, no CLI commands typed:
-
-> **You**: How does the webhook receiver authenticate before invoking the notifications service?
->
-> **Claude**: *(reaches for the `search` MCP tool, since the answer spans two repos)* — reads results from `webhooks-service` and `notifications-service`, answers with citations to both.
-
-**Occasional maintenance:**
-
-- Added a new repo to the workspace? `ctxhub repo add <name> <path>` (or re-run `ctxhub repo discover`).
-- Upgraded ctxhub? Nothing to remember — the next command you run anywhere in the workspace prints a one-line nudge if a skill or agent config is now stale (see [Detecting stale skills and agent configs](#detecting-stale-skills-and-agent-configs)).
-- Something feels off? `ctxhub doctor` gives a full health check.
-
-## Quick Start
-
-The manual, step-by-step equivalent of `ctxhub onboard`, if you'd rather run each piece yourself:
-
-```bash
-ctxhub init --name my-workspace
-ctxhub repo add app ./app
-ctxhub repo discover ../
-ctxhub repo list
-ctxhub index
-ctxhub search "authentication flow"
-ctxhub pack "how does authentication work?"
-ctxhub sync
-ctxhub memory status
-ctxhub doctor
-ctxhub mcp
-ctxhub agent claude
-ctxhub skills install
-```
-
-`ctxhub init` creates:
-
-- `.ctxhub/config.yaml`
-- `.ctxhub/index/`
-- `.ctxhub/cache/`
-- `.ctxhub/memory/`
+Moved to **[docs/quickstart.md](./docs/quickstart.md)**: the fastest path (the pre-built [reference
+workspace](./examples/reference-workspace/), no setup), the guided `ctxhub onboard` wizard and
+day-to-day workflow, and the manual step-by-step equivalent for anyone who'd rather run each piece
+themselves.
 
 Config is discovered by walking upward from the current directory. At each directory, ctxhub checks `ctxhub.yaml` first, then `.ctxhub/config.yaml`; the directory containing that config becomes the workspace root for repo paths, index files, reports, hooks, skills, and MCP agent config. This means you can run `ctxhub search`, `ctxhub index`, or an agent-launched `ctxhub mcp` from inside `my-workspace/some-repo/` and it will still use the parent workspace index. `ctxhub init` is the exception: it intentionally creates a new config in the exact directory where you run it.
 
@@ -210,7 +161,7 @@ ctxhub eval --json            # CI-friendly eval payload
 
 - `ctxhub menu`: launch the interactive guided menu (see [Guided mode](#guided-mode) above) — also the default when you run bare `ctxhub` with no arguments in a terminal.
 - `ctxhub init`: create workspace config and local ctxhub directories.
-- `ctxhub onboard`: live terminal setup wizard — init, repo discovery, hooks, memory provider, agents, skills, and an initial index, in one guided flow. Requires a real terminal; use the [Quick Start](#quick-start) commands for non-interactive scripts.
+- `ctxhub onboard`: live terminal setup wizard — init, repo discovery, hooks, memory provider, agents, skills, and an initial index, in one guided flow. Requires a real terminal; use the [manual step-by-step commands](./docs/quickstart.md#manual-step-by-step-equivalent-of-onboard) for non-interactive scripts.
 - `ctxhub repo add <name> <path> [--suggest-globs]`: add a repo, validate the path, and detect Git. `--suggest-globs` asks the configured agent CLI for a repo-specific `include`/`exclude` diff without changing config automatically.
 - `ctxhub repo list`: print configured repos.
 - `ctxhub repo discover [path] [--suggest-globs]`: find Git repositories below a folder. In a real terminal it opens a review screen so you can choose which new repos to add; use `--plain` to auto-add new repos. `--suggest-globs` prints repo-specific `include`/`exclude` diff suggestions for each newly added repo when `llm.enabled`.
