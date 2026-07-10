@@ -323,6 +323,7 @@ export function buildProgram(): Command {
     .option('--allow-index', 'Expose opt-in mutating index/sync tools over MCP')
     .option('--allow-memory-write', 'Expose opt-in mutating MemPalace write tools (memory_add, diary_write) over MCP')
     .option('--restart-on-stale', 'Exit when a newer build is detected on disk (only an effective restart if your MCP host auto-respawns a stopped server)')
+    .option('--central', 'Run as a Central MCP Gateway (docs/control-plane.md Phase 5): route tool calls into registered workspaces instead of binding to cwd')
     .action(mcpCommand);
 
   program

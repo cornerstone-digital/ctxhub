@@ -219,14 +219,33 @@ prerequisite for every later phase without requiring any of them to exist.
       fast-claude` against the real `claude` CLI -- got a real synthesized, cited answer, proving
       the model override reaches an actual invocation, not just a mocked one.
 
-### Phase 5 — Central MCP Gateway
+### Phase 5 — Central MCP Gateway (shipped, with one deliberate deviation from the original sketch)
 
-- [ ] `ctxhub mcp --central` (a stdio proxy that connects to the Phase 2 service) routes MCP tool
-      calls into the correct workspace's already-existing per-workspace MCP server logic
-      (`src/mcp/server.ts`), selected by an explicit workspace parameter or by which workspace an
-      agent is currently rooted in. Explicitly **never** merges multiple workspaces' indexes into
-      one global search space — this was already a hard constraint in the brief and matches
-      ctxhub's existing "read-only index" discipline.
+- [x] `ctxhub mcp --central` (`src/mcp/centralServer.ts`) is a stdio MCP server exposing two
+      tools: `list_workspaces` (reads Phase 1's registry directly) and `call_workspace_tool`
+      (`{ workspace, tool, arguments }`), which routes into the named workspace's own,
+      already-existing `createCtxhubMcpServer` instance (`src/mcp/server.ts`) -- lazily created
+      and cached per workspace name, connected in-process via the MCP SDK's own
+      `InMemoryTransport.createLinkedPair()` rather than re-declaring every tool's schema on the
+      gateway itself. Explicitly **never** merges multiple workspaces' indexes into one global
+      search space — a caller always names exactly which registered workspace a tool call targets,
+      matching ctxhub's existing "read-only index" discipline.
+- [x] **Deviation from the original sketch, and why:** the plan above described the gateway as "a
+      stdio proxy that connects to the Phase 2 service." What's actually built instead reads the
+      Phase 1 registry directly and spawns each workspace's `McpServer` in-process within the
+      `ctxhub mcp --central` process itself -- it does not require `ctxhub service start` to be
+      running at all. This is simpler (no HTTP round-trip, no dependency on the service process's
+      lifecycle) and there was no concrete reason found, while building this, that the gateway
+      needs the service running -- both read the exact same `~/.ctxhub/registry.json`. Revisit
+      only if a real need emerges for the gateway and the service to share more state than that
+      (e.g. Captains dispatching through the gateway from Phase 6).
+- [x] Unit tests (`src/mcp/centralServer.test.ts`): empty registry, unregistered-workspace error
+      (surfaced as `isError: true`, not a crash), a real routed `search` call against a real
+      indexed workspace, and per-workspace client reuse across repeated calls.
+- [x] Live verification: ran the real `ctxhub mcp --central` process over actual stdio (via the
+      MCP SDK's `StdioClientTransport`, not the in-process test harness), registered a real
+      workspace, and confirmed `list_workspaces` and `call_workspace_tool` → `search` returned the
+      workspace's real indexed content, while an unregistered workspace name cleanly errored.
 
 ### Phase 6 — Fleet Captain / Workspace Captain (the orchestration pillar's core deliverable)
 

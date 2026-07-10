@@ -190,3 +190,18 @@ output); copilot/cursor accept the override without acting on it yet, since thei
 already best-effort/unverified. `ctxhub explain --profile <name>` is the reference integration —
 `--as` always wins for framing when both are given, the profile's own `persona` is the default
 otherwise, and other persona-driven commands can adopt the identical pattern incrementally.
+
+## Central MCP Gateway
+
+`ctxhub mcp --central` (`src/mcp/centralServer.ts`) is a stdio MCP server distinct from the
+per-workspace one `ctxhub mcp` normally starts (`src/mcp/server.ts`). It exposes two tools --
+`list_workspaces` (reads the Phase 1 registry) and `call_workspace_tool` (`{ workspace, tool,
+arguments }`) -- and routes the latter into the named workspace's own, already-existing
+`createCtxhubMcpServer` instance, lazily created and cached per workspace name, connected
+in-process via the MCP SDK's own `InMemoryTransport.createLinkedPair()` rather than re-declaring
+every tool's schema on the gateway itself. This deliberately diverges from `docs/control-plane.md`'s
+original sketch (which described the gateway as proxying through the Phase 2 HTTP service): both
+the gateway and the service read the same `~/.ctxhub/registry.json` directly, and no concrete need
+was found for the gateway to depend on the service process being alive at all. Workspaces are
+never merged into one global search space — a caller always names exactly which one a tool call
+targets.
