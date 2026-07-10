@@ -164,3 +164,14 @@ control-plane health can never drift from its `ctxhub doctor` health. The WebSoc
 from the original plan is deliberately not built yet — nothing in the system produces an event
 worth pushing until a later phase (Captains) exists, so polling the HTTP API above is enough for
 now.
+
+## Mission Control (Fleet view)
+
+`src/service/fleetView.ts` renders Phase 3's Fleet view — a self-contained HTML page served at
+`GET /` by the same service. It follows `ctxhub report`'s established visual conventions (system-
+ui sans-serif, light/dark via `prefers-color-scheme`, inline `<style>`/`<script>`, no CDN) but
+works differently under the hood: its inline JS calls the live service's own JSON endpoints
+client-side (`fetch('/workspaces')`, then per-workspace `fetch('/workspaces/:name/status')`) on
+every page load, rather than embedding a snapshot once at generation time the way `ctxhub report`
+does. That's deliberate — the Fleet view is meant to reflect the control plane's current state,
+not a point-in-time report.

@@ -165,17 +165,27 @@ prerequisite for every later phase without requiring any of them to exist.
       `/workspaces/<name>/status` against it, then stopped it and confirmed `service status`
       reported it gone.
 
-### Phase 3 — Mission Control UI (Fleet view only, not the full section list from the brief)
+### Phase 3 — Mission Control UI (shipped: Fleet view only, not the full section list from the brief)
 
-- [ ] A local web UI (see the tech-stack decision above) served by the Phase 2 service, showing
-      only the Fleet overview (list of registered workspaces, their `doctor`-derived health,
-      last-indexed time) — the brief's other proposed sections (workspace canvas, captain chat,
-      tasks, activity feed, reviews, knowledge graph, approvals queue) all depend on later
-      phases (Captains, Execution Profiles, MCP Gateway) that don't exist yet and shouldn't be
-      speculatively stubbed into a UI before their backing logic is real.
-- [ ] Reuses `ctxhub report`'s existing static-HTML-generation approach as its starting point
-      where practical (same team already knows this pattern), rather than introducing a new
-      frontend build pipeline for a one-page Fleet view.
+- [x] A local web UI (`src/service/fleetView.ts`, served at `GET /` by the Phase 2 service) showing
+      only the Fleet overview: registered workspaces and their `ctxhub doctor`-derived health — the
+      brief's other proposed sections (workspace canvas, captain chat, tasks, activity feed,
+      reviews, knowledge graph, approvals queue) all depend on later phases (Captains, Execution
+      Profiles, MCP Gateway) that don't exist yet and shouldn't be speculatively stubbed into a UI
+      before their backing logic is real.
+- [x] Reuses `ctxhub report`'s existing self-contained-HTML conventions (system-ui sans-serif,
+      light/dark via `prefers-color-scheme`, inline `<style>`/`<script>`, no CDN, no bundler) rather
+      than introducing a new frontend build pipeline for a one-page Fleet view. The real mechanism
+      differs from `report`'s, deliberately: this page's inline JS calls the Phase 2 HTTP API
+      client-side (`fetch('/workspaces')`, then per-workspace `fetch('/workspaces/:name/status')`)
+      against the live running service, rather than embedding a snapshot at generation time --
+      the Fleet view is meant to reflect the control plane's current state on every reload, not a
+      point-in-time report.
+- [x] Unit test (`src/service/server.test.ts`): `GET /` returns real HTML with the expected
+      `text/html` content type, contains the `/workspaces` fetch call, and contains no CDN
+      reference.
+- [x] Live verification: started the real service, registered a workspace, confirmed
+      `GET /workspaces` returns the exact data the page's `loadFleet()` fetches and renders.
 
 ### Phase 4 — Execution Profiles (extends the already-shipped persona system, doesn't replace it)
 

@@ -3,6 +3,7 @@ import { listWorkspaces } from '../workspaces/registry.js';
 import { loadWorkspaceConfig } from '../config/config.js';
 import { buildDoctorChecks, runDoctorChecks, type CheckLine } from '../commands/doctorChecks.js';
 import { getPackageVersion } from '../utils/version.js';
+import { renderFleetViewHtml } from './fleetView.js';
 
 // docs/control-plane.md Phase 2: purely "is the registry queryable over a local API" -- no
 // orchestration, no task coordination, no persona/policy logic here. A WebSocket/event-stream
@@ -25,6 +26,11 @@ export function createServiceServer(): http.Server {
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
+
+  if (req.method === 'GET' && url.pathname === '/') {
+    sendHtml(res, 200, renderFleetViewHtml());
+    return;
+  }
 
   if (req.method === 'GET' && url.pathname === '/health') {
     sendJson(res, 200, { status: 'ok', version: getPackageVersion() });
@@ -72,4 +78,9 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
   const payload = JSON.stringify(body);
   res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
   res.end(payload);
+}
+
+function sendHtml(res: http.ServerResponse, status: number, html: string): void {
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
+  res.end(html);
 }
