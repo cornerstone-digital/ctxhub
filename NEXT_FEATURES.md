@@ -8,7 +8,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Memory provenance and backlinks
 - [x] Graph interaction and navigation polish
 - [x] MCP write-surface parity for durable memory
-- [ ] Memory workflow automation and promotion paths
+- [x] Memory workflow automation and promotion paths
 - [ ] Collaborative review mode with built-in reviewer personas
 - [ ] Reviewer profiles (custom, pluggable reviewer personas)
 - [ ] Harness capability abstraction
@@ -278,7 +278,7 @@ data into a real palace.
 
 ## 26. Memory Workflow Automation And Promotion Paths
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub memory`, `ctxhub note`, and `ctxhub handoff`
 
@@ -310,9 +310,34 @@ Implementation notes:
 Acceptance criteria:
 
 - A user or agent can move a useful insight from ephemeral work into durable memory with fewer
-  manual decisions.
-- A user or agent can promote durable memory into a repo note without copy/paste churn.
-- The workflow makes the boundary between private memory and team-shared notes clearer, not blurrier.
+  manual decisions. ✓ (`ctxhub memory add <content>` now auto-suggests a wing/room from existing
+  rooms -- best keyword-overlap match, falling back to a `notes` room under the current repo/
+  workspace -- when `--wing`/`--room` are omitted; `ctxhub memory checkpoint [note] --agent <name>`
+  auto-assembles a diary entry from the current git branch/recent commits plus an optional note.)
+- A user or agent can promote durable memory into a repo note without copy/paste churn. ✓
+  (`ctxhub note promote <repo> <query> [--wing] [--room] [--hit] [--title] [--agent]` searches
+  MemPalace, copies the matching hit's text verbatim into a new git-tracked note under
+  `<repo>/agent-notes/`, and records a `promoted-from: mempalace:<wing>/<room>` frontmatter field
+  for traceability.)
+- The workflow makes the boundary between private memory and team-shared notes clearer, not
+  blurrier. ✓ (promotion is an explicit, one-way copy -- the original MemPalace drawer is untouched
+  -- documented in the README's "Two kinds of agent memory" section right next to the existing
+  `note add` explanation, not as a separate concept.)
+
+Descoped: "summarize several diary/checkpoint entries into one shared artifact" from the
+implementation notes was not built. It wasn't a hard acceptance criterion, and building it well
+needs a way to list/enumerate an agent's own past diary/checkpoint entries, which the current
+MemPalace search/timeline surface doesn't cleanly support (search is similarity-based, not a
+"list entries for agent X" query) -- worth a follow-up once that read path exists, rather than
+building a summarizer around a shaky enumeration heuristic today.
+
+All three flows are deterministic (no LLM/`runAgentPromptFn` involved, unlike most other
+LLM-backed features in this codebase) -- wing/room suggestion and promotion are both pure
+text/data operations, and checkpoint assembly is plain git log formatting. Verified via unit
+tests (`suggestMemoryLocation`, `memoryAddCommand`/`memoryCheckpointCommand`/`notePromoteCommand`
+with injected fakes) plus a real end-to-end run of all three commands against an actual MemPalace
+palace scoped to a disposable scratch workspace (`.ctxhub/memory/mempalace`, not the user's real
+`~/.mempalace` store).
 
 ## 27. Collaborative Review Mode With Built-In Reviewer Personas
 

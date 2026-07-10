@@ -1,10 +1,13 @@
+import path from 'node:path';
 import chalk from 'chalk';
 import { confirm } from '@inquirer/prompts';
 import { loadWorkspaceConfig } from '../config/config.js';
+import type { CtxhubConfig } from '../config/types.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { saveManifest } from '../indexing/manifest.js';
-import { addDrawerMempalace, readMempalaceStatusSummary, searchMempalace, timelineMempalace, writeDiaryMempalace } from '../memory/mempalaceCli.js';
+import { addDrawerMempalace, readMempalaceStatusSummary, searchMempalace, timelineMempalace, writeDiaryMempalace, type MempalaceRoomSummary } from '../memory/mempalaceCli.js';
+import { runGit } from '../git/git.js';
 import { runMemoryStatusApp } from '../tui/MemoryStatusApp.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 
@@ -112,20 +115,38 @@ export async function memoryTimelineCommand(
 
 export async function memoryAddCommand(
   content: string,
-  opts: { wing: string; room: string; sourceFile?: string; addedBy?: string; json?: boolean } ,
-  deps: { addDrawerMempalaceFn?: typeof addDrawerMempalace } = {}
+  opts: { wing?: string; room?: string; sourceFile?: string; addedBy?: string; json?: boolean } = {},
+  deps: {
+    addDrawerMempalaceFn?: typeof addDrawerMempalace;
+    readMempalaceStatusSummaryFn?: typeof readMempalaceStatusSummary;
+  } = {}
 ) {
   const { config, workspaceRoot } = await loadWorkspaceConfig();
+
+  // NEXT_FEATURES #26: fewer manual decisions -- when wing/room aren't given explicitly, suggest
+  // one from the existing wing/room structure instead of forcing the caller to already know it.
+  let wing = opts.wing;
+  let room = opts.room;
+  let suggested = false;
+  if (!wing || !room) {
+    const summary = await (deps.readMempalaceStatusSummaryFn ?? readMempalaceStatusSummary)(config, workspaceRoot);
+    const fallbackWing = await detectCurrentRepoName(config, workspaceRoot);
+    const suggestion = suggestMemoryLocation(content, summary.items, fallbackWing);
+    wing = wing ?? suggestion.wing;
+    room = room ?? suggestion.room;
+    suggested = true;
+  }
+
   const result = await (deps.addDrawerMempalaceFn ?? addDrawerMempalace)(config, workspaceRoot, {
-    wing: opts.wing,
-    room: opts.room,
+    wing,
+    room,
     content,
     sourceFile: opts.sourceFile,
     addedBy: opts.addedBy
   });
 
   if (opts.json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({ ...result, wing, room, suggested }, null, 2));
     return;
   }
 
@@ -135,9 +156,98 @@ export async function memoryAddCommand(
     return;
   }
 
-  console.log(chalk.green(`Stored durable memory in ${opts.wing} / ${opts.room}`));
+  console.log(chalk.green(`Stored durable memory in ${wing} / ${room}`));
+  if (suggested) console.log(chalk.gray('Wing/room were auto-suggested; override with --wing/--room.'));
   if (result.reason) console.log(chalk.gray(String(result.reason)));
   if (result.drawer_id) console.log(chalk.gray(`Drawer: ${String(result.drawer_id)}`));
+}
+
+// Picks the existing room whose name shares the most keywords with the new content, defaulting
+// to a "notes" room under the caller's own repo/workspace when nothing overlaps -- a heuristic,
+// not a guarantee, but it beats making every write require --wing/--room up front.
+export function suggestMemoryLocation(
+  content: string,
+  existingRooms: MempalaceRoomSummary[],
+  fallbackWing: string
+): { wing: string; room: string } {
+  const words = new Set(content.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  let best: MempalaceRoomSummary | undefined;
+  let bestScore = 0;
+
+  for (const item of existingRooms) {
+    const roomWords = item.room.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    const score = roomWords.filter(word => words.has(word)).length;
+    if (score > bestScore) {
+      best = item;
+      bestScore = score;
+    }
+  }
+
+  return best ? { wing: best.wing, room: best.room } : { wing: fallbackWing, room: 'notes' };
+}
+
+async function detectCurrentRepoName(config: CtxhubConfig, workspaceRoot: string): Promise<string> {
+  const cwd = process.cwd();
+  const match = config.repositories.find(repo => {
+    const resolved = path.resolve(workspaceRoot, repo.path);
+    return cwd === resolved || cwd.startsWith(resolved + path.sep);
+  });
+  return match?.name ?? config.workspace.name;
+}
+
+export async function memoryCheckpointCommand(
+  note: string | undefined,
+  opts: { agent: string; topic?: string; wing?: string; json?: boolean },
+  deps: { writeDiaryMempalaceFn?: typeof writeDiaryMempalace } = {}
+) {
+  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const entry = await buildCheckpointEntry(note, process.cwd());
+
+  const result = await (deps.writeDiaryMempalaceFn ?? writeDiaryMempalace)(config, workspaceRoot, {
+    agentName: opts.agent,
+    entry,
+    topic: opts.topic ?? 'checkpoint',
+    wing: opts.wing
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify({ ...result, entry }, null, 2));
+    return;
+  }
+
+  if (!result.success) {
+    console.log(chalk.yellow(String(result.error ?? 'Checkpoint save failed.')));
+    if (result.hint) console.log(chalk.gray(String(result.hint)));
+    return;
+  }
+
+  console.log(chalk.green(`Saved session checkpoint for ${opts.agent}`));
+  console.log(chalk.gray(entry));
+  if (result.entry_id) console.log(chalk.gray(`Entry: ${String(result.entry_id)}`));
+}
+
+// A session checkpoint is a diary entry auto-assembled from current, unambiguous context (branch
+// and recent commits) plus an optional free-text note -- deterministic, no LLM required, so it
+// works the same regardless of config.llm.enabled.
+async function buildCheckpointEntry(note: string | undefined, cwd: string): Promise<string> {
+  const lines: string[] = [];
+  if (note) lines.push(note.trim());
+
+  try {
+    const branch = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
+    if (branch) lines.push(`Branch: ${branch}`);
+  } catch {
+    // Not a git repo, or git unavailable -- omit branch context.
+  }
+
+  try {
+    const commits = (await runGit(['log', '--oneline', '-n', '3'], cwd)).split('\n').filter(Boolean);
+    if (commits.length) lines.push(`Recent commits:\n${commits.map(commit => `- ${commit}`).join('\n')}`);
+  } catch {
+    // Same as above.
+  }
+
+  return lines.length ? lines.join('\n\n') : 'Session checkpoint (no note or git context available).';
 }
 
 export async function memoryDiaryCommand(
