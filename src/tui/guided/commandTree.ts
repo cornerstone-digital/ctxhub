@@ -61,7 +61,8 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   validate: 'Quality & CI',
   graph: 'Quality & CI',
   ci: 'Quality & CI',
-  report: 'Reports'
+  report: 'Reports',
+  workspace: 'Fleet'
 };
 
 export function extractGuidedCommands(program: Command): GuidedCommand[] {

@@ -102,22 +102,29 @@ several "not shipped" items that have since shipped, which is a live example of 
 
 ## Phased implementation plan
 
-### Phase 1 — Workspace Registry (low-risk, buildable now, nothing else depends on waiting)
+### Phase 1 — Workspace Registry (shipped)
 
-- [ ] A new user-level file, `~/.ctxhub/registry.json` (mirrors the existing workspace-level
-      `.ctxhub/` directory name, just promoted to user scope) — a flat list of
-      `{ name, path, addedAt }` entries. It's a pointer list, nothing more: each workspace keeps
-      owning its own config/index/memory/personas exactly as today, matching the brief's own
+- [x] A new user-level file, `~/.ctxhub/registry.json` (mirrors the existing workspace-level
+      `.ctxhub/` directory name, just promoted to user scope, via `src/workspaces/registry.ts`'s
+      `getCtxhubHome()`/`getRegistryPath()` -- overridable with `CTXHUB_HOME` for tests) — a flat
+      list of `{ name, path, addedAt }` entries. It's a pointer list, nothing more: each workspace
+      keeps owning its own config/index/memory/personas exactly as today, matching the brief's own
       framing ("Each workspace keeps its own config, index, memory, personas, tasks and
       policies").
-- [ ] `ctxhub workspace register [path]` (defaults to discovering the workspace root from `cwd`,
-      same discovery logic `config.ts` already has), `ctxhub workspace list`,
-      `ctxhub workspace remove <name>` — plain CRUD, no daemon required yet.
-- [ ] Duplicate-path/duplicate-name handling; a workspace whose directory no longer exists is
-      reported (`ctxhub workspace list` flags it) but not silently pruned — matches
+- [x] `ctxhub workspace register [path]` (defaults to discovering the workspace root from `cwd` via
+      the existing `loadWorkspaceConfig` discovery logic, defaulting the name to the workspace's
+      own `config.workspace.name`), `ctxhub workspace list`, `ctxhub workspace remove <name>` —
+      plain CRUD, no daemon required.
+- [x] Duplicate-path handling (`register` on an already-registered path is a no-op, returning the
+      existing entry, not an error) and duplicate-name handling (a second workspace can't reuse a
+      registered name without an explicit `--name`); a workspace whose directory no longer exists
+      is reported (`ctxhub workspace list` marks it) but not silently pruned — matches
       `ctxhub doctor`'s existing "report, don't silently fix" bias for anything destructive.
-- [ ] Unit tests: register/list/remove round-trip, duplicate handling, missing-path reporting —
-      all pure filesystem operations, no LLM, no service process involved.
+- [x] Unit tests (`src/workspaces/registry.test.ts`, `src/commands/workspace.test.ts`):
+      register/list/remove round-trip, idempotent re-registration, duplicate-name rejection,
+      missing-path reporting — all pure filesystem operations, no LLM, no service process involved.
+- [x] Live verification: registered two real scratch workspaces, listed them, removed one, and
+      confirmed `~/.ctxhub/registry.json`'s actual on-disk contents matched at every step.
 
 This phase alone is useful on its own (a "what workspaces do I have configured" command) and is a
 prerequisite for every later phase without requiring any of them to exist.

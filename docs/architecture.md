@@ -134,3 +134,17 @@ frontmatter, confirmed live against the actual `claude` CLI), `.codex/agents/<pe
 [docs/personas.md](./personas.md)'s Phase 3 for sources and per-harness verification confidence
 (Codex's live verification surfaced a real caveat: the documented file format sits behind an
 under-development feature flag in the currently installed CLI build).
+
+## Workspace registry
+
+`src/workspaces/registry.ts` holds a user-level pointer list at `~/.ctxhub/registry.json`
+(`getCtxhubHome()`/`getRegistryPath()`, overridable via `CTXHUB_HOME` for test isolation) — Phase 1
+of the control-plane vision (see [docs/control-plane.md](./control-plane.md)). It's deliberately
+thin: `{ name, path, addedAt }` entries only. Each workspace continues to own its own
+config/index/memory/personas exactly as before; the registry never duplicates or reaches into any
+of that. `ctxhub workspace register` resolves the workspace root the same way every other command
+does (`loadWorkspaceConfig`'s existing upward config discovery), defaults the registered name to
+that workspace's own `config.workspace.name`, and is idempotent for an already-registered path
+(returns the existing entry rather than erroring). `ctxhub workspace list` reports, but never
+silently prunes, a workspace whose path no longer exists — the same "report, don't silently fix"
+bias `ctxhub doctor` already uses for anything destructive.

@@ -20,6 +20,7 @@ import { replayCommand } from '../commands/replay.js';
 import { handoffCommand } from '../commands/handoff.js';
 import { reviewCommand } from '../commands/review.js';
 import { personasInitCommand, personasSyncCommand, SUPPORTED_PERSONA_SYNC_AGENTS } from '../commands/personas.js';
+import { workspaceListCommand, workspaceRegisterCommand, workspaceRemoveCommand } from '../commands/workspace.js';
 import { evalCommand } from '../commands/eval.js';
 import { validateDocsCommand } from '../commands/validate.js';
 import { graphCommand } from '../commands/graph.js';
@@ -340,8 +341,28 @@ export function buildProgram(): Command {
     .addArgument(
       new Argument('[agents...]', 'Agents to compile personas for (default: all)').choices(SUPPORTED_PERSONA_SYNC_AGENTS)
     )
-    .description('Compile agents/personas/*.md for each harness -- a real native subagent for Claude Code, a plain instructions file fallback for the rest')
+    .description('Compile agents/personas/*.md into a real native subagent file for each harness (Claude Code, Codex, Copilot, Cursor)')
     .action(personasSyncCommand);
+
+  const workspace = program.command('workspace').description('Manage the user-level registry of ctxhub workspaces (docs/control-plane.md)');
+
+  workspace
+    .command('register')
+    .argument('[path]', 'Workspace path to register', '.')
+    .option('--name <name>', 'Name to register the workspace under (default: the workspace config\'s own name)')
+    .description('Register a workspace in the user-level registry (~/.ctxhub/registry.json)')
+    .action(workspaceRegisterCommand);
+
+  workspace
+    .command('list')
+    .description('List registered workspaces')
+    .action(workspaceListCommand);
+
+  workspace
+    .command('remove')
+    .argument('<name>', 'Registered workspace name')
+    .description('Remove a workspace from the registry (does not touch the workspace itself)')
+    .action(workspaceRemoveCommand);
 
   const skills = program.command('skills').description('Install chat-native ctxhub usage guidance for coding agents');
 
