@@ -18,7 +18,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Context compaction (dedup, token-budget trimming, already-seen delta mode, file summaries)
 - [x] Agent-backed skill/doc test reports
 - [x] Onboarding orientation narrator
-- [ ] Cross-repo contract-break PR reviewer
+- [x] Cross-repo contract-break PR reviewer
 - [ ] Architecture/doc drift repair suggestions
 - [ ] PR/handoff description synthesis
 - [ ] Auto-drafted note/diagram content
@@ -437,7 +437,7 @@ the new integration glue calls them correctly in each branch.
 
 ## 13. Cross-Repo Contract-Break PR Reviewer
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** extend `ctxhub pr-context`
 
@@ -459,8 +459,16 @@ Implementation notes:
 
 Acceptance criteria:
 
-- Only flags consumers actually found via ctxhub's index, never invented ones.
-- `--json` output includes the flagged risks as structured data, not just prose.
+- Only flags consumers actually found via ctxhub's index, never invented ones. ✓ (parsed
+  `REPO:`/`RISK:` blocks are dropped unless the named repo is in the actual candidate list; test
+  confirmed to fail without this filter before being trusted.)
+- `--json` output includes the flagged risks as structured data, not just prose. ✓ (`risks: [{
+  repo, risk }]`, only present when non-empty.)
+
+Verified against a real scratch two-repo workspace: renamed an exported function in one repo
+without a compatibility shim, and the reviewer correctly named the specific consuming repo and
+described the exact break (old name, new name, "breaking the import at build/runtime") grounded
+in the real diff content, not a guess from file names alone.
 
 ## 14. Architecture/Doc Drift Repair Suggestions
 

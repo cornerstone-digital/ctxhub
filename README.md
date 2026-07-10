@@ -166,6 +166,7 @@ Today, `llm.enabled` gates:
 - **`ctxhub explain <query>`** — synthesizes a cited answer from retrieved evidence via your configured agent CLI, instead of the non-LLM evidence scaffold. Never invents a citation — it's instructed to cite only the evidence it was given, and falls back to the scaffold if the LLM call is disabled, unavailable, or times out. Override per-invocation with `--llm`/`--no-llm` regardless of the config default.
 - **`ctxhub eval --agent-report`** — checks whether an agent, given ctxhub's tool descriptions, actually reaches for the tool the skill docs recommend for a set of realistic questions (seeded from the skill's own documented guidance). Writes a Markdown report under `.ctxhub/cache/evals/agent-*.md`. A mismatch is a real finding — it means the agent and the skill docs disagree about what to reach for.
 - **`ctxhub onboard`** — after every other setup step, prints a short workspace orientation summarizing what the workspace is and how its repos relate, grounded only in what ctxhub actually indexed. Skipped (with a value-prop notice) when disabled.
+- **`ctxhub pr-context`** — reviews the actual diff (not just changed file names) for cross-repo contract breaks, naming specific consuming repos and the specific risk (a renamed export, a changed signature, etc.). Only ever names repos ctxhub's index actually knows about. `--llm`/`--no-llm` override the config default for one call.
 
 If a command's LLM path is unavailable (disabled, no agent CLI found, timed out), it always falls back to its non-LLM behavior and explains why in the output — it never just silently does less. `ctxhub doctor` reports whether LLM-backed features are enabled, which agent is configured/detected, and whether that agent's CLI is actually reachable on PATH.
 
@@ -213,7 +214,7 @@ ctxhub eval --json            # CI-friendly eval payload
 - `ctxhub explain <query>`: create a citation-first explanation from indexed context without inventing uncited claims — a real LLM-synthesized answer when `llm.enabled` (see [LLM-backed features](#llm-backed-features)), otherwise a non-LLM evidence scaffold. `--llm`/`--no-llm` override the config default for one call.
 - `ctxhub replay <file>`: replay an exported context pack artifact and compare recorded repo HEADs against the current workspace.
 - `ctxhub open <id>`: print a full indexed chunk returned by search or a context pack.
-- `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch.
+- `ctxhub pr-context [--base origin/main]`: build a context pack for files changed on the current branch, with LLM-backed cross-repo contract-risk review when `llm.enabled` (see [LLM-backed features](#llm-backed-features)).
 - `ctxhub handoff <topic> [--from-pr]`: create a Markdown handoff bundle under `.ctxhub/cache/handoffs/` for another agent or teammate.
 - `ctxhub watch [--interval 30]`: continuously re-index changed workspace files during active development, with a live per-repo progress view in a real terminal.
 - `ctxhub report [-o <path>] [--open]`: generate a self-contained, browsable HTML report of workspace status, repos, architecture diagrams, and the most recently indexed chunks, with a client-side search box and stale-result highlighting (no server, no external assets). `--open` launches the generated file in your browser.

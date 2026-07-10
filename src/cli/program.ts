@@ -172,7 +172,9 @@ export function buildProgram(): Command {
     .option('--base <ref>', 'Base git ref', 'origin/main')
     .option('-l, --limit <limit>', 'Max context results', '8')
     .option('--json', 'Print JSON')
-    .description('Build a context pack for files changed on the current branch')
+    .option('--llm', 'Force cross-repo contract-risk review for this call, even if disabled in config')
+    .option('--no-llm', 'Force skipping contract-risk review for this call, even if enabled in config')
+    .description('Build a context pack for files changed on the current branch, with LLM-backed contract-risk review when llm.enabled')
     .action(prContextCommand);
 
   program
