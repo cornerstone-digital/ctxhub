@@ -115,9 +115,17 @@ an explicit `/ctxhub-search` invocation can discover ctxhub's capabilities witho
 connection specifically — skills and MCP tools are complementary surfaces, not duplicates of each
 other.
 
-## Personas (planned)
+## Personas
 
-[docs/personas.md](./personas.md) is the implementation plan for generalizing `ctxhub review`'s
-`ReviewerProfile` pattern into a cross-command persona system (`agents/personas/*.md`, a mandatory
-policy layer consolidating today's six duplicated "never invent evidence" strings, and per-harness
-compilation via an extended `HarnessCapabilities` table) — not yet built, planned in phases.
+`agents/personas/*.md` (git-tracked, workspace-root, deliberately not under the gitignored
+`.ctxhub/`) generalizes `ctxhub review`'s `ReviewerProfile` pattern into a cross-command persona
+system — see [docs/personas.md](./personas.md) for the full review/adoption plan against the
+Portable Agent Persona Specification. `src/personas/persona.ts` loads personas and an optional,
+additive policy layer (`agents/policies/*.md`) that always applies regardless of persona, wired
+into `explain`/`ask`/`handoff`/`review`'s `--as <persona>` and into `note`/`eval`/`diagram`'s
+existing draft/suggestion prompts — empty by default, so nothing changes until a team runs
+`ctxhub personas init`. `ctxhub personas sync` compiles personas per harness using the same
+`AGENT_CAPABILITIES` table `skills.ts` already derives from, extended with `nativeSubagents`/
+`projectInstructions`: a real native subagent file (`.claude/agents/<persona>.md`) for Claude Code,
+confirmed live against the actual `claude` CLI; a plain instructions-file fallback for Codex,
+Copilot, and Cursor, since none of those are confirmed to have an equivalent native mechanism.

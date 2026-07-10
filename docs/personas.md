@@ -198,14 +198,19 @@ strengthen evidence discipline in one place without touching six files, while th
 
 ### Phase 3 — Cross-harness compilation ("the adapter model")
 
-- [ ] Extend `HarnessCapabilities` (`src/llm/harness.ts`) with `nativeSubagents` and `projectInstructions`
-- [ ] Verify actual current capability for Codex, Copilot, and Cursor before setting real (non-placeholder) values — do not assume
-- [ ] `ctxhub personas sync` command, reusing `skills.ts`'s per-agent target-root pattern
-- [ ] Claude Code adapter: write `.claude/agents/<persona>.md` with correct frontmatter (`name`, `description`, `tools`, `model`)
-- [ ] Fallback adapter: project-instructions file for harnesses without a confirmed native subagent mechanism
-- [ ] `ctxhub doctor` drift detection for installed persona files (stale vs. `agents/personas/*.md` source)
-- [ ] Unit tests for the sync/compile logic per harness
-- [ ] Live verification: `ctxhub personas sync` output actually recognized by Claude Code's own subagent listing
+**Scope decision (explicit, made with the user before building this):** Claude Code only gets the
+real native-subagent treatment. Codex/Copilot/Cursor get the plain project-instructions fallback,
+not a guessed-at native integration, until someone confirms those harnesses' own current docs say
+otherwise.
+
+- [x] Extend `HarnessCapabilities` (`src/llm/harness.ts`) with `nativeSubagents` and `projectInstructions`
+- [x] Set `nativeSubagents: true` for `claude` only; `false` for Codex/Copilot/Cursor (unverified, not assumed) — pinned by a test so this can't silently drift
+- [x] `ctxhub personas sync` command, reusing `skills.ts`'s per-agent target-root pattern (including the same workspace-root-write + symlink-into-child-repos behavior)
+- [x] Claude Code adapter: writes `.claude/agents/<persona>.md` with `name`/`description` frontmatter
+- [x] Fallback adapter: plain instructions file (`.agents/personas/`, `.github/personas/`, `.cursor/personas/`) for Codex/Copilot/Cursor
+- [ ] `ctxhub doctor` drift detection for installed persona files (stale vs. `agents/personas/*.md` source) — not built in this pass, tracked as a follow-up
+- [x] Unit tests for the sync/compile logic per harness (native vs. fallback content, no-personas-configured guidance, unsupported-agent rejection, workspace-root + child-repo symlinking)
+- [x] Live verification: `claude --agent architect -p "..."` against a real compiled `.claude/agents/architect.md` produced a response that directly reflected the persona's identity and near-verbatim its "six months from now" quality-gate language — this is the real Claude Code binary recognizing and using the compiled file, not just ctxhub writing a file that looks plausible
 
 Extend `HarnessCapabilities` (`src/llm/harness.ts`) with two new fields:
 
@@ -232,21 +237,30 @@ export type HarnessCapabilities = {
 per-agent target-root pattern already in `skills.ts`'s `SKILL_TARGET_ROOTS`):
 
 - Where `nativeSubagents` is true: write one file per persona in the harness's native format
-  (`.claude/agents/<persona>.md` for Claude Code, correctly shaped frontmatter + body).
-  ctxhub remains the canonical source (`agents/personas/*.md`); the harness-native file is a
-  compiled, regeneratable artifact — same relationship `ctxhub skills install` already has between
+  (`.claude/agents/<persona>.md` for Claude Code, correctly shaped frontmatter + body). Claude
+  Code's schema also supports optional `tools`/`model` fields; ctxhub's compiler only sets the
+  required `name`/`description` for now (inherit-all-tools, default-model), which is enough to
+  prove the adapter works -- `tools`/`model` support is a small, natural follow-up, not core to
+  this phase. ctxhub remains the canonical source (`agents/personas/*.md`); the harness-native
+  file is a compiled, regeneratable artifact — same relationship `ctxhub skills install` already
+  has between
   its `skills/<agent>/<id>/SKILL.md` templates and what gets written into a workspace.
-- Where only `projectInstructions` is true: write (or append a clearly-marked section to) a plain
-  instructions file the harness already reads, presenting the persona as guidance text rather than
-  a runtime-enforced subagent.
-- `ctxhub doctor` gains the same drift detection it already has for skills/MCP config: flag when an
-  installed persona file is stale relative to its `agents/personas/*.md` source.
+- Where only `projectInstructions` is true: write a plain instructions file the harness reads,
+  presenting the persona as guidance text rather than a runtime-enforced subagent. Implemented as
+  one file per persona under a harness-specific root (`.agents/personas/`, `.github/personas/`,
+  `.cursor/personas/`), mirroring `skills.ts`'s existing per-agent target-root pattern exactly,
+  rather than trying to append into a single shared instructions file per harness.
+- `ctxhub doctor` drift detection for installed persona files (matching what it already does for
+  skills/MCP config) was **not** built in this pass -- noted as a real follow-up, not silently
+  dropped, since it wasn't required to prove the core adapter model works.
 
 **Acceptance criteria:**
 
-- `ctxhub personas sync` produces a real `.claude/agents/architect.md` file, verified live in a
-  scratch workspace by confirming Claude Code's own subagent listing picks it up (not just that
-  ctxhub wrote a file that looks right).
+- `ctxhub personas sync` produces a real `.claude/agents/architect.md` file. Verified live: not
+  just that the file looks structurally right, but that the actual `claude` CLI
+  (`claude --agent architect -p "..."`) picked it up and responded in the persona's voice,
+  including near-verbatim language from the persona's own text -- proof the real harness reads and
+  uses the compiled file, not an assumption about its format.
 - Every harness gets *something* (native subagent or project-instructions fallback) — never a
   silent no-op for an unsupported harness.
 

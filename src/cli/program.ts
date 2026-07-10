@@ -19,7 +19,7 @@ import { askCommand } from '../commands/ask.js';
 import { replayCommand } from '../commands/replay.js';
 import { handoffCommand } from '../commands/handoff.js';
 import { reviewCommand } from '../commands/review.js';
-import { personasInitCommand } from '../commands/personas.js';
+import { personasInitCommand, personasSyncCommand, SUPPORTED_PERSONA_SYNC_AGENTS } from '../commands/personas.js';
 import { evalCommand } from '../commands/eval.js';
 import { validateDocsCommand } from '../commands/validate.js';
 import { graphCommand } from '../commands/graph.js';
@@ -333,6 +333,14 @@ export function buildProgram(): Command {
     .command('init')
     .description('Scaffold agents/ with a starter persona and evidence policy (safe to re-run; never overwrites edited files)')
     .action(personasInitCommand);
+
+  personas
+    .command('sync')
+    .addArgument(
+      new Argument('[agents...]', 'Agents to compile personas for (default: all)').choices(SUPPORTED_PERSONA_SYNC_AGENTS)
+    )
+    .description('Compile agents/personas/*.md for each harness -- a real native subagent for Claude Code, a plain instructions file fallback for the rest')
+    .action(personasSyncCommand);
 
   const skills = program.command('skills').description('Install chat-native ctxhub usage guidance for coding agents');
 

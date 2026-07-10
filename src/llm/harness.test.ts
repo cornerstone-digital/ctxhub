@@ -22,3 +22,14 @@ test('agentsWithCapability derives the same three lists directly from the shared
   assert.deepEqual(agentsWithCapability('skills'), SUPPORTED_SKILL_AGENTS);
   assert.deepEqual(agentsWithCapability('headlessInvocation'), LLM_AGENTS);
 });
+
+// docs/personas.md Phase 3: only Claude Code is a confirmed native-subagent harness -- pinned
+// here so a future edit can't silently mark Codex/Copilot/Cursor as true without a test failing
+// (that would require an actual verification pass against each harness's own current docs first).
+test('nativeSubagents is true only for claude; the others are deliberately unverified/false', () => {
+  assert.deepEqual(agentsWithCapability('nativeSubagents'), ['claude']);
+});
+
+test('projectInstructions is true for all four supported agents (each has some plain instructions-file convention)', () => {
+  assert.deepEqual(agentsWithCapability('projectInstructions'), ['claude', 'codex', 'copilot', 'cursor']);
+});
