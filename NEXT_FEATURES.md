@@ -16,7 +16,7 @@ This is the practical implementation queue for ctxhub ideas that would make the 
 - [x] Source-aware context expansion
 - [x] LLM-backed features infrastructure + LLM-backed explain (opt-in, see README's "LLM-backed features")
 - [x] Context compaction (dedup, token-budget trimming, already-seen delta mode, file summaries)
-- [ ] Agent-backed skill/doc test reports
+- [x] Agent-backed skill/doc test reports
 - [ ] Onboarding orientation narrator
 - [ ] Cross-repo contract-break PR reviewer
 - [ ] Architecture/doc drift repair suggestions
@@ -352,7 +352,7 @@ order. None of these are built yet.
 
 ## 11. Agent-Backed Skill/Doc Test Reports
 
-**Status:** Not started
+**Status:** Done
 
 **Command:** `ctxhub eval --agent-report`
 
@@ -383,9 +383,16 @@ Implementation notes:
 Acceptance criteria:
 
 - `ctxhub eval --agent-report` produces a markdown report naming which questions the agent
-  answered with the expected tool vs. not.
-- Falls back with a clear message when `llm.enabled` is false or no agent CLI is available.
-- Report format is consistent with the existing `ctxhub eval --report` dashboard.
+  answered with the expected tool vs. not. ✓
+- Falls back with a clear message when `llm.enabled` is false or no agent CLI is available. ✓
+  (`llmDisabledNotice('agent tool-choice reports')` when disabled; per-case `error` field with the
+  `runAgentPrompt` failure reason otherwise.)
+- Report format is consistent with the existing `ctxhub eval --report` dashboard. ✓ (same
+  `.ctxhub/cache/evals/` directory, `agent-<timestamp>.md`/`agent-latest.md` naming.)
+- Verified against the real VF3 workspace: found a genuine, real mismatch (the model defaults to
+  `context_pack` even for architecture/implementation-lookup questions where the skill docs
+  recommend `architecture_search`/`search`) — the tool caught exactly the kind of gap it exists to
+  catch, on its first real run.
 
 ## 12. Onboarding Orientation Narrator
 

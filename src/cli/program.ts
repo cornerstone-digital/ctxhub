@@ -274,6 +274,7 @@ export function buildProgram(): Command {
     .option('--report', 'Write a Markdown eval report under .ctxhub/cache/evals/')
     .option('--plain', 'Print plain eval output')
     .option('--no-interactive', 'Disable interactive terminal summaries')
+    .option('--agent-report', 'Check whether an agent reaches for the tool ctxhub\'s skill docs recommend (requires llm.enabled)')
     .description('Run golden query checks against the workspace index')
     .action(evalCommand);
 

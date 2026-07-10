@@ -1,10 +1,11 @@
 import path from 'node:path';
 import chalk from 'chalk';
 import { CACHE_DIR, loadWorkspaceConfig } from '../config/config.js';
-import type { SearchResult } from '../config/types.js';
+import type { CtxhubConfig, SearchResult } from '../config/types.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
+import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 
 export type EvalExpected = { repo?: string; path?: string };
 export type EvalCase = { query: string; expected: EvalExpected[] };
@@ -32,9 +33,18 @@ type SearchFn = (query: string, limit: number) => Promise<SearchResult[]>;
 
 const DEFAULT_EVAL_PATH = path.join(CACHE_DIR, 'eval.json');
 const EVAL_RUNS_DIR = path.join(CACHE_DIR, 'evals');
+const DEFAULT_AGENT_EVAL_PATH = path.join(CACHE_DIR, 'agent-eval.json');
 
-export async function evalCommand(opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean } = {}) {
+export async function evalCommand(
+  opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean; agentReport?: boolean } = {}
+) {
   const { config, workspaceRoot } = await loadWorkspaceConfig();
+
+  if (opts.agentReport) {
+    await runAgentEvalReport(config, workspaceRoot, opts);
+    return;
+  }
+
   const filePath = opts.file ? path.resolve(process.cwd(), opts.file) : path.resolve(workspaceRoot, DEFAULT_EVAL_PATH);
   if (opts.init || !(await pathExists(filePath))) {
     await writeText(filePath, JSON.stringify({ cases: [{ query: 'authentication flow', expected: [{ path: 'README.md' }] }] }, null, 2));
@@ -63,6 +73,147 @@ export async function evalCommand(opts: { file?: string; init?: boolean; json?: 
 
   printEvalRun(run);
   if (run.summary.failed) process.exitCode = 1;
+}
+
+// --- Agent tool-choice report (--agent-report) ---
+//
+// Distinct from the search-quality eval above: instead of checking whether the index returns
+// the right file for a query, this checks whether an agent given ctxhub's tool descriptions
+// reaches for the tool the skill docs actually recommend for a realistic question. Formalizes
+// the manual version of this we did by hand against a real workspace this session, which kept
+// finding genuine skill/doc gaps.
+
+export type AgentEvalCase = { question: string; expectedTool: string };
+export type AgentEvalSuite = { cases: AgentEvalCase[] };
+export type AgentEvalCaseResult = { question: string; expectedTool: string; agentAnswer?: string; matched: boolean; error?: string };
+export type AgentEvalRunResult = {
+  generatedAt: string;
+  summary: { total: number; matched: number; unmatched: number };
+  cases: AgentEvalCaseResult[];
+};
+
+// Seeded from the ctxhub skill's own documented tool guidance, not arbitrary choices -- these
+// are the exact scenarios its "How to use it" section describes, so a mismatch here means the
+// agent and the skill doc actually disagree about what to reach for.
+const DEFAULT_AGENT_SUITE: AgentEvalSuite = {
+  cases: [
+    { question: 'How does the billing service authenticate with the payments service?', expectedTool: 'context_pack' },
+    { question: 'How does this system fit together end to end?', expectedTool: 'architecture_search' },
+    { question: 'Where is the rate limiting logic implemented?', expectedTool: 'search' }
+  ]
+};
+
+const TOOL_PRIMER = [
+  'You have access to the following ctxhub tools for a multi-repo workspace:',
+  '- context_pack(query): bundles search hits, architecture hits, freshness, and repo list. Default first stop for broad questions.',
+  '- search(query, type): search docs/code across all repos. type can be docs, code, architecture, or notes.',
+  '- architecture_search(query) / architecture_map(): find Mermaid diagrams and system topology for "how does this fit together" questions.',
+  '- repo_list(): list configured repositories.',
+  '- get_file_context / open_chunk: exact source/doc lookup after an initial search.',
+  '',
+  'Given the question below, reply with ONLY the name of the single tool you would call first -- no explanation, no punctuation.'
+].join('\n');
+
+async function runAgentEvalReport(
+  config: CtxhubConfig,
+  workspaceRoot: string,
+  opts: { file?: string; json?: boolean }
+): Promise<void> {
+  if (!config.llm.enabled) {
+    console.log(llmDisabledNotice('agent tool-choice reports'));
+    return;
+  }
+
+  const filePath = opts.file ? path.resolve(process.cwd(), opts.file) : path.resolve(workspaceRoot, DEFAULT_AGENT_EVAL_PATH);
+  if (!(await pathExists(filePath))) {
+    await writeText(filePath, JSON.stringify(DEFAULT_AGENT_SUITE, null, 2));
+    console.log(chalk.green(`Created ${path.relative(process.cwd(), filePath)}`));
+  }
+
+  const suite = JSON.parse(await readText(filePath)) as AgentEvalSuite;
+  const run = await evaluateAgentSuite(suite, config);
+  const reportPath = await writeAgentEvalReport(run, workspaceRoot);
+
+  if (opts.json) {
+    console.log(JSON.stringify({ ...run, reportPath }, null, 2));
+    if (run.summary.unmatched) process.exitCode = 1;
+    return;
+  }
+
+  console.log(chalk.bold('ctxhub agent tool-choice report'));
+  const color = run.summary.unmatched ? chalk.yellow : chalk.green;
+  console.log(color(`${run.summary.matched}/${run.summary.total} matched expected tool`));
+  console.log(chalk.gray(`Report: ${path.relative(process.cwd(), reportPath)}`));
+  for (const testCase of run.cases) {
+    if (testCase.error) {
+      console.log(`${chalk.yellow('•')} ${testCase.question} -- skipped (${testCase.error})`);
+    } else {
+      console.log(`${testCase.matched ? chalk.green('✓') : chalk.red('✗')} ${testCase.question} -- expected ${testCase.expectedTool}, got "${testCase.agentAnswer}"`);
+    }
+  }
+  if (run.summary.unmatched) process.exitCode = 1;
+}
+
+export async function evaluateAgentSuite(
+  suite: AgentEvalSuite,
+  config: CtxhubConfig,
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt
+): Promise<AgentEvalRunResult> {
+  const cases: AgentEvalCaseResult[] = [];
+
+  for (const testCase of suite.cases) {
+    const prompt = `${TOOL_PRIMER}\n\nQuestion: ${testCase.question}`;
+    const result = await runAgentPromptFn(config, prompt);
+
+    if (!result.ok) {
+      cases.push({ question: testCase.question, expectedTool: testCase.expectedTool, matched: false, error: result.reason });
+      continue;
+    }
+
+    const answer = result.text.trim();
+    cases.push({
+      question: testCase.question,
+      expectedTool: testCase.expectedTool,
+      agentAnswer: answer,
+      matched: answer.toLowerCase().includes(testCase.expectedTool.toLowerCase())
+    });
+  }
+
+  const matched = cases.filter(result => result.matched).length;
+  return {
+    generatedAt: new Date().toISOString(),
+    summary: { total: cases.length, matched, unmatched: cases.length - matched },
+    cases
+  };
+}
+
+export function renderAgentEvalMarkdown(run: AgentEvalRunResult): string {
+  return `# ctxhub Agent Tool-Choice Report
+
+Generated: ${run.generatedAt}
+Result: ${run.summary.matched}/${run.summary.total} matched expected tool
+
+## Cases
+
+${run.cases.map(renderAgentCaseMarkdown).join('\n\n')}
+`;
+}
+
+function renderAgentCaseMarkdown(testCase: AgentEvalCaseResult): string {
+  if (testCase.error) {
+    return `### SKIPPED: ${testCase.question}\n\nExpected: ${testCase.expectedTool}\nReason: ${testCase.error}`;
+  }
+  return `### ${testCase.matched ? 'MATCH' : 'MISMATCH'}: ${testCase.question}\n\nExpected: ${testCase.expectedTool}\nAgent said: ${testCase.agentAnswer}`;
+}
+
+async function writeAgentEvalReport(run: AgentEvalRunResult, workspaceRoot: string): Promise<string> {
+  const stamp = run.generatedAt.replace(/[:.]/g, '-');
+  const reportPath = path.resolve(workspaceRoot, EVAL_RUNS_DIR, `agent-${stamp}.md`);
+  const latestPath = path.resolve(workspaceRoot, EVAL_RUNS_DIR, 'agent-latest.md');
+  const content = renderAgentEvalMarkdown(run);
+  await writeText(reportPath, content);
+  await writeText(latestPath, content);
+  return reportPath;
 }
 
 function printEvalSummary(run: EvalRunResult, historyPath: string, reportPath?: string): void {
