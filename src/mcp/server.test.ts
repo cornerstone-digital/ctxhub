@@ -5,6 +5,7 @@ import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { decode } from '@toon-format/toon';
 import { createCtxhubMcpServer } from './server.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
@@ -46,10 +47,19 @@ async function withWorkspace(run: (cwd: string) => Promise<void>) {
   }
 }
 
+// textResult() picks whichever of TOON/compact-JSON is smaller per response (src/mcp/compact.ts),
+// so tests can't assume either format specifically. JSON.parse is the strict one here -- it
+// reliably throws on real TOON text -- so it must be tried first; TOON's decode() is lenient
+// enough to "succeed" on plain JSON text with silently wrong results instead of throwing.
 function firstTextPayload(result: { content: Array<{ type: string; text?: string }> }): unknown {
   const [first] = result.content;
   assert.equal(first.type, 'text');
-  return JSON.parse(first.text ?? '');
+  const text = first.text ?? '';
+  try {
+    return JSON.parse(text);
+  } catch {
+    return decode(text);
+  }
 }
 
 test('mcp server lists the read-only ctxhub tools', () => {

@@ -14,9 +14,13 @@ import { checkServerStaleness } from '../utils/serverStatus.js';
 import { estimateTokens } from '../utils/tokenEstimate.js';
 import { estimateBaselineTokensFromFileSizes, readUsageStats, recordToolUsage, summarizeUsageStats } from '../utils/usageStats.js';
 import { SEARCH_FACETS, classifyResult, filterResults, localRgHints, normalizeSearchFacet } from '../context/searchFacets.js';
+import { compactEncode } from './compact.js';
 
+// The one choke point every tool response passes through -- compaction (dropping redundant
+// full content, picking TOON vs. JSON per payload) happens here so individual tool handlers
+// never need to know or care about it.
 function textResult(value: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] };
+  return { content: [{ type: 'text' as const, text: compactEncode(value) }] };
 }
 
 async function workspace(cwd: string) {
@@ -26,8 +30,10 @@ async function workspace(cwd: string) {
 // Best-effort telemetry backing the `usage_stats` tool/`ctxhub stats` command: records how many
 // tokens a tool call returned vs. the heuristic cost of reading every distinct matched file in
 // full, so agents/users can see roughly how much ctxhub's targeted retrieval is saving over time.
+// Measures the same compacted text textResult() actually sends, not the raw pre-compaction JSON,
+// so the savings number reflects what the agent really received.
 async function recordUsage(workspaceRoot: string, tool: string, payload: unknown, absolutePaths: Array<string | undefined>) {
-  const tokensReturned = estimateTokens(JSON.stringify(payload));
+  const tokensReturned = estimateTokens(compactEncode(payload));
   const tokensBaseline = estimateBaselineTokensFromFileSizes(absolutePaths);
   await recordToolUsage(path.join(workspaceRoot, STATS_PATH), tool, tokensReturned, tokensBaseline);
 }
