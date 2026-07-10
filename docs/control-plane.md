@@ -129,25 +129,41 @@ several "not shipped" items that have since shipped, which is a live example of 
 This phase alone is useful on its own (a "what workspaces do I have configured" command) and is a
 prerequisite for every later phase without requiring any of them to exist.
 
-### Phase 2 — Control-plane service (the daemon, kept as small as possible)
+### Phase 2 — Control-plane service (shipped, minus the WS event stream)
 
-- [ ] `ctxhub service start` / `stop` / `status`, reusing `ctxhub watch --detach`'s exact
-      established pattern (detached child process, PID + log file, `process.kill(pid, 0)`/
+- [x] `ctxhub service start` / `stop` / `status` (`src/commands/service.ts`), reusing
+      `ctxhub watch --detach`'s exact established pattern (detached child process, PID + log file
+      under `~/.ctxhub/` instead of per-workspace `.ctxhub/cache/`, `process.kill(pid, 0)`/
       `SIGTERM`) rather than registering an OS-level launchd/systemd/Windows service. The brief
-      proposed OS-level service registration from the start; this plan defers that specifically
-      because it's a bigger, more failure-prone commitment (platform-specific service files,
+      proposed OS-level service registration from the start; this defers that specifically because
+      it's a bigger, more failure-prone commitment (platform-specific service files,
       install/uninstall hygiene, permissions) than the pattern ctxhub has already proven once.
+      `ctxhub service start` detaches by default (`--foreground` runs it blocking, for debugging).
       Revisit `ctxhub service install` (real OS service registration) only once the plain
       detached mode has been used for a while.
-- [ ] A minimal HTTP/WS API on `127.0.0.1:7342` (the brief's own suggested port) exposing: list
-      registered workspaces (from Phase 1's registry), per-workspace status (reusing
-      `doctorChecks.ts`'s existing check functions instead of inventing new health logic), and a
-      WebSocket event stream for future consumers (Mission Control, later phases) to subscribe to
-      without polling.
-- [ ] No orchestration, no task coordination, no persona/policy logic in this phase — purely
-      "is the registry queryable over a local API." Keeping this phase this narrow is deliberate:
-      it's the one phase most likely to reveal whether the daemon model is worth the complexity
-      before committing to UI/Captain work on top of it.
+- [x] A minimal HTTP API on `127.0.0.1:7342` by default (`src/service/server.ts`, plain Node
+      `http`, no new dependency): `GET /health`, `GET /workspaces` (from Phase 1's registry, with
+      each entry's `exists` flag), `GET /workspaces/:name/status` (reuses `doctorChecks.ts`'s exact
+      `buildDoctorChecks`/`runDoctorChecks` functions rather than inventing separate health logic,
+      so the control plane's idea of a workspace's health can never drift from `ctxhub doctor`'s).
+- [x] **The WebSocket event stream was deliberately descoped from this pass, not silently
+      dropped.** There is nothing yet in the system that produces an event worth pushing (no
+      Captains, no task coordination, no persona/policy engine wired to the service) -- building an
+      event bus with nothing to publish would be exactly the kind of speculative infrastructure
+      this project's own discipline argues against. Polling the HTTP API above is sufficient for
+      Phase 3's Fleet-view UI. Revisit WebSockets (which would need a real dependency, since
+      hand-rolling the WS wire protocol isn't worth it) once Phase 6 (Captains) actually has
+      real events to emit.
+- [x] No orchestration, no task coordination, no persona/policy logic in this phase — purely
+      "is the registry queryable over a local API," as intended.
+- [x] Unit tests (`src/service/server.test.ts`, `src/commands/service.test.ts`): every HTTP route
+      against a real listening server (Node's built-in `fetch`, not a mocked request), plus the
+      exact same real-spawned-process PID lifecycle proof `watch.test.ts` uses for `--stop`/
+      `--status` (spawn a real dummy process, verify detection, signal it, verify cleanup).
+- [x] Live verification: registered a real scratch workspace, started the service as a real
+      detached background process, curled `/health`, `/workspaces`, and
+      `/workspaces/<name>/status` against it, then stopped it and confirmed `service status`
+      reported it gone.
 
 ### Phase 3 — Mission Control UI (Fleet view only, not the full section list from the brief)
 

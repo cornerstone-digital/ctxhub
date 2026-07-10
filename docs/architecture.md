@@ -148,3 +148,19 @@ that workspace's own `config.workspace.name`, and is idempotent for an already-r
 (returns the existing entry rather than erroring). `ctxhub workspace list` reports, but never
 silently prunes, a workspace whose path no longer exists — the same "report, don't silently fix"
 bias `ctxhub doctor` already uses for anything destructive.
+
+## Control-plane service
+
+`src/commands/service.ts` (CLI lifecycle) and `src/service/server.ts` (the HTTP handler) implement
+Phase 2 of [docs/control-plane.md](./control-plane.md). `ctxhub service start` reuses
+`ctxhub watch --detach`'s exact detached-process pattern — PID file + log file, just at user scope
+(`~/.ctxhub/service.{pid,log}` via `registry.ts`'s `getCtxhubHome()`) instead of per-workspace — and
+detaches by default rather than requiring an explicit flag, since a persistent service is the whole
+point; `--foreground` is the escape hatch for debugging. The HTTP server itself is plain Node
+`http` (no new dependency): `GET /health`, `GET /workspaces` (from the Phase 1 registry), and
+`GET /workspaces/:name/status`, which calls `doctorChecks.ts`'s exact `buildDoctorChecks`/
+`runDoctorChecks` functions rather than inventing separate health logic, so a workspace's
+control-plane health can never drift from its `ctxhub doctor` health. The WebSocket event stream
+from the original plan is deliberately not built yet — nothing in the system produces an event
+worth pushing until a later phase (Captains) exists, so polling the HTTP API above is enough for
+now.

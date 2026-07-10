@@ -21,6 +21,8 @@ import { handoffCommand } from '../commands/handoff.js';
 import { reviewCommand } from '../commands/review.js';
 import { personasInitCommand, personasSyncCommand, SUPPORTED_PERSONA_SYNC_AGENTS } from '../commands/personas.js';
 import { workspaceListCommand, workspaceRegisterCommand, workspaceRemoveCommand } from '../commands/workspace.js';
+import { serviceStartCommand, serviceStopCommand, serviceStatusCommand } from '../commands/service.js';
+import { DEFAULT_SERVICE_PORT } from '../service/server.js';
 import { evalCommand } from '../commands/eval.js';
 import { validateDocsCommand } from '../commands/validate.js';
 import { graphCommand } from '../commands/graph.js';
@@ -363,6 +365,25 @@ export function buildProgram(): Command {
     .argument('<name>', 'Registered workspace name')
     .description('Remove a workspace from the registry (does not touch the workspace itself)')
     .action(workspaceRemoveCommand);
+
+  const service = program.command('service').description('Run the local control-plane service (docs/control-plane.md, Phase 2)');
+
+  service
+    .command('start')
+    .option('--foreground', 'Run in the foreground instead of detaching a background process')
+    .option('--port <port>', 'Port to listen on', String(DEFAULT_SERVICE_PORT))
+    .description('Start the control-plane HTTP service (detached background process by default)')
+    .action(serviceStartCommand);
+
+  service
+    .command('stop')
+    .description('Stop the background control-plane service')
+    .action(serviceStopCommand);
+
+  service
+    .command('status')
+    .description('Report whether the control-plane service is running')
+    .action(serviceStatusCommand);
 
   const skills = program.command('skills').description('Install chat-native ctxhub usage guidance for coding agents');
 
