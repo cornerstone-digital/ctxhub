@@ -12,6 +12,7 @@ import { runRepoDiscoverReview } from '../tui/RepoDiscoverApp.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 import { listWorkspaces } from '../workspaces/registry.js';
 import { DEFAULT_SERVICE_PORT } from '../service/server.js';
+import { isServiceRunning } from './service.js';
 
 export type DiscoveredRepo = {
   name: string;
@@ -59,6 +60,11 @@ async function triggerBackgroundIndex(workspaceRoot: string): Promise<void> {
   const workspaces = await listWorkspaces();
   const workspace = workspaces.find(entry => path.resolve(entry.path) === path.resolve(workspaceRoot));
   if (!workspace) return;
+
+  // isServiceRunning() checks this CTXHUB_HOME's own PID file rather than just probing the port
+  // -- an unrelated real service on the same machine (different CTXHUB_HOME, e.g. under test)
+  // shouldn't be mistaken for this workspace's.
+  if (!(await isServiceRunning())) return;
 
   try {
     const res = await fetch(`http://127.0.0.1:${DEFAULT_SERVICE_PORT}/workspaces/${encodeURIComponent(workspace.name)}/index`, {

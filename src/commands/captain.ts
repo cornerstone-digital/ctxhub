@@ -1,10 +1,12 @@
 import chalk from 'chalk';
-import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask } from '../captains/tasks.js';
-import { listCaptainRuns, promoteCaptainRun, runCaptainTask } from '../captains/runner.js';
+import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
+import { listCaptainRuns, promoteCaptainRun, runCaptainTask, type CaptainRunRecord } from '../captains/runner.js';
+import { DEFAULT_SERVICE_PORT } from '../service/server.js';
+import { isServiceRunning } from './service.js';
 
 export async function captainAddCommand(
   name: string,
-  opts: { workspace?: string; query?: string; persona?: string; profile?: string; scheduleEveryMinutes?: string } = {}
+  opts: { workspace?: string; query?: string; persona?: string; profile?: string; scheduleEveryMinutes?: string; handoffTo?: string } = {}
 ) {
   if (!opts.workspace) throw new Error('--workspace is required.');
   if (!opts.query) throw new Error('--query is required.');
@@ -20,11 +22,15 @@ export async function captainAddCommand(
     query: opts.query,
     persona: opts.persona,
     profile: opts.profile,
-    schedule: everyMinutes ? { everyMinutes } : undefined
+    schedule: everyMinutes ? { everyMinutes } : undefined,
+    handoffTo: opts.handoffTo
   });
   console.log(chalk.green(`Added captain task "${name}" targeting workspace "${opts.workspace}".`));
   if (everyMinutes) {
     console.log(chalk.gray(`Scheduled: runs every ${everyMinutes} minute(s) while \`ctxhub service\` is running.`));
+  }
+  if (opts.handoffTo) {
+    console.log(chalk.gray(`Hands off to "${opts.handoffTo}" on completion, with this task's answer folded in as context.`));
   }
 }
 
@@ -39,7 +45,8 @@ export async function captainListCommand() {
     const extras = [
       task.persona ? `persona=${task.persona}` : undefined,
       task.profile ? `profile=${task.profile}` : undefined,
-      task.schedule ? `every=${task.schedule.everyMinutes}m` : undefined
+      task.schedule ? `every=${task.schedule.everyMinutes}m` : undefined,
+      task.handoffTo ? `handoff-to=${task.handoffTo}` : undefined
     ]
       .filter(Boolean)
       .join(' ');
@@ -56,17 +63,42 @@ export async function captainRemoveCommand(name: string) {
   console.log(chalk.green(`Removed captain task "${name}".`));
 }
 
+// If `ctxhub service` is running, routes the run through it instead of executing in this
+// disposable CLI process -- so it publishes to the same eventBus the service's SSE
+// subscribers/dashboard are already listening to, and shows up as real agent activity there
+// instead of only appearing after the fact via `ctxhub captain approvals`. Falls back to running
+// locally (previous behavior, no dashboard visibility) if the service isn't reachable.
+async function runCaptainTaskPreferService(task: CaptainTask): Promise<CaptainRunRecord> {
+  // isServiceRunning() checks this CTXHUB_HOME's own PID file, not just "is anything listening
+  // on the port" -- matters for test isolation (an unrelated real service on the same machine
+  // shouldn't be mistaken for this workspace's), and is the right check either way since a port
+  // probe alone can't tell whether that's actually *this* home's service.
+  if (!(await isServiceRunning())) return runCaptainTask(task);
+
+  const res = await fetch(`http://127.0.0.1:${DEFAULT_SERVICE_PORT}/captains/${encodeURIComponent(task.name)}/run`, { method: 'POST' })
+    .catch(() => null);
+  if (!res) return runCaptainTask(task);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Captain run failed via ctxhub service (HTTP ${res.status})`);
+  }
+  return (await res.json()) as CaptainRunRecord;
+}
+
 export async function captainRunCommand(name: string) {
   const task = await getCaptainTask(name);
   if (!task) {
     throw new Error(`No captain task named "${name}". Run: ctxhub captain list`);
   }
 
-  const record = await runCaptainTask(task);
+  const record = await runCaptainTaskPreferService(task);
   console.log(chalk.green(`Ran captain task "${name}" (run ${record.runId}) against workspace "${record.workspace}".`));
   for (const line of record.result.answer) console.log(`- ${line}`);
   if (record.result.llmNotice) console.log(chalk.dim(record.result.llmNotice));
   console.log(chalk.gray(`Pending review. Promote with: ctxhub captain promote ${name} ${record.runId} <repo>`));
+  if (task.handoffTo) {
+    console.log(chalk.gray(`Handed off to "${task.handoffTo}". Check its result with: ctxhub captain approvals ${task.handoffTo}`));
+  }
 }
 
 export async function captainApprovalsCommand(name: string) {

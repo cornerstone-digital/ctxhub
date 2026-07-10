@@ -8,6 +8,8 @@ import { registerWorkspace } from '../workspaces/registry.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { pathExists, readText } from '../utils/fs.js';
+import { addCaptainTask } from './tasks.js';
+import { eventBus, type CtxhubEventEnvelope } from '../events/eventBus.js';
 import type { CaptainTask } from './tasks.js';
 
 async function withIsolatedCtxhubHome(run: () => Promise<void>) {
@@ -84,6 +86,81 @@ test('listCaptainRuns is empty before any run and lists runs afterward', () => {
       const runs = await listCaptainRuns('list-task');
       assert.equal(runs.length, 1);
       assert.equal(runs[0].runId, record.runId);
+    });
+  });
+});
+
+test('runCaptainTask with handoffTo also runs the target task, folding the source answer in as context', () => {
+  return withIsolatedCtxhubHome(async () => {
+    await withRegisteredWorkspace('handoff-ws', async () => {
+      const upstream: CaptainTask = { name: 'audit', workspace: 'handoff-ws', query: 'how does authentication work', handoffTo: 'draft-notes' };
+      const downstream: CaptainTask = { name: 'draft-notes', workspace: 'handoff-ws', query: 'summarize the above as release notes' };
+      await addCaptainTask(downstream);
+      await addCaptainTask(upstream);
+
+      const events: CtxhubEventEnvelope[] = [];
+      const unsubscribe = eventBus.subscribe(event => events.push(event));
+      try {
+        const upstreamRecord = await runCaptainTask(upstream);
+        assert.equal(upstreamRecord.task, 'audit');
+        assert.equal(upstreamRecord.handoffFrom, undefined);
+
+        const downstreamRuns = await listCaptainRuns('draft-notes');
+        assert.equal(downstreamRuns.length, 1);
+        assert.equal(downstreamRuns[0].handoffFrom, 'audit');
+        assert.match(downstreamRuns[0].result.query, /Context handed off from Captain "audit"/);
+      } finally {
+        unsubscribe();
+      }
+
+      assert.ok(events.some(e => e.type === 'captain.handoff' && e.from === 'audit' && e.to === 'draft-notes'));
+      assert.ok(events.some(e => e.type === 'captain.run.completed' && e.task === 'draft-notes'));
+    });
+  });
+});
+
+test('runCaptainTask stops a handoff cycle instead of running forever, without losing the original task\'s own recorded run', () => {
+  return withIsolatedCtxhubHome(async () => {
+    await withRegisteredWorkspace('cycle-ws', async () => {
+      const a: CaptainTask = { name: 'a', workspace: 'cycle-ws', query: 'a query', handoffTo: 'b' };
+      const b: CaptainTask = { name: 'b', workspace: 'cycle-ws', query: 'b query', handoffTo: 'a' };
+      await addCaptainTask(b);
+      await addCaptainTask(a);
+
+      const events: CtxhubEventEnvelope[] = [];
+      const unsubscribe = eventBus.subscribe(event => events.push(event));
+      try {
+        // The top-level call still resolves (its own run succeeded); the cycle is only detected
+        // and stopped once the chain comes back around to "a" a second time.
+        const record = await runCaptainTask(a);
+        assert.equal(record.task, 'a');
+      } finally {
+        unsubscribe();
+      }
+
+      assert.ok(events.some(e => e.type === 'captain.run.failed' && e.task === 'a' && /cycle/i.test(e.error)));
+      assert.equal((await listCaptainRuns('a')).length, 1);
+      assert.equal((await listCaptainRuns('b')).length, 1);
+    });
+  });
+});
+
+test('runCaptainTask reports a missing handoff target without failing the task that tried to hand off', () => {
+  return withIsolatedCtxhubHome(async () => {
+    await withRegisteredWorkspace('missing-target-ws', async () => {
+      const task: CaptainTask = { name: 'solo', workspace: 'missing-target-ws', query: 'anything', handoffTo: 'does-not-exist' };
+      await addCaptainTask(task);
+
+      const events: CtxhubEventEnvelope[] = [];
+      const unsubscribe = eventBus.subscribe(event => events.push(event));
+      try {
+        const record = await runCaptainTask(task);
+        assert.equal(record.task, 'solo');
+      } finally {
+        unsubscribe();
+      }
+
+      assert.ok(events.some(e => e.type === 'captain.run.failed' && e.task === 'does-not-exist' && /not a defined captain task/.test(e.error)));
     });
   });
 });

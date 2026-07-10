@@ -11,6 +11,8 @@ import { createExplainResult } from '../commands/explain.js';
 import { indexWorkspace, type IndexProgressEvent, type IndexResult } from '../indexing/indexer.js';
 import { notify } from '../utils/notify.js';
 import { eventBus, type CtxhubEventEnvelope } from '../events/eventBus.js';
+import { getCaptainTask } from '../captains/tasks.js';
+import { runCaptainTask } from '../captains/runner.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
@@ -213,7 +215,33 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  const captainRunMatch = /^\/captains\/([^/]+)\/run$/.exec(url.pathname);
+  if (req.method === 'POST' && captainRunMatch) {
+    await handleCaptainRun(res, decodeURIComponent(captainRunMatch[1]));
+    return;
+  }
+
   sendJson(res, 404, { error: `Not found: ${req.method} ${url.pathname}` });
+}
+
+// Runs the task inside *this* process rather than the caller's -- the whole point is that
+// `ctxhub captain run <name>` from a terminal publishes to the same eventBus this service (and
+// therefore its SSE subscribers/dashboard) is already listening to, instead of a disposable CLI
+// process's own disconnected in-memory bus. Awaited, not fire-and-forget like index jobs: a
+// single Captain query is fast enough that the CLI can just wait for the real answer to show.
+async function handleCaptainRun(res: http.ServerResponse, name: string): Promise<void> {
+  const task = await getCaptainTask(name);
+  if (!task) {
+    sendJson(res, 404, { error: `No captain task named "${name}"` });
+    return;
+  }
+
+  try {
+    const record = await runCaptainTask(task);
+    sendJson(res, 200, record);
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 // Server-Sent Events, not WebSocket: this stream is one-way (server -> client), which is all the

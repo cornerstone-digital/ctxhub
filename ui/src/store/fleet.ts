@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ActivityEvent, ChatMessage, CtxhubEventEnvelope } from '../types'
+import type { ActivityEvent, AgentToken, ChatMessage, CtxhubEventEnvelope } from '../types'
 
 interface FleetStore {
   selectedWorkspace: string | null
@@ -20,6 +20,10 @@ interface FleetStore {
 
   frozen: boolean
   toggleFrozen: () => void
+
+  agents: AgentToken[]
+  upsertAgent: (token: AgentToken) => void
+  removeAgent: (id: string) => void
 }
 
 let activityIdCounter = 0
@@ -61,6 +65,16 @@ export const useFleetStore = create<FleetStore>((set) => ({
 
   frozen: false,
   toggleFrozen: () => set((state) => ({ frozen: !state.frozen })),
+
+  agents: [],
+  upsertAgent: (token) =>
+    set((state) => ({
+      agents: [...state.agents.filter((a) => a.id !== token.id), token],
+    })),
+  removeAgent: (id) =>
+    set((state) => ({
+      agents: state.agents.filter((a) => a.id !== id),
+    })),
 }))
 
 export function makeMsgId() {

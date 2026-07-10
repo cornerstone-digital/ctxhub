@@ -1,12 +1,12 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import * as d3 from 'd3'
-import { useWorkspaces, useWorkspaceStatus } from '../api/client'
+import { useWorkspaces, useWorkspaceStatus, HANDOFF_TRAVEL_MS } from '../api/client'
 import { useFleetStore } from '../store/fleet'
 import { healthColor } from '../lib/utils'
 import { GraphToolbar } from './GraphToolbar'
 import { DetailPanel } from './DetailPanel'
 import { EventDetailPanel } from './EventDetailPanel'
-import type { Workspace } from '../types'
+import type { AgentToken, Workspace } from '../types'
 
 interface NodeDatum extends d3.SimulationNodeDatum {
   id: string
@@ -22,6 +22,101 @@ interface LinkDatum extends d3.SimulationLinkDatum<NodeDatum> {
 const NODE_RADIUS = 44
 const MINIMAP_W = 140
 const MINIMAP_H = 88
+
+const AGENT_KIND_COLOR: Record<AgentToken['kind'], string> = {
+  index: '#22d3ee',
+  captain: '#7c6ef5',
+}
+
+function agentColor(agent: AgentToken): string {
+  if (agent.state === 'done') return '#0fd97b'
+  if (agent.state === 'error') return '#f03d3d'
+  return AGENT_KIND_COLOR[agent.kind]
+}
+
+// A small canvas-drawn robot: rounded body, antenna, two eyes -- legible at ~9px without needing
+// an image asset, and cheap enough to redraw every frame for however many agents are active.
+function drawBot(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, bob: number) {
+  const size = 9
+  ctx.save()
+  ctx.translate(x, y + bob)
+
+  const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 2)
+  glow.addColorStop(0, `${color}55`)
+  glow.addColorStop(1, 'transparent')
+  ctx.beginPath()
+  ctx.arc(0, 0, size * 2, 0, Math.PI * 2)
+  ctx.fillStyle = glow
+  ctx.fill()
+
+  ctx.beginPath()
+  ctx.moveTo(0, -size / 2)
+  ctx.lineTo(0, -size / 2 - 4)
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(0, -size / 2 - 5, 1.3, 0, Math.PI * 2)
+  ctx.fillStyle = color
+  ctx.fill()
+
+  ctx.beginPath()
+  ctx.rect(-size / 2, -size / 2, size, size)
+  ctx.fillStyle = color
+  ctx.fill()
+
+  ctx.fillStyle = '#0d0d1a'
+  ctx.beginPath()
+  ctx.arc(-2, -0.5, 1.1, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.arc(2, -0.5, 1.1, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.restore()
+}
+
+// Stationary bots (working/done/error) orbit their workspace node, fanned out so more than one
+// active agent at the same workspace doesn't draw on top of the others. Traveling bots (handoffs)
+// move along the straight line between their source and destination node -- the literal "handing
+// a task to another agent" this whole feature is for.
+function drawAgents(ctx: CanvasRenderingContext2D, nodes: NodeDatum[], agents: AgentToken[]) {
+  if (agents.length === 0) return
+  const byId = new Map(nodes.map(n => [n.id, n]))
+  const now = Date.now()
+
+  const groups = new Map<string, AgentToken[]>()
+  for (const agent of agents) {
+    if (agent.state === 'traveling') continue
+    const group = groups.get(agent.workspaceId) ?? []
+    group.push(agent)
+    groups.set(agent.workspaceId, group)
+  }
+
+  groups.forEach((group, workspaceId) => {
+    const node = byId.get(workspaceId)
+    if (!node || node.x == null || node.y == null) return
+    group.forEach((agent, i) => {
+      const angle = now / 1400 + (i * (Math.PI * 2)) / group.length
+      const orbit = NODE_RADIUS + 20
+      const x = node.x! + Math.cos(angle) * orbit
+      const y = node.y! + Math.sin(angle) * orbit
+      const bob = Math.sin(now / 220 + i) * 1.5
+      drawBot(ctx, x, y, agentColor(agent), bob)
+    })
+  })
+
+  for (const agent of agents) {
+    if (agent.state !== 'traveling' || !agent.toWorkspaceId) continue
+    const from = byId.get(agent.workspaceId)
+    const to = byId.get(agent.toWorkspaceId)
+    if (!from || !to || from.x == null || from.y == null || to.x == null || to.y == null) continue
+    const progress = Math.min(1, (now - agent.spawnedAt) / HANDOFF_TRAVEL_MS)
+    const x = from.x + (to.x - from.x) * progress
+    const y = from.y + (to.y - from.y) * progress
+    drawBot(ctx, x, y, agentColor(agent), Math.sin(now / 150) * 2)
+  }
+}
 
 // We need a stable health hook per-node — lifted to a wrapper
 function NodeHealthFetcher({
@@ -60,10 +155,18 @@ export function GraphCanvas() {
   const particleRef = useRef({ progress: 0, active: false })
   const zoomBehaviorRef = useRef<d3.ZoomBehavior<HTMLCanvasElement, unknown> | null>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
+  // The draw loop is defined once in a mount-only effect (see below) and reads this ref every
+  // frame rather than closing over `agents` directly -- a value from a reactive hook read at
+  // mount would otherwise be frozen at whatever it was on the very first render.
+  const agentsRef = useRef<AgentToken[]>([])
 
   const { data: wsData } = useWorkspaces()
   const workspaces = wsData?.workspaces ?? []
-  const { selectedWorkspace, setSelectedWorkspace, selectedEvent, frozen, addActivity } = useFleetStore()
+  const { selectedWorkspace, setSelectedWorkspace, selectedEvent, frozen, addActivity, agents } = useFleetStore()
+
+  useEffect(() => {
+    agentsRef.current = agents
+  }, [agents])
 
   const [healthMap, setHealthMap] = useState<Record<string, 'ok' | 'warn' | 'error' | 'loading'>>({})
 
@@ -317,6 +420,9 @@ export function GraphCanvas() {
         ctx.lineWidth = 1.5
         ctx.stroke()
       })
+
+      // --- Agent bots ---
+      drawAgents(ctx, nodes, agentsRef.current)
 
       ctx.restore()
 

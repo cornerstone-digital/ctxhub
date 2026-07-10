@@ -44,9 +44,26 @@ export type CtxhubEvent =
   | { type: 'index.failed'; workspace: string; error: string }
   | { type: 'captain.run.started'; task: string; workspace: string }
   | { type: 'captain.run.completed'; task: string; workspace: string; runId: string }
-  | { type: 'captain.run.failed'; task: string; workspace: string; error: string };
+  | { type: 'captain.run.failed'; task: string; workspace: string; error: string }
+  | { type: 'captain.handoff'; from: string; to: string; fromWorkspace: string; toWorkspace: string };
 
 export type CtxhubEventEnvelope = CtxhubEvent & { id: string; at: string };
+
+// A little bot rendered on the Mission Control graph, one per in-flight index job / Captain run.
+// Purely a UI-side projection of eventBus activity (see useEventStream) -- nothing server-side
+// tracks "agents" as a concept, this is just what makes that activity visible and legible.
+export interface AgentToken {
+  id: string;
+  kind: 'index' | 'captain';
+  label: string;
+  workspaceId: string;
+  // Present only for a 'traveling' token -- the handoff's destination workspace, animated
+  // between workspaceId (from) and toWorkspaceId (to).
+  toWorkspaceId?: string;
+  state: 'working' | 'traveling' | 'done' | 'error';
+  percent?: number;
+  spawnedAt: number;
+}
 
 export interface ExplainResult {
   query: string;

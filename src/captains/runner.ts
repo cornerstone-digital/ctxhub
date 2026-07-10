@@ -5,7 +5,7 @@ import { createExplainResult, type ExplainResult } from '../commands/explain.js'
 import { loadWorkspaceConfig } from '../config/config.js';
 import { draftedNoteTemplate, NOTES_DIR, slugify, todayIsoDate } from '../commands/note.js';
 import { getCtxhubHome, listWorkspaces } from '../workspaces/registry.js';
-import type { CaptainTask } from './tasks.js';
+import { loadCaptainTasks, type CaptainTask } from './tasks.js';
 import { ensureDir, pathExists, readText, writeText } from '../utils/fs.js';
 import { eventBus } from '../events/eventBus.js';
 
@@ -21,13 +21,36 @@ export type CaptainRunRecord = {
   workspace: string;
   startedAt: string;
   result: ExplainResult;
+  // Set when this run was triggered by another captain's `handoffTo`, not run directly.
+  handoffFrom?: string;
 };
 
 export function getCaptainRunsDir(taskName: string): string {
   return path.join(getCtxhubHome(), 'captains', taskName);
 }
 
-export async function runCaptainTask(task: CaptainTask): Promise<CaptainRunRecord> {
+// A run's own answer, trimmed to what's worth handing to the next Captain as context -- the full
+// ExplainResult also carries citations/evidence/freshness the receiving task doesn't need and
+// that would just bloat its query.
+function summarizeForHandoff(result: ExplainResult): string {
+  return result.answer.join('\n');
+}
+
+export async function runCaptainTask(
+  task: CaptainTask,
+  opts: { handoffFrom?: string; handoffContext?: string; chain?: Set<string> } = {}
+): Promise<CaptainRunRecord> {
+  // Guards against a misconfigured handoffTo cycle (A -> B -> A) running forever. Each call in a
+  // handoff chain shares the same Set, passed down explicitly rather than tracked globally, so
+  // unrelated concurrent runs of the same task never trip each other's cycle guard.
+  const chain = opts.chain ?? new Set<string>();
+  if (chain.has(task.name)) {
+    const error = `Handoff cycle detected: "${task.name}" already ran earlier in this chain (${[...chain].join(' -> ')} -> ${task.name}).`;
+    eventBus.publish({ type: 'captain.run.failed', task: task.name, workspace: task.workspace, error });
+    throw new Error(error);
+  }
+  chain.add(task.name);
+
   const workspaces = await listWorkspaces();
   const workspaceEntry = workspaces.find(entry => entry.name === task.workspace);
   if (!workspaceEntry) {
@@ -39,9 +62,13 @@ export async function runCaptainTask(task: CaptainTask): Promise<CaptainRunRecor
 
   eventBus.publish({ type: 'captain.run.started', task: task.name, workspace: task.workspace });
 
+  const query = opts.handoffContext
+    ? `${task.query}\n\n--- Context handed off from Captain "${opts.handoffFrom}" ---\n${opts.handoffContext}`
+    : task.query;
+
   let result;
   try {
-    result = await createExplainResult(task.query, 8, workspaceEntry.path, {
+    result = await createExplainResult(query, 8, workspaceEntry.path, {
       persona: task.persona,
       profile: task.profile
     });
@@ -57,13 +84,39 @@ export async function runCaptainTask(task: CaptainTask): Promise<CaptainRunRecor
 
   const startedAt = new Date().toISOString();
   const runId = `${startedAt.replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}`;
-  const record: CaptainRunRecord = { runId, task: task.name, workspace: task.workspace, startedAt, result };
+  const record: CaptainRunRecord = {
+    runId,
+    task: task.name,
+    workspace: task.workspace,
+    startedAt,
+    result,
+    ...(opts.handoffFrom ? { handoffFrom: opts.handoffFrom } : {})
+  };
 
   const runsDir = getCaptainRunsDir(task.name);
   await ensureDir(runsDir);
   await writeText(path.join(runsDir, `${runId}.json`), `${JSON.stringify(record, null, 2)}\n`);
 
   eventBus.publish({ type: 'captain.run.completed', task: task.name, workspace: task.workspace, runId });
+
+  if (task.handoffTo) {
+    const { tasks } = await loadCaptainTasks();
+    const targetTask = tasks.find(candidate => candidate.name === task.handoffTo);
+    if (!targetTask) {
+      eventBus.publish({
+        type: 'captain.run.failed',
+        task: task.handoffTo,
+        workspace: task.workspace,
+        error: `Handoff target "${task.handoffTo}" (from "${task.name}") is not a defined captain task.`
+      });
+    } else {
+      eventBus.publish({ type: 'captain.handoff', from: task.name, to: targetTask.name, fromWorkspace: task.workspace, toWorkspace: targetTask.workspace });
+      // Best-effort: a broken downstream link in the chain shouldn't erase that *this* task
+      // already succeeded and is safely recorded above. Failure is still visible via the
+      // captain.run.failed event published inside the recursive call.
+      await runCaptainTask(targetTask, { handoffFrom: task.name, handoffContext: summarizeForHandoff(result), chain }).catch(() => {});
+    }
+  }
 
   return record;
 }

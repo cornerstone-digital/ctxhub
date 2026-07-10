@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { CtxhubEventEnvelope, ExplainResult, IndexJobState, Workspace, WorkspaceStatus } from '../types'
+import type { AgentToken, CtxhubEventEnvelope, ExplainResult, IndexJobState, Workspace, WorkspaceStatus } from '../types'
 import { useFleetStore } from '../store/fleet'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -74,6 +74,8 @@ function summarize(event: CtxhubEventEnvelope): { text: string; kind: 'ok' | 'wa
       return { text: `Captain "${event.task}" finished on "${event.workspace}"`, kind: 'ok' }
     case 'captain.run.failed':
       return { text: `Captain "${event.task}" failed on "${event.workspace}": ${event.error}`, kind: 'error' }
+    case 'captain.handoff':
+      return { text: `Captain "${event.from}" handed off to "${event.to}"`, kind: 'info' }
     default:
       return { text: event.type, kind: 'info' }
   }
@@ -82,6 +84,78 @@ function summarize(event: CtxhubEventEnvelope): { text: string; kind: 'ok' | 'wa
 function notifyBrowser(title: string, body: string): void {
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     new Notification(title, { body })
+  }
+}
+
+// How long a finished/failed bot lingers on the graph before vanishing, and how long a handoff
+// bot takes to travel from its source to its destination node -- both purely cosmetic, tuned to
+// feel readable rather than to match any real duration.
+const AGENT_LINGER_MS = 1400
+export const HANDOFF_TRAVEL_MS = 1400
+
+function applyAgentToken(
+  event: CtxhubEventEnvelope,
+  upsertAgent: (token: AgentToken) => void,
+  removeAgent: (id: string) => void
+): void {
+  switch (event.type) {
+    case 'index.started':
+      upsertAgent({ id: `index:${event.workspace}`, kind: 'index', label: 'Indexing', workspaceId: event.workspace, state: 'working', percent: 0, spawnedAt: Date.now() })
+      return
+    case 'index.progress':
+      upsertAgent({
+        id: `index:${event.workspace}`,
+        kind: 'index',
+        label: 'Indexing',
+        workspaceId: event.workspace,
+        state: 'working',
+        percent: event.total > 0 ? (event.scanned / event.total) * 100 : 0,
+        spawnedAt: Date.now(),
+      })
+      return
+    case 'index.completed': {
+      const id = `index:${event.workspace}`
+      upsertAgent({ id, kind: 'index', label: 'Indexed', workspaceId: event.workspace, state: 'done', spawnedAt: Date.now() })
+      setTimeout(() => removeAgent(id), AGENT_LINGER_MS)
+      return
+    }
+    case 'index.failed': {
+      const id = `index:${event.workspace}`
+      upsertAgent({ id, kind: 'index', label: 'Index failed', workspaceId: event.workspace, state: 'error', spawnedAt: Date.now() })
+      setTimeout(() => removeAgent(id), AGENT_LINGER_MS)
+      return
+    }
+    case 'captain.run.started':
+      upsertAgent({ id: `captain:${event.task}`, kind: 'captain', label: event.task, workspaceId: event.workspace, state: 'working', spawnedAt: Date.now() })
+      return
+    case 'captain.run.completed': {
+      const id = `captain:${event.task}`
+      upsertAgent({ id, kind: 'captain', label: event.task, workspaceId: event.workspace, state: 'done', spawnedAt: Date.now() })
+      setTimeout(() => removeAgent(id), AGENT_LINGER_MS)
+      return
+    }
+    case 'captain.run.failed': {
+      const id = `captain:${event.task}`
+      upsertAgent({ id, kind: 'captain', label: event.task, workspaceId: event.workspace, state: 'error', spawnedAt: Date.now() })
+      setTimeout(() => removeAgent(id), AGENT_LINGER_MS)
+      return
+    }
+    case 'captain.handoff': {
+      // Own id per handoff (not keyed by task name like the others) -- a bot mid-flight between
+      // nodes shouldn't ever collide with or get clobbered by a same-named task's next run.
+      const id = `handoff:${event.from}-${event.to}:${event.id}`
+      upsertAgent({
+        id,
+        kind: 'captain',
+        label: `${event.from} → ${event.to}`,
+        workspaceId: event.fromWorkspace,
+        toWorkspaceId: event.toWorkspace,
+        state: 'traveling',
+        spawnedAt: Date.now(),
+      })
+      setTimeout(() => removeAgent(id), HANDOFF_TRAVEL_MS)
+      return
+    }
   }
 }
 
@@ -95,6 +169,8 @@ function notifyBrowser(title: string, body: string): void {
 export function useEventStream() {
   const qc = useQueryClient()
   const addActivity = useFleetStore(s => s.addActivity)
+  const upsertAgent = useFleetStore(s => s.upsertAgent)
+  const removeAgent = useFleetStore(s => s.removeAgent)
 
   useEffect(() => {
     const source = new EventSource('/events')
@@ -107,7 +183,7 @@ export function useEventStream() {
         return
       }
 
-      if (event.type.startsWith('index.')) {
+      if (event.type === 'index.started' || event.type === 'index.progress' || event.type === 'index.completed' || event.type === 'index.failed') {
         qc.setQueryData<IndexJobState>(['index-status', event.workspace], (prev): IndexJobState => {
           const base = prev ?? { status: 'idle' as const, scanned: 0, total: 0 }
           if (event.type === 'index.started') return { ...base, status: 'running', scanned: 0, total: 0, startedAt: event.at };
@@ -117,6 +193,8 @@ export function useEventStream() {
           return base
         })
       }
+
+      applyAgentToken(event, upsertAgent, removeAgent)
 
       if (event.type === 'index.progress') return
 
@@ -128,7 +206,7 @@ export function useEventStream() {
     }
 
     return () => source.close()
-  }, [qc, addActivity])
+  }, [qc, addActivity, upsertAgent, removeAgent])
 }
 
 export function useChatMutation() {

@@ -416,6 +416,7 @@ export function buildProgram(): Command {
     .option('--persona <persona>', 'Frame the answer through a persona defined in the target workspace\'s agents/personas/')
     .option('--profile <name>', 'Use a named executionProfiles entry from the target workspace to pick which harness/model runs this task')
     .option('--schedule-every-minutes <minutes>', 'Run this task automatically on this interval while `ctxhub service` is running (default: manual-only via `ctxhub captain run`)')
+    .option('--handoff-to <name>', 'Name of another captain task to run immediately after this one finishes, with this task\'s answer folded in as context')
     .description('Define a captain task: plain, editable config, not hardcoded dispatch logic')
     .action(captainAddCommand);
 

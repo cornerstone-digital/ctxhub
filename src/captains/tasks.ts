@@ -18,6 +18,12 @@ export type CaptainTask = {
   // run <name>`) -- the default, since nothing should start running unattended without an
   // explicit opt-in.
   schedule?: { everyMinutes: number };
+  // Opt-in task-to-task handoff: the name of another captain task (in this same tasks file) to
+  // run immediately after this one finishes, with this task's answer folded into the target's
+  // query as context. Lets one Captain's findings feed directly into the next Captain's question
+  // -- e.g. an "audit" task hands off to a "draft fix notes" task -- without a human relaying the
+  // answer by hand in between. See runner.ts for cycle detection.
+  handoffTo?: string;
 };
 
 export type CaptainTaskFile = {
@@ -49,6 +55,10 @@ export async function addCaptainTask(task: CaptainTask, tasksPath = getCaptainTa
 
   if (task.schedule !== undefined && task.schedule.everyMinutes < 1) {
     throw new Error(`schedule.everyMinutes must be at least 1; got ${task.schedule.everyMinutes}.`);
+  }
+
+  if (task.handoffTo === task.name) {
+    throw new Error(`A captain task cannot hand off to itself.`);
   }
 
   file.tasks.push(task);
