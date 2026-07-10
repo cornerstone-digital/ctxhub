@@ -114,3 +114,10 @@ mirroring [spec-kit](https://github.com/github/spec-kit)'s pattern) so an agent'
 an explicit `/ctxhub-search` invocation can discover ctxhub's capabilities without an MCP
 connection specifically — skills and MCP tools are complementary surfaces, not duplicates of each
 other.
+
+## Personas (planned)
+
+[docs/personas.md](./personas.md) is the implementation plan for generalizing `ctxhub review`'s
+`ReviewerProfile` pattern into a cross-command persona system (`agents/personas/*.md`, a mandatory
+policy layer consolidating today's six duplicated "never invent evidence" strings, and per-harness
+compilation via an extended `HarnessCapabilities` table) — not yet built, planned in phases.

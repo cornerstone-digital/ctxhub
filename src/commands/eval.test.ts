@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { saveManifest } from '../indexing/manifest.js';
+import { initAgentsDirectory } from '../personas/persona.js';
 
 function result(repo: string, filePath: string, score: number): SearchResult {
   return {
@@ -177,6 +178,31 @@ test('suggestEvalQueries parses structured cases with rationale from the LLM res
       expected: [{ repo: 'api', path: 'README.md' }],
       rationale: 'Covers the main auth path.'
     }]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('suggestEvalQueries applies a configured policy block once a team opts in, byte-identical otherwise', async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-eval-suggest-'));
+  try {
+    await saveManifest({ version: 1, workspace: 'ws', files: {} }, cwd);
+
+    let promptWithoutAgents = '';
+    await suggestEvalQueries({ cases: [] }, config({ enabled: true }), cwd, async (_config, prompt) => {
+      promptWithoutAgents = prompt;
+      return { ok: true, text: '{"cases":[]}' };
+    });
+    assert.ok(!promptWithoutAgents.includes('Policy ('));
+
+    await initAgentsDirectory(cwd);
+
+    let promptWithAgents = '';
+    await suggestEvalQueries({ cases: [] }, config({ enabled: true }), cwd, async (_config, prompt) => {
+      promptWithAgents = prompt;
+      return { ok: true, text: '{"cases":[]}' };
+    });
+    assert.match(promptWithAgents, /Policy \(always applies/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

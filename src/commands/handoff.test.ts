@@ -107,3 +107,28 @@ test('synthesizeHandoffSummary falls back with a clear notice when the LLM call 
   assert.equal(result.summary, undefined);
   assert.match(result.llmNotice ?? '', /unavailable \(timeout\)/);
 });
+
+test('synthesizeHandoffSummary prepends an optional preamble (persona/policy) ahead of its own instructions, defaulting to none', async () => {
+  let capturedPrompt = '';
+  await synthesizeHandoffSummary(
+    { topic: 'auth flow', changed: {}, pack: basePack },
+    config({ enabled: true }),
+    async (_config, prompt) => {
+      capturedPrompt = prompt;
+      return { ok: true, text: 'answer' };
+    },
+    'Persona: architect\nBe careful.\n\n'
+  );
+  assert.ok(capturedPrompt.startsWith('Persona: architect\nBe careful.\n\nTopic: auth flow'));
+
+  let capturedPromptWithoutPreamble = '';
+  await synthesizeHandoffSummary(
+    { topic: 'auth flow', changed: {}, pack: basePack },
+    config({ enabled: true }),
+    async (_config, prompt) => {
+      capturedPromptWithoutPreamble = prompt;
+      return { ok: true, text: 'answer' };
+    }
+  );
+  assert.ok(capturedPromptWithoutPreamble.startsWith('Topic: auth flow'), 'omitting preamble must be byte-identical to today');
+});

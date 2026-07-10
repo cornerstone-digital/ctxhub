@@ -14,11 +14,12 @@ export type AskResult = {
 
 export async function askCommand(
   question: string,
-  opts: { limit?: string; json?: boolean; llm?: boolean; notify?: boolean } = {}
+  opts: { limit?: string; json?: boolean; llm?: boolean; notify?: boolean; as?: string } = {}
 ): Promise<void> {
   const result = await createAskResult(question, Number(opts.limit ?? 8), process.cwd(), {
     llmOverride: opts.llm,
-    runAgentPromptFn: runAgentPrompt
+    runAgentPromptFn: runAgentPrompt,
+    persona: opts.as
   });
 
   if (opts.notify) notify('ctxhub ask', result.unavailableNotice ? 'Answer unavailable' : `Answer ready for: ${question}`);
@@ -53,7 +54,7 @@ export async function createAskResult(
   question: string,
   limit = 8,
   cwd = process.cwd(),
-  opts: { llmOverride?: boolean; runAgentPromptFn?: typeof runAgentPrompt } = {}
+  opts: { llmOverride?: boolean; runAgentPromptFn?: typeof runAgentPrompt; persona?: string } = {}
 ): Promise<AskResult> {
   const { config } = await loadWorkspaceConfig(cwd);
   const llmEnabled = opts.llmOverride === undefined ? config.llm.enabled : opts.llmOverride;
@@ -68,7 +69,8 @@ export async function createAskResult(
 
   const result = await createExplainResult(question, limit, cwd, {
     llmOverride: true,
-    runAgentPromptFn: opts.runAgentPromptFn
+    runAgentPromptFn: opts.runAgentPromptFn,
+    persona: opts.persona
   });
 
   if (result.llmNotice) {

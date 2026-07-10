@@ -19,6 +19,7 @@ import { askCommand } from '../commands/ask.js';
 import { replayCommand } from '../commands/replay.js';
 import { handoffCommand } from '../commands/handoff.js';
 import { reviewCommand } from '../commands/review.js';
+import { personasInitCommand } from '../commands/personas.js';
 import { evalCommand } from '../commands/eval.js';
 import { validateDocsCommand } from '../commands/validate.js';
 import { graphCommand } from '../commands/graph.js';
@@ -158,6 +159,7 @@ export function buildProgram(): Command {
     .option('--llm', 'Force LLM-backed answer synthesis for this call, even if disabled in config')
     .option('--no-llm', 'Force the non-LLM evidence scaffold for this call, even if enabled in config')
     .option('--notify', 'Send a desktop notification when the answer is ready')
+    .option('--as <persona>', 'Frame the answer through a persona defined in agents/personas/ (see: ctxhub personas init)')
     .description('Create a citation-first explanation from indexed context, LLM-synthesized when llm.enabled')
     .action(explainCommand);
 
@@ -169,6 +171,7 @@ export function buildProgram(): Command {
     .option('--llm', 'Force LLM-backed ask synthesis for this call, even if disabled in config')
     .option('--no-llm', 'Disable ask synthesis for this call and print the fallback guidance')
     .option('--notify', 'Send a desktop notification when the answer is ready')
+    .option('--as <persona>', 'Frame the answer through a persona defined in agents/personas/ (see: ctxhub personas init)')
     .description('Answer a question from indexed evidence using the configured agent CLI; unlike explain, this command has no non-LLM answer mode')
     .action(askCommand);
 
@@ -208,6 +211,7 @@ export function buildProgram(): Command {
     .option('--llm', 'Force a synthesized summary for this call, even if disabled in config')
     .option('--no-llm', 'Force skipping the synthesized summary for this call, even if enabled in config')
     .option('--notify', 'Send a desktop notification when the handoff bundle is ready')
+    .option('--as <persona>', 'Frame the summary through a persona defined in agents/personas/ (see: ctxhub personas init)')
     .description('Create a markdown handoff bundle for another agent or teammate, with an LLM-synthesized summary when llm.enabled')
     .action(handoffCommand);
 
@@ -322,6 +326,13 @@ export function buildProgram(): Command {
     .description("Write the agent's MCP config for this workspace and launch it, pre-wired with the ctxhub MCP server")
     .option('--no-launch', 'Only write the MCP config, do not launch the agent')
     .action(agentLaunchCommand);
+
+  const personas = program.command('personas').description('Manage portable agent personas (agents/ directory)');
+
+  personas
+    .command('init')
+    .description('Scaffold agents/ with a starter persona and evidence policy (safe to re-run; never overwrites edited files)')
+    .action(personasInitCommand);
 
   const skills = program.command('skills').description('Install chat-native ctxhub usage guidance for coding agents');
 

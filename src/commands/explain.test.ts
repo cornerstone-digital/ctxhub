@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { buildAnswerLines, createExplainResult, type ExplainEvidence } from './explain.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
+import { initAgentsDirectory } from '../personas/persona.js';
 import type { CtxhubConfig } from '../config/types.js';
 import type { RunAgentResult } from '../llm/runAgent.js';
 
@@ -160,5 +161,95 @@ test('createExplainResult never calls the LLM when there is no evidence to synth
     });
     assert.equal(result.evidence.length, 0);
     assert.equal(called, false);
+  });
+});
+
+test('createExplainResult prompt has no policy/persona preamble at all when agents/ has not been initialized (docs/personas.md Phase 1 guarantee)', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    await saveConfig(config, cwd);
+
+    let capturedPrompt = '';
+    await createExplainResult('authentication flow', 8, cwd, {
+      runAgentPromptFn: async (_config, prompt) => {
+        capturedPrompt = prompt;
+        return { ok: true, text: 'answer' };
+      }
+    });
+
+    assert.ok(!capturedPrompt.includes('Policy ('), 'no agents/ directory means no policy text, ever');
+    assert.ok(!capturedPrompt.includes('Persona:'));
+    assert.ok(capturedPrompt.startsWith('Question: authentication flow'), 'prompt must start exactly like it did before personas existed');
+  });
+});
+
+test('createExplainResult applies a configured policy to every call once a team opts in, even without --as (policy is not persona-gated)', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    await saveConfig(config, cwd);
+    await initAgentsDirectory(cwd);
+
+    let capturedPrompt = '';
+    await createExplainResult('authentication flow', 8, cwd, {
+      runAgentPromptFn: async (_config, prompt) => {
+        capturedPrompt = prompt;
+        return { ok: true, text: 'answer' };
+      }
+    });
+
+    assert.match(capturedPrompt, /Policy \(always applies/);
+    assert.ok(!capturedPrompt.includes('Persona:'), 'no --as means no persona text, but the policy still applies');
+  });
+});
+
+test('createExplainResult includes the persona and policy text in the prompt when --as names a real persona', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    await saveConfig(config, cwd);
+    await initAgentsDirectory(cwd);
+
+    let capturedPrompt = '';
+    await createExplainResult('authentication flow', 8, cwd, {
+      persona: 'architect',
+      runAgentPromptFn: async (_config, prompt) => {
+        capturedPrompt = prompt;
+        return { ok: true, text: 'answer' };
+      }
+    });
+
+    assert.match(capturedPrompt, /Policy \(always applies/);
+    assert.match(capturedPrompt, /never invent/);
+    assert.match(capturedPrompt, /Persona: architect/);
+    assert.match(capturedPrompt, /Software Architect/);
+    // The persona/policy preamble must come before the command's own existing instructions --
+    // proving assembly order, not just presence.
+    assert.ok(capturedPrompt.indexOf('Persona:') < capturedPrompt.indexOf('Question:'));
+    // Citation discipline is still there even with a persona active -- the persona cannot loosen it.
+    assert.match(capturedPrompt, /cite only these refs/);
+  });
+});
+
+test('createExplainResult silently proceeds without a persona block when --as names a persona that does not exist', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    await saveConfig(config, cwd);
+    await initAgentsDirectory(cwd);
+
+    let capturedPrompt = '';
+    await createExplainResult('authentication flow', 8, cwd, {
+      persona: 'not-a-real-persona',
+      runAgentPromptFn: async (_config, prompt) => {
+        capturedPrompt = prompt;
+        return { ok: true, text: 'answer' };
+      }
+    });
+
+    assert.ok(!capturedPrompt.includes('Persona:'));
+    // The configured policy still applies even though the named persona doesn't exist.
+    assert.match(capturedPrompt, /Policy \(always applies/);
   });
 });

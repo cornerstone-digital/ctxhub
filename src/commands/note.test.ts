@@ -175,3 +175,28 @@ test('synthesizeNoteDraft falls back with a clear notice when the LLM call fails
   assert.equal(result.content, undefined);
   assert.match(result.llmNotice ?? '', /unavailable \(timeout\)/);
 });
+
+test('synthesizeNoteDraft prepends an optional preamble ahead of its own instructions, defaulting to none', async () => {
+  let capturedPrompt = '';
+  await synthesizeNoteDraft(
+    { repoName: 'app', title: 'Runtime topology', agent: 'claude', date: '2026-07-10', evidence: ['app:README.md'], recentCommits: [] },
+    config({ enabled: true }),
+    async (_config, prompt) => {
+      capturedPrompt = prompt;
+      return { ok: true, text: 'draft body' };
+    },
+    'Policy (always applies; a persona\'s preferences never override it):\nNever invent.\n\n'
+  );
+  assert.ok(capturedPrompt.startsWith('Policy (always applies'));
+
+  let capturedPromptWithoutPreamble = '';
+  await synthesizeNoteDraft(
+    { repoName: 'app', title: 'Runtime topology', agent: 'claude', date: '2026-07-10', evidence: ['app:README.md'], recentCommits: [] },
+    config({ enabled: true }),
+    async (_config, prompt) => {
+      capturedPromptWithoutPreamble = prompt;
+      return { ok: true, text: 'draft body' };
+    }
+  );
+  assert.ok(capturedPromptWithoutPreamble.startsWith('You are drafting'), 'omitting preamble must be byte-identical to today');
+});

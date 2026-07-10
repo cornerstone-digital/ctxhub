@@ -6,6 +6,7 @@ import { createContextPack } from '../context/pack.js';
 import { runGit } from '../git/git.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import { pathExists, writeText } from '../utils/fs.js';
+import { buildPromptPreamble, loadPolicyText } from '../personas/persona.js';
 
 const DEFAULT_DIAGRAM_DIR = path.join('docs', 'architecture');
 
@@ -77,6 +78,7 @@ export async function diagramAddCommand(
   if (opts.draft) {
     const pack = await createContextPack(`${repoName} ${title}`, 6);
     const recentCommits = await recentCommitsForRepo(path.join(workspaceRoot, repo.path));
+    const preamble = buildPromptPreamble(await loadPolicyText(workspaceRoot));
     const result = await synthesizeDiagramDraft({
       repoName,
       title,
@@ -85,7 +87,7 @@ export async function diagramAddCommand(
       diagramType,
       evidence: evidenceLinesFromPack(pack),
       recentCommits
-    }, config);
+    }, config, runAgentPrompt, preamble);
     if (result.content) content = result.content;
     llmNotice = result.llmNotice;
   }
@@ -112,13 +114,14 @@ export async function synthesizeDiagramDraft(
     recentCommits: string[];
   },
   config: CtxhubConfig,
-  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt,
+  preamble = ''
 ): Promise<{ content?: string; llmNotice?: string }> {
   if (!config.llm.enabled) {
     return { llmNotice: llmDisabledNotice('diagram drafts') };
   }
 
-  const result = await runAgentPromptFn(config, buildDiagramDraftPrompt(input));
+  const result = await runAgentPromptFn(config, buildDiagramDraftPrompt(input, preamble));
   if (!result.ok) {
     return { llmNotice: `Diagram draft synthesis was unavailable (${result.reason}); writing the standard template instead.` };
   }
@@ -137,7 +140,7 @@ function buildDiagramDraftPrompt(input: {
   diagramType: string;
   evidence: string[];
   recentCommits: string[];
-}): string {
+}, preamble = ''): string {
   const commitsBlock = input.recentCommits.length
     ? input.recentCommits.map(commit => `- ${commit}`).join('\n')
     : '- (no recent commits available)';
@@ -145,7 +148,7 @@ function buildDiagramDraftPrompt(input: {
     ? input.evidence.map(line => `- ${line}`).join('\n')
     : '- (no indexed evidence found)';
 
-  return [
+  return preamble + [
     `You are drafting a Mermaid ${input.diagramType} diagram for repo ${input.repoName}.`,
     `Title: ${input.title}`,
     '',

@@ -8,6 +8,7 @@ import type { RunAgentResult } from '../llm/runAgent.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { createAskResult } from './ask.js';
+import { initAgentsDirectory } from '../personas/persona.js';
 
 async function withWorkspace(run: (cwd: string) => Promise<void>) {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-ask-'));
@@ -74,5 +75,26 @@ test('createAskResult reports LLM unavailability instead of falling back to the 
     assert.equal(result.answer, undefined);
     assert.match(result.unavailableNotice ?? '', /unavailable \(timeout\)/);
     assert.match(result.unavailableNotice ?? '', /ctxhub explain/);
+  });
+});
+
+test('createAskResult threads --as through to the same persona-aware prompt createExplainResult builds', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.llm.enabled = true;
+    await saveConfig(config, cwd);
+    await initAgentsDirectory(cwd);
+
+    let capturedPrompt = '';
+    await createAskResult('authentication flow', 8, cwd, {
+      persona: 'architect',
+      runAgentPromptFn: async (_config, prompt) => {
+        capturedPrompt = prompt;
+        return { ok: true, text: 'answer' };
+      }
+    });
+
+    assert.match(capturedPrompt, /Persona: architect/);
+    assert.match(capturedPrompt, /Policy \(always applies/);
   });
 });

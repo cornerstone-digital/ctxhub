@@ -7,6 +7,7 @@ import { runGit } from '../git/git.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import { searchMempalace } from '../memory/mempalaceCli.js';
 import { pathExists, writeText } from '../utils/fs.js';
+import { buildPromptPreamble, loadPolicyText } from '../personas/persona.js';
 
 export const NOTES_DIR = 'agent-notes';
 
@@ -100,6 +101,7 @@ export async function noteAddCommand(repoName: string, title: string, opts: { ag
   if (opts.draft) {
     const pack = await createContextPack(`${repoName} ${title}`, 6);
     const recentCommits = await recentCommitsForRepo(path.join(workspaceRoot, repo.path));
+    const preamble = buildPromptPreamble(await loadPolicyText(workspaceRoot));
     const result = await synthesizeNoteDraft({
       repoName,
       title,
@@ -107,7 +109,7 @@ export async function noteAddCommand(repoName: string, title: string, opts: { ag
       date,
       evidence: evidenceLinesFromPack(pack),
       recentCommits
-    }, config);
+    }, config, runAgentPrompt, preamble);
     if (result.content) content = result.content;
     llmNotice = result.llmNotice;
   }
@@ -126,13 +128,14 @@ export async function noteAddCommand(repoName: string, title: string, opts: { ag
 export async function synthesizeNoteDraft(
   input: { repoName: string; title: string; agent: string; date: string; evidence: string[]; recentCommits: string[] },
   config: CtxhubConfig,
-  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt,
+  preamble = ''
 ): Promise<{ content?: string; llmNotice?: string }> {
   if (!config.llm.enabled) {
     return { llmNotice: llmDisabledNotice('note drafts') };
   }
 
-  const result = await runAgentPromptFn(config, buildNoteDraftPrompt(input));
+  const result = await runAgentPromptFn(config, buildNoteDraftPrompt(input, preamble));
   if (!result.ok) {
     return { llmNotice: `Note draft synthesis was unavailable (${result.reason}); writing the standard template instead.` };
   }
@@ -190,7 +193,7 @@ export async function notePromoteCommand(
   console.log(chalk.gray('Review and edit before committing -- durable memory is personal/session-scoped by default, this note is now team-facing.'));
 }
 
-function buildNoteDraftPrompt(input: { repoName: string; title: string; evidence: string[]; recentCommits: string[] }): string {
+function buildNoteDraftPrompt(input: { repoName: string; title: string; evidence: string[]; recentCommits: string[] }, preamble = ''): string {
   const commitsBlock = input.recentCommits.length
     ? input.recentCommits.map(commit => `- ${commit}`).join('\n')
     : '- (no recent commits available)';
@@ -198,7 +201,7 @@ function buildNoteDraftPrompt(input: { repoName: string; title: string; evidence
     ? input.evidence.map(line => `- ${line}`).join('\n')
     : '- (no indexed evidence found)';
 
-  return [
+  return preamble + [
     `You are drafting a git-tracked team note for repo ${input.repoName}.`,
     `Title: ${input.title}`,
     '',

@@ -54,6 +54,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   stats: 'Memory',
   agent: 'Agents & Skills',
   skills: 'Agents & Skills',
+  personas: 'Agents & Skills',
   note: 'Team notes',
   diagram: 'Team notes',
   eval: 'Quality & CI',

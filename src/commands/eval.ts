@@ -8,6 +8,7 @@ import { pathExists, readText, writeText } from '../utils/fs.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import { notify } from '../utils/notify.js';
+import { buildPromptPreamble, loadPolicyText } from '../personas/persona.js';
 
 export type EvalExpected = { repo?: string; path?: string };
 export type EvalCase = { query: string; expected: EvalExpected[]; rationale?: string };
@@ -384,7 +385,8 @@ export async function suggestEvalQueries(
   }
 
   const manifest = await loadManifest(config.workspace.name, workspaceRoot);
-  const prompt = buildEvalSuggestionPrompt(suite, config, manifest);
+  const preamble = buildPromptPreamble(await loadPolicyText(workspaceRoot));
+  const prompt = buildEvalSuggestionPrompt(suite, config, manifest, preamble);
   const result = await runAgentPromptFn(config, prompt);
   if (!result.ok) {
     return { suggestions: [], llmNotice: `Eval query suggestions were unavailable (${result.reason}); keeping the curated suite unchanged.` };
@@ -418,7 +420,8 @@ export function appendSuggestedEvalCases(suite: EvalSuite, suggestions: EvalCase
 function buildEvalSuggestionPrompt(
   suite: EvalSuite,
   config: CtxhubConfig,
-  manifest: Awaited<ReturnType<typeof loadManifest>>
+  manifest: Awaited<ReturnType<typeof loadManifest>>,
+  preamble = ''
 ): string {
   const existingQueries = suite.cases.slice(0, 50).map(testCase => `- ${testCase.query}`).join('\n') || '- (none)';
   const repoList = config.repositories.map(repo => `- ${repo.name}: ${repo.path}`).join('\n') || '- (none)';
@@ -427,7 +430,7 @@ function buildEvalSuggestionPrompt(
     .map(file => `- ${file.repo}:${file.filePath}`)
     .join('\n') || '- (none)';
 
-  return [
+  return preamble + [
     'You are suggesting additional golden queries for a ctxhub eval suite.',
     '',
     'Existing queries (do not repeat these):',

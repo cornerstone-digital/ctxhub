@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { DEFAULT_REVIEWER_PROFILES, loadReviewerProfiles, reviewCommand, synthesizeReviewFindings } from './review.js';
+import { initAgentsDirectory } from '../personas/persona.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { indexWorkspace } from '../indexing/indexer.js';
 import { runGit } from '../git/git.js';
@@ -141,6 +142,24 @@ test('reviewCommand picks up a team-defined custom persona from a --profiles fil
 
     assert.equal(payload.persona, 'style-guide');
     assert.deepEqual(payload.changed.app, ['README.md']);
+    assert.match(payload.llmNotice, /llm\.enabled: true/);
+  });
+});
+
+test('reviewCommand resolves a profile.persona reference (agents/personas/*.md) without crashing, for a generic-kind profile', () => {
+  return withWorkspace(async cwd => {
+    await initAgentsDirectory(cwd);
+    const profilesPath = path.join(cwd, 'custom-profiles.json');
+    await writeFile(profilesPath, JSON.stringify({
+      profiles: [{ name: 'style-guide', kind: 'generic', focus: 'Check style.', persona: 'architect' }]
+    }, null, 2));
+
+    // llm.enabled is false in this workspace by default, so the persona/policy files are loaded
+    // and resolved (proving that path doesn't throw) but the LLM is never actually called.
+    const lines = await captureLog(() => reviewCommand('readme update', { as: 'style-guide', base: 'base', profiles: profilesPath, json: true }));
+    const payload = JSON.parse(lines.join(''));
+
+    assert.equal(payload.persona, 'style-guide');
     assert.match(payload.llmNotice, /llm\.enabled: true/);
   });
 });

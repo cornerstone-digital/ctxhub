@@ -109,3 +109,29 @@ test('synthesizeDiagramDraft falls back with a clear notice when the LLM call fa
   assert.equal(result.content, undefined);
   assert.match(result.llmNotice ?? '', /unavailable \(timeout\)/);
 });
+
+test('synthesizeDiagramDraft prepends an optional preamble ahead of its own instructions, defaulting to none', async () => {
+  const input = {
+    repoName: 'app',
+    title: 'Runtime topology',
+    agent: 'codex',
+    date: '2026-07-10',
+    diagramType: 'flowchart',
+    evidence: ['app:docs/architecture/runtime.mmd'],
+    recentCommits: []
+  };
+
+  let capturedPrompt = '';
+  await synthesizeDiagramDraft(input, config({ enabled: true }), async (_config, prompt) => {
+    capturedPrompt = prompt;
+    return { ok: true, text: 'flowchart LR\n  a --> b' };
+  }, 'Policy text.\n\n');
+  assert.ok(capturedPrompt.startsWith('Policy text.\n\n'));
+
+  let capturedPromptWithoutPreamble = '';
+  await synthesizeDiagramDraft(input, config({ enabled: true }), async (_config, prompt) => {
+    capturedPromptWithoutPreamble = prompt;
+    return { ok: true, text: 'flowchart LR\n  a --> b' };
+  });
+  assert.ok(capturedPromptWithoutPreamble.startsWith('You are drafting'), 'omitting preamble must be byte-identical to today');
+});

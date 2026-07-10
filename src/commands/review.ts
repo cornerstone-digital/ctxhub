@@ -9,6 +9,7 @@ import { gatherRepoDiffs, reviewContractRisks } from './prContext.js';
 import { analyzeArchitectureDrift, suggestDriftRepairs, type GraphPackage } from './graph.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import { notify } from '../utils/notify.js';
+import { buildPromptPreamble, loadPersona, loadPolicyText } from '../personas/persona.js';
 
 type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
 
@@ -17,7 +18,10 @@ type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
 // suggestions unmodified; `generic` is a freeform LLM persona defined entirely by its `focus`
 // text. This is how a team adds "our API style guide reviewer" without a ctxhub code change:
 // append a `kind: "generic"` entry to review-profiles.json.
-export type ReviewerProfile = { name: string; kind: 'contract' | 'docs' | 'generic'; focus?: string };
+// docs/personas.md Phase 2: `persona` optionally names a richer agents/personas/*.md file whose
+// full body supplements `focus` in the assembled prompt -- only meaningful for `kind: "generic"`,
+// since `contract`/`docs` don't build their prompt through buildReviewPrompt below at all.
+export type ReviewerProfile = { name: string; kind: 'contract' | 'docs' | 'generic'; focus?: string; persona?: string };
 export type ReviewerProfileSuite = { profiles: ReviewerProfile[] };
 
 const DEFAULT_REVIEW_PROFILES_PATH = path.join(CACHE_DIR, 'review-profiles.json');
@@ -135,7 +139,11 @@ async function gatherPersonaFindings(
     return { changed, findings: risks.map(risk => `${risk.repo}: ${risk.risk}`), llmNotice };
   }
 
-  const { findings, llmNotice } = await synthesizeReviewFindings(profile.name, profile.focus ?? '', topic, changed, diffs, pack, config);
+  const policyText = await loadPolicyText(workspaceRoot);
+  const persona = profile.persona ? await loadPersona(workspaceRoot, profile.persona) : undefined;
+  const preamble = buildPromptPreamble(policyText, persona);
+
+  const { findings, llmNotice } = await synthesizeReviewFindings(profile.name, profile.focus ?? '', topic, changed, diffs, pack, config, runAgentPrompt, preamble);
   return { changed, findings, llmNotice };
 }
 
@@ -179,7 +187,8 @@ export async function synthesizeReviewFindings(
   diffs: Map<string, string>,
   pack: ContextPack,
   config: CtxhubConfig,
-  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt,
+  preamble = ''
 ): Promise<{ findings: string[]; llmNotice?: string }> {
   if (!changed.size) return { findings: [] };
 
@@ -187,7 +196,7 @@ export async function synthesizeReviewFindings(
     return { findings: [], llmNotice: llmDisabledNotice(`${personaName} review`) };
   }
 
-  const result = await runAgentPromptFn(config, buildReviewPrompt(personaName, focus, topic, changed, diffs, pack));
+  const result = await runAgentPromptFn(config, buildReviewPrompt(personaName, focus, topic, changed, diffs, pack, preamble));
   if (!result.ok) {
     return { findings: [], llmNotice: `${personaName} review was unavailable (${result.reason}); showing the changed files and evidence bundle only.` };
   }
@@ -205,7 +214,8 @@ function buildReviewPrompt(
   topic: string,
   changed: Map<string, string[]>,
   diffs: Map<string, string>,
-  pack: ContextPack
+  pack: ContextPack,
+  preamble = ''
 ): string {
   const changedBlock = [...changed.entries()].map(([repo, files]) => `${repo}: ${files.join(', ')}`).join('\n');
   const diffBlock = [...diffs.entries()].map(([repo, diff]) => `--- ${repo} diff ---\n${diff}`).join('\n\n');
@@ -214,7 +224,7 @@ function buildReviewPrompt(
     .map(item => `- ${item.repo}:${item.filePath}${item.title ? ` (${item.title})` : ''}`)
     .join('\n');
 
-  return [
+  return preamble + [
     `You are a "${personaName}" reviewer looking at a code change on topic: ${topic}.`,
     focus || 'Look for concrete issues relevant to your persona name; do not invent generic filler feedback.',
     '',

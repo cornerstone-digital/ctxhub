@@ -7,6 +7,7 @@ import { runGit } from '../git/git.js';
 import { writeText } from '../utils/fs.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import { notify } from '../utils/notify.js';
+import { buildPromptPreamble, loadPersona, loadPolicyText } from '../personas/persona.js';
 
 export type HandoffOptions = {
   repo?: string;
@@ -16,6 +17,7 @@ export type HandoffOptions = {
   limit?: string;
   llm?: boolean;
   notify?: boolean;
+  as?: string;
 };
 
 type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
@@ -32,7 +34,11 @@ export async function handoffCommand(topic: string, opts: HandoffOptions = {}) {
   const changed = opts.fromPr ? await collectChangedFiles(opts.base ?? 'origin/main') : {};
   const outputPath = opts.out ? path.resolve(process.cwd(), opts.out) : path.resolve(workspaceRoot, defaultHandoffPath(topic));
 
-  const { summary, llmNotice } = await synthesizeHandoffSummary({ topic, repo: opts.repo, changed, pack }, config);
+  const policyText = await loadPolicyText(workspaceRoot);
+  const persona = opts.as ? await loadPersona(workspaceRoot, opts.as) : undefined;
+  const preamble = buildPromptPreamble(policyText, persona);
+
+  const { summary, llmNotice } = await synthesizeHandoffSummary({ topic, repo: opts.repo, changed, pack }, config, runAgentPrompt, preamble);
 
   await writeText(outputPath, buildHandoffMarkdown({
     topic,
@@ -51,13 +57,14 @@ export async function handoffCommand(topic: string, opts: HandoffOptions = {}) {
 export async function synthesizeHandoffSummary(
   input: { topic: string; repo?: string; changed: Record<string, string[]>; pack: ContextPack },
   config: CtxhubConfig,
-  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt
+  runAgentPromptFn: typeof runAgentPrompt = runAgentPrompt,
+  preamble = ''
 ): Promise<{ summary?: string; llmNotice?: string }> {
   if (!config.llm.enabled) {
     return { llmNotice: llmDisabledNotice('a synthesized handoff summary') };
   }
 
-  const prompt = buildHandoffSummaryPrompt(input);
+  const prompt = buildHandoffSummaryPrompt(input, preamble);
   const result = await runAgentPromptFn(config, prompt);
   if (!result.ok) {
     return { llmNotice: `Handoff summary synthesis was unavailable (${result.reason}); showing the structured bundle only.` };
@@ -67,7 +74,7 @@ export async function synthesizeHandoffSummary(
   return summary ? { summary } : {};
 }
 
-function buildHandoffSummaryPrompt(input: { topic: string; repo?: string; changed: Record<string, string[]>; pack: ContextPack }): string {
+function buildHandoffSummaryPrompt(input: { topic: string; repo?: string; changed: Record<string, string[]>; pack: ContextPack }, preamble = ''): string {
   const changedBlock = Object.entries(input.changed)
     .map(([repo, files]) => `${repo}: ${files.join(', ')}`)
     .join('\n');
@@ -76,7 +83,7 @@ function buildHandoffSummaryPrompt(input: { topic: string; repo?: string; change
     .map(item => `- ${item.repo}:${item.filePath}${item.title ? ` (${item.title})` : ''}`)
     .join('\n');
 
-  return [
+  return preamble + [
     `Topic: ${input.topic}${input.repo ? ` (scope: ${input.repo})` : ''}`,
     '',
     changedBlock ? `Changed files:\n${changedBlock}\n` : '',
