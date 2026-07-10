@@ -39,6 +39,7 @@ import { prContextCommand } from '../commands/prContext.js';
 import { watchCommand } from '../commands/watch.js';
 import { reportCommand } from '../commands/report.js';
 import { ciInitCommand } from '../commands/ci.js';
+import { resetCommand } from '../commands/reset.js';
 import { runGuidedMode } from '../commands/guided.js';
 import { checkForDriftOnce } from '../utils/driftCheck.js';
 import { getPackageVersion } from '../utils/version.js';
@@ -324,6 +325,16 @@ export function buildProgram(): Command {
       new Option('--fix-agent <name>', "With --fix, refresh one agent's MCP config").choices(SUPPORTED_AGENTS)
     )
     .action(doctorCommand);
+
+  program
+    .command('reset')
+    .description('Clear ctxhub state: registered workspaces, global data, or the local workspace index')
+    .option('--registry', 'Clear only ~/.ctxhub/registry.json (unregister all workspaces)')
+    .option('--global', 'Clear all of ~/.ctxhub/ (registry, service logs, captain history)')
+    .option('--local', 'Clear .ctxhub/ in the current workspace (index, cache, memory, config)')
+    .option('--all', 'Clear both global (~/.ctxhub/) and local (.ctxhub/) data')
+    .option('-f, --force', 'Skip confirmation prompt')
+    .action(resetCommand);
 
   program
     .command('mcp')

@@ -3,6 +3,62 @@
 How the pieces actually fit together. See [philosophy.md](./philosophy.md) for *why* they're
 shaped this way, and the main [README.md](../README.md) for the full command/flag reference.
 
+## System overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     User / Agent                        │
+└──────────────┬──────────────────────────┬──────────────┘
+               │ CLI commands              │ MCP tools
+               ▼                           ▼
+┌──────────────────────────────────────────────────────────┐
+│                   Commands layer                          │
+│  explain · review · handoff · pr-context · captain …     │
+└──────┬───────────────────┬──────────────────────┬────────┘
+       │                   │                       │
+       ▼                   ▼                       ▼
+┌─────────────┐   ┌─────────────────┐   ┌──────────────────┐
+│  Indexing   │   │   LLM layer     │   │   MCP server     │
+│  pipeline   │   │  runAgent.ts /  │   │  server.ts +     │
+│  LanceDB /  │   │  gateway        │   │  centralServer   │
+│  local-json │   │  adapters       │   │                  │
+└──────┬──────┘   └────────┬────────┘   └──────────────────┘
+       │                   │
+       ▼                   ▼
+┌──────────────────────────────────────────────────────────┐
+│                     Storage layer                         │
+│   LanceDB index · manifest · MemPalace · agent-notes/    │
+└──────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────────┐
+│               Control plane (optional)                    │
+│   Workspace Registry · Service · Fleet View               │
+│   Captains · Execution Profiles · Central MCP Gateway    │
+└──────────────────────────────────────────────────────────┘
+```
+
+## Key source files
+
+| Area | Key files | What they own |
+|---|---|---|
+| Config | `src/config/config.ts`, `types.ts` | Upward discovery, schema, execution profile types |
+| Indexing | `src/indexing/indexer.ts`, `chunk.ts`, `manifest.ts`, `redact.ts` | Pipeline, chunking, dedup, privacy |
+| Index providers | `LanceDbIndex.ts`, `LocalJsonIndex.ts` | Storage backends |
+| Freshness | `src/context/freshness.ts` | Stale/fresh flag per chunk |
+| Confidence | `src/context/confidence.ts` | Score computation (no LLM) |
+| LLM | `src/llm/runAgent.ts`, `harness.ts` | Headless agent invocation, capabilities table |
+| Gateway | `src/gateway/openaiCompatible.ts` | direct-api path (OpenRouter, Ollama, etc.) |
+| Memory | `src/memory/mempalaceCli.ts`, `LocalJsonMemory.ts` | MemPalace passthrough + fallback |
+| MCP | `src/mcp/server.ts`, `centralServer.ts`, `compact.ts` | Tool surface, central gateway, compaction |
+| Personas | `src/personas/persona.ts`, `src/commands/personas.ts` | Load, policy layer, compile to harnesses |
+| Review | `src/commands/review.ts` | Reviewer profile dispatch |
+| Report | `src/commands/report.ts` | Self-contained HTML report |
+| Control plane | `src/workspaces/registry.ts`, `src/service/server.ts`, `src/captains/` | Registry, HTTP service, Captains |
+| Execution profiles | `src/execution/executionProfile.ts` | Profile resolution, routing |
+
+---
+
 ## Config and workspace discovery
 
 `src/config/config.ts` walks upward from the current directory looking for `ctxhub.yaml` first,
@@ -20,43 +76,63 @@ dependency. Indexing is incremental (`src/indexing/manifest.ts` tracks per-file 
 files are skipped), and privacy-aware: environment files are excluded by default and common
 secret-like patterns are redacted before a chunk is stored (`config.privacy.redactPatterns`).
 
-`src/context/freshness.ts` compares a search result's indexed commit against the repo's actual
-current HEAD/dirty state, so a result can be flagged `stale` when the repo has moved on since it
-was indexed — this is a signal about the *index*, not a judgment about the content's truth.
+**Chunk types by file kind:**
 
-Each file's "prepare" step (read, hash, redact, chunk, optional LLM summary) runs concurrently
-across files (`index.concurrency`, default 8, via `src/utils/concurrency.ts`'s dependency-free
-`mapWithConcurrencyLimit()`) — this work is I/O/subprocess-bound, not CPU-bound, so real OS threads
-wouldn't help here the way concurrent async I/O does. The actual write to the index provider stays
-strictly sequential, one file at a time in original file order, since overlapping multi-step writes
-(remove-then-add, conditional full-text-index creation) isn't safe for every `IndexProvider` —
-`LocalJsonIndex`'s naive whole-file read-mutate-write in particular would silently lose writes under
-real concurrency.
+| File type | Chunking strategy |
+|---|---|
+| `.mmd` / `.mermaid` | Single architecture chunk; components and relationships extracted |
+| `.ts` / `.js` / `.tsx` / `.jsx` | Symbol-aware: whole top-level functions/classes via brace-matching heuristic |
+| Markdown | Split on headings |
+| Plain text / other | Paragraph-split |
+| Large files (> 2000 chars) | Optional LLM-generated summary chunk prepended (requires `llm.enabled`) |
+
+**Prepare phase runs concurrently; write phase is strictly sequential:**
+
+```
+File list
+   │
+   ├─ [concurrent, up to index.concurrency=8]
+   │     read → hash → redact → chunk → (optional LLM summary)
+   │
+   └─ [sequential, one file at a time]
+         remove old chunks → write new chunks → update manifest
+```
+
+This split matters: the prepare work is I/O/subprocess-bound so parallelism helps (~2.4× measured
+on 300 files); the write phase must stay sequential because `LocalJsonIndex` does a whole-file
+read-mutate-write that would silently corrupt under concurrent writes.
+
+`src/context/freshness.ts` compares a search result's indexed commit against the repo's actual
+current HEAD/dirty state, so a result can be flagged `stale` when the repo has moved on — this is
+a signal about the *index*, not a judgment about the content's truth.
 
 `ctxhub watch` reacts to real filesystem events (via [chokidar](https://github.com/paulmillr/chokidar))
 rather than only polling on a timer, debouncing a burst of changes into one re-index pass; `--interval`
-remains as a periodic fallback, not the primary trigger. `--detach` runs it as a real background
-process (PID file + logs under `.ctxhub/cache/watch.{pid,log}`, `--status`/`--stop` to manage it) —
-intentionally not an OS-level service (launchd/systemd), matching the project's bias toward not
-adding new infrastructure. `src/utils/notify.ts` provides opt-in (`--notify`) desktop notifications
-for commands that can take a while, by shelling out to the OS's own notifier — the same
-"reuse platform tools, no new dependency" pattern `report.ts`'s browser launch already uses.
+remains as a periodic fallback, not the primary trigger. `--detach` runs as a real background
+process (PID file + logs under `.ctxhub/cache/watch.{pid,log}`) — intentionally not an OS-level
+service (launchd/systemd), matching the project's bias toward not adding new infrastructure.
+`src/utils/notify.ts` provides opt-in (`--notify`) desktop notifications by shelling out to the
+OS's own notifier — the same "reuse platform tools, no new dependency" pattern `report.ts`'s
+browser launch already uses.
 
 ## Memory: two layers, one clear boundary
 
-ctxhub does not reimplement a memory engine. `src/memory/mempalaceCli.ts` shells out to MemPalace's
-real CLI/Python internals (`mempalace.searcher`, `mempalace.mcp_server`) for every durable-memory
-read and write; `src/memory/LocalJsonMemory.ts` is the dependency-free fallback when
-`memory.provider: local-json`. Team-shared notes are a separate, git-tracked path entirely
-(`src/commands/note.ts`, `<repo>/agent-notes/*.md`) — see
-[philosophy.md](./philosophy.md#the-index-is-a-read-only-mirror-memory-is-a-separate-writable-layer)
-for why these stay separate, and `ctxhub note promote` for the one explicit bridge between them.
+ctxhub does not reimplement a memory engine. Three distinct storage paths exist:
 
-A real bug worth knowing about if you touch this code: `mempalace.mcp_server`'s internal functions
-redirect stdout for MCP-protocol hygiene (since that module is designed to run as a stdio MCP
-server itself), so a JSON result can land on stderr instead, mixed with log noise.
-`extractJsonPayload()` in `mempalaceCli.ts` handles this by trying each stream wholesale first,
-then falling back to scanning every line of both streams for the last one that parses as JSON.
+| Path | Implementation | For |
+|---|---|---|
+| Durable memory (production) | `src/memory/mempalaceCli.ts` shells out to MemPalace's real Python internals | Personal/session notes, recalled across sessions |
+| Durable memory (fallback) | `src/memory/LocalJsonMemory.ts` — keyword search over a JSON store | Testing and offline use when MemPalace is unavailable |
+| Team-shared notes | `<repo>/agent-notes/*.md` — git-tracked Markdown files | Notes that should appear in a PR diff and be indexed alongside source |
+
+The index itself is read-only and never receives agent scratch notes. See
+[philosophy.md](./philosophy.md#the-index-is-a-read-only-mirror-memory-is-a-separate-writable-layer)
+for why. `ctxhub note promote` is the one explicit bridge from private memory to team notes.
+
+**Known gotcha if you touch `mempalaceCli.ts`:** `mempalace.mcp_server`'s internal functions
+redirect stdout for MCP-protocol hygiene, so a JSON result can land on stderr instead, mixed with
+log noise. `extractJsonPayload()` handles this by trying each stream wholesale first, then
+scanning every line of both streams for the last one that parses as JSON.
 
 ## MCP server
 
@@ -71,26 +147,54 @@ against an agent's context budget directly.
 ## LLM-backed features: one consistent pattern
 
 Every LLM-backed feature (`explain`, `pr-context`, `review`, `handoff`, draft note/diagram
-synthesis, and others) is built on the same primitive, `runAgentPrompt()` in `src/llm/runAgent.ts`:
-it shells out to whichever agent CLI (claude/codex/copilot/cursor) is configured or detected on
-`PATH`, with a bounded timeout, and returns a discriminated result
-(`{ ok: true, text } | { ok: false, reason, detail? }`). Callers turn that into a
-`{ data, llmNotice? }` shape: real output when it works, a clear notice plus a non-LLM fallback
-when it doesn't. `config.llm.enabled` (default `false`) is the single opt-in gate, checked before
-any of this runs.
+synthesis, and others) is built on the same primitive — `runAgentPrompt()` in `src/llm/runAgent.ts`:
 
-`src/llm/harness.ts`'s `AGENT_CAPABILITIES` table is the single source of truth for what each agent
-harness actually supports (MCP config writing, skill install, headless invocation) — three
-previously-independent lists (`agent.ts`, `skills.ts`, `runAgent.ts`) now derive from it.
+```
+config.llm.enabled?  →  No  →  return non-LLM fallback + notice
+        │
+       Yes
+        │
+        ▼
+shell out to agent CLI with bounded timeout
+        │
+   ┌────┴────┐
+  ok?      timeout / error
+   │            │
+   ▼            ▼
+{ ok: true,  { ok: false,
+  text }       reason, detail? }
+        │            │
+        └─────┬───────┘
+              ▼
+    caller shows real output or
+    non-LLM fallback + clear notice
+```
+
+`config.llm.enabled` (default `false`) is the single opt-in gate. The result is always a
+discriminated union — callers never catch exceptions for expected failures.
+
+`src/llm/harness.ts`'s `AGENT_CAPABILITIES` table is the single source of truth for what each
+agent harness supports — three previously-independent lists in `agent.ts`, `skills.ts`, and
+`runAgent.ts` all now derive from it:
+
+| Harness | MCP config write | Skills install | Headless invocation | Native subagents | Live verified |
+|---|---|---|---|---|---|
+| `claude` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `codex` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `copilot` | ✓ | ✓ | ✓ | ✓ | Partial |
+| `cursor` | ✗ | ✓ | ✓ | ✓ | Unverified |
 
 ## Review mode
 
-`src/commands/review.ts` (`ctxhub review <topic> --as <persona>`) dispatches to a reviewer profile
-loaded from `.ctxhub/cache/review-profiles.json` (auto-seeded with 5 built-ins on first run).
-A profile's `kind` decides how it's answered: `contract`/`docs` reuse `pr-context`'s
-`reviewContractRisks` and `graph --drift`'s `analyzeArchitectureDrift`/`suggestDriftRepairs`
-unmodified; `generic` is a freeform LLM persona defined entirely by its `focus` text, so a team
-adds a new reviewer by editing the profiles file, not by changing ctxhub's code.
+`src/commands/review.ts` dispatches to a reviewer profile loaded from
+`.ctxhub/cache/review-profiles.json` (auto-seeded with 5 built-ins on first run). A profile's
+`kind` decides how it's answered:
+
+| Kind | How it works | Add new one by… |
+|---|---|---|
+| `generic` | Freeform LLM persona over the diff/context-pack evidence, guided by `focus` text | Editing the JSON file — no code change |
+| `contract` | Reuses `pr-context`'s `reviewContractRisks` unmodified | N/A — only one `contract` persona makes sense |
+| `docs` | Reuses `graph --drift`'s `analyzeArchitectureDrift` + `suggestDriftRepairs` unmodified | N/A |
 
 ## Report, graph, and confidence scoring
 
@@ -135,19 +239,29 @@ frontmatter, confirmed live against the actual `claude` CLI), `.codex/agents/<pe
 (Codex's live verification surfaced a real caveat: the documented file format sits behind an
 under-development feature flag in the currently installed CLI build).
 
-## Workspace registry
+## Control plane
+
+The control plane is a set of layered phases, each building on the last. See
+[docs/control-plane.md](./control-plane.md) for the full phase-by-phase story.
+
+```
+Phase 1  Workspace Registry   ~/.ctxhub/registry.json  — pointer list, no merged indexes
+Phase 2  Control-plane service  127.0.0.1:7342  — health, workspaces, status endpoints
+Phase 3  Fleet view            GET /  — live HTML page fetching from the service
+Phase 4  Execution Profiles    ctxhub.yaml  — persona + harness + model bindings
+Phase 5  Central MCP Gateway   ctxhub mcp --central  — routes across registered workspaces
+Phase 6  Captains              ~/.ctxhub/captains.json  — scheduled tasks, approval queue
+Phase 7  Gateway adapters      src/gateway/  — direct-api (OpenRouter, Ollama, etc.)
+```
+
+### Workspace registry
 
 `src/workspaces/registry.ts` holds a user-level pointer list at `~/.ctxhub/registry.json`
-(`getCtxhubHome()`/`getRegistryPath()`, overridable via `CTXHUB_HOME` for test isolation) — Phase 1
-of the control-plane vision (see [docs/control-plane.md](./control-plane.md)). It's deliberately
-thin: `{ name, path, addedAt }` entries only. Each workspace continues to own its own
-config/index/memory/personas exactly as before; the registry never duplicates or reaches into any
-of that. `ctxhub workspace register` resolves the workspace root the same way every other command
-does (`loadWorkspaceConfig`'s existing upward config discovery), defaults the registered name to
-that workspace's own `config.workspace.name`, and is idempotent for an already-registered path
-(returns the existing entry rather than erroring). `ctxhub workspace list` reports, but never
-silently prunes, a workspace whose path no longer exists — the same "report, don't silently fix"
-bias `ctxhub doctor` already uses for anything destructive.
+(overridable via `CTXHUB_HOME`). It's deliberately thin — `{ name, path, addedAt }` entries only.
+Each workspace continues to own its own config/index/memory/personas; the registry never duplicates
+or reaches into any of that. `ctxhub workspace list` reports, but never silently prunes, a
+workspace whose path no longer exists — the same "report, don't silently fix" bias `ctxhub doctor`
+uses for anything destructive.
 
 ## Control-plane service
 
