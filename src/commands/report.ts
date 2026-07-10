@@ -6,12 +6,12 @@ import { createIndexProvider } from '../indexing/providers.js';
 import { attachFreshness } from '../context/freshness.js';
 import { writeText } from '../utils/fs.js';
 import type { SearchResult } from '../config/types.js';
-import { readMempalaceStatusSummary, type MempalaceStatusSummary } from '../memory/mempalaceCli.js';
+import { readMempalaceStatusSummary, searchMempalace, timelineMempalace } from '../memory/mempalaceCli.js';
 
 const RECENT_LIMIT = 40;
 
 type ReportItem = {
-  section: 'architecture' | 'recent' | 'memory';
+  section: 'architecture' | 'recent' | 'memory' | 'memory-hit';
   repo: string;
   path: string;
   title: string;
@@ -26,7 +26,7 @@ type ReportItem = {
 type ReportGraphNode = {
   id: string;
   label: string;
-  type: 'repo' | 'file' | 'component' | 'memory-wing' | 'memory-room';
+  type: 'repo' | 'file' | 'component' | 'memory-wing' | 'memory-room' | 'memory-hit';
   repo?: string;
   path?: string;
   title?: string;
@@ -37,7 +37,7 @@ type ReportGraphNode = {
 type ReportGraphEdge = {
   source: string;
   target: string;
-  type: 'contains' | 'documents' | 'depends-on' | 'memory-contains';
+  type: 'contains' | 'documents' | 'depends-on' | 'memory-contains' | 'memory-match';
 };
 
 type ReportGraph = {
@@ -52,18 +52,52 @@ type ReportMempalaceSummary = {
   items: ReportItem[];
 };
 
+type ReportTimelineEvent = {
+  label: string;
+  detail: string;
+};
+
+type ReportTimeline = {
+  note: string;
+  events: ReportTimelineEvent[];
+};
+
 export async function reportCommand(
-  opts: { output?: string; open?: boolean; plain?: boolean; interactive?: boolean } = {},
-  deps: { readMempalaceSummary?: typeof readMempalaceSummary } = {}
+  opts: {
+    output?: string;
+    open?: boolean;
+    plain?: boolean;
+    interactive?: boolean;
+    memoryQuery?: string;
+    memoryWing?: string;
+    memoryRoom?: string;
+    memoryLimit?: string;
+    timelineEntity?: string;
+    timelineLimit?: string;
+  } = {},
+  deps: {
+    readMempalaceSummary?: typeof readMempalaceSummary;
+    searchMempalaceFn?: typeof searchMempalace;
+    timelineMempalaceFn?: typeof timelineMempalace;
+  } = {}
 ) {
   const cwd = process.cwd();
   const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
-  const [status, diagramResults, recentDocs, memory] = await Promise.all([
+  const [status, diagramResults, recentDocs, memory, memoryHits, timeline] = await Promise.all([
     index.status(),
     index.search('architecture diagram mermaid', 100),
     index.recent(RECENT_LIMIT),
-    (deps.readMempalaceSummary ?? readMempalaceSummary)(config)
+    (deps.readMempalaceSummary ?? readMempalaceSummary)(config),
+    opts.memoryQuery
+      ? (deps.searchMempalaceFn ?? searchMempalace)(config, workspaceRoot, {
+          query: opts.memoryQuery,
+          wing: opts.memoryWing,
+          room: opts.memoryRoom,
+          limit: Number(opts.memoryLimit ?? 8)
+        })
+      : Promise.resolve(undefined),
+    (deps.timelineMempalaceFn ?? timelineMempalace)(config, workspaceRoot, { entity: opts.timelineEntity })
   ]);
 
   const architecture = diagramResults.filter(result => result.kind === 'architecture-diagram');
@@ -98,9 +132,11 @@ export async function reportCommand(
       lastIndexed: item.lastIndexed,
       stale: Boolean(item.freshness?.stale)
     })),
-    ...memory.items
+    ...memory.items,
+    ...reportMemorySearchItems(memoryHits)
   ];
   const graph = buildReportGraphData(config.repositories.map(repo => ({ name: repo.name, path: repo.path })), items);
+  const reportTimeline = buildReportTimeline(timeline, Number(opts.timelineLimit ?? 40), opts.timelineEntity);
 
   await writeText(output, `<!doctype html>
 <html>
@@ -142,10 +178,14 @@ export async function reportCommand(
   .graph-node.component{fill:#d97706}
   .graph-node.memory-wing{fill:#be185d}
   .graph-node.memory-room{fill:#7c3aed}
+  .graph-node.memory-hit{fill:#ea580c}
   .graph-node.stale{stroke:#e0a800;stroke-width:4}
   .graph-node.selected{stroke:#111827;stroke-width:4}
   .graph-label{font-size:11px;fill:#111827;pointer-events:none}
   .graph-empty{color:#666;font-size:.9rem}
+  .timeline-list{list-style:none;padding:0;margin:0}
+  .timeline-item{border-left:3px solid #cbd5e1;padding:.65rem .85rem;margin:0 0 .75rem .35rem;background:#fff;border-radius:0 8px 8px 0}
+  .timeline-item .meta{color:#666;font-size:.85rem;margin-bottom:.2rem}
   @media (prefers-color-scheme: dark) {
     body{background:#1a1a1a;color:#eee}
     code,pre{background:#2a2a2a}
@@ -164,6 +204,8 @@ export async function reportCommand(
     .graph-edge.depends-on{stroke:#939eaa}
     .graph-edge.documents{stroke:#6ea8fe}
     .graph-label{fill:#e5e7eb}
+    .timeline-item{background:#20242b;border-left-color:#475569}
+    .timeline-item .meta{color:#aaa}
   }
   @media (max-width: 980px) {
     .graph-layout{grid-template-columns:1fr}
@@ -192,15 +234,17 @@ export async function reportCommand(
 <div class="toolbar">
   <button id="list-view-button" class="active" type="button">List</button>
   <button id="graph-view-button" type="button">Graph</button>
+  <button id="timeline-view-button" type="button">Timeline</button>
   <div class="graph-legend">
     <span class="legend"><span class="swatch" style="background:#0f766e"></span>Repo</span>
     <span class="legend"><span class="swatch" style="background:#2563eb"></span>File</span>
     <span class="legend"><span class="swatch" style="background:#d97706"></span>Component</span>
     <span class="legend"><span class="swatch" style="background:#be185d"></span>Memory wing</span>
     <span class="legend"><span class="swatch" style="background:#7c3aed"></span>Memory room</span>
+    <span class="legend"><span class="swatch" style="background:#ea580c"></span>Memory hit</span>
   </div>
 </div>
-<p class="meta"><span id="count"></span> — architecture diagrams, MemPalace wing/room summaries, and the ${RECENT_LIMIT} most recently indexed chunks. Items outlined in orange have drifted from their repo's current HEAD.</p>
+<p class="meta"><span id="count"></span> — architecture diagrams, MemPalace wing/room summaries, optional memory search hits, and the ${RECENT_LIMIT} most recently indexed chunks. Items outlined in orange have drifted from their repo's current HEAD.</p>
 <section id="list-view" class="view active">
   <ul id="items"></ul>
 </section>
@@ -220,24 +264,37 @@ export async function reportCommand(
     </aside>
   </div>
 </section>
+<section id="timeline-view" class="view">
+  <div class="panel">
+    <h3>MemPalace timeline</h3>
+    <p class="meta" id="timeline-note"></p>
+    <ul id="timeline-items" class="timeline-list"></ul>
+  </div>
+</section>
 
 <script id="ctxhub-report-data" type="application/json">${JSON.stringify(items).replaceAll('</', '<\\/')}</script>
 <script id="ctxhub-report-graph" type="application/json">${JSON.stringify(graph).replaceAll('</', '<\/')}</script>
+<script id="ctxhub-report-timeline" type="application/json">${JSON.stringify(reportTimeline).replaceAll('</', '<\/')}</script>
 <script>
 (function () {
   var items = JSON.parse(document.getElementById('ctxhub-report-data').textContent);
   var graph = JSON.parse(document.getElementById('ctxhub-report-graph').textContent);
+  var timeline = JSON.parse(document.getElementById('ctxhub-report-timeline').textContent);
   var list = document.getElementById('items');
   var count = document.getElementById('count');
   var graphCount = document.getElementById('graph-count');
   var filter = document.getElementById('filter');
   var listView = document.getElementById('list-view');
   var graphView = document.getElementById('graph-view');
+  var timelineView = document.getElementById('timeline-view');
   var listViewButton = document.getElementById('list-view-button');
   var graphViewButton = document.getElementById('graph-view-button');
+  var timelineViewButton = document.getElementById('timeline-view-button');
   var graphSvg = document.getElementById('graph');
   var graphPanel = document.getElementById('graph-panel');
   var graphEmpty = document.getElementById('graph-empty');
+  var timelineNote = document.getElementById('timeline-note');
+  var timelineItems = document.getElementById('timeline-items');
   var selectedNodeId = null;
   var svgNs = 'http://www.w3.org/2000/svg';
   var graphElements = buildGraphElements(graph);
@@ -268,6 +325,7 @@ export async function reportCommand(
       .join('');
     count.textContent = shown + ' of ' + items.length + ' item(s)';
     renderGraph(q);
+    renderTimeline(q);
   }
 
   function buildGraphElements(graphData) {
@@ -278,11 +336,17 @@ export async function reportCommand(
     var repos = graphData.nodes.filter(function (node) { return node.type === 'repo'; });
     var files = graphData.nodes.filter(function (node) { return node.type === 'file'; });
     var components = graphData.nodes.filter(function (node) { return node.type === 'component'; });
+    var memoryWings = graphData.nodes.filter(function (node) { return node.type === 'memory-wing'; });
+    var memoryRooms = graphData.nodes.filter(function (node) { return node.type === 'memory-room'; });
+    var memoryHits = graphData.nodes.filter(function (node) { return node.type === 'memory-hit'; });
     var positions = {};
 
     positionRing(repos, 120, 0);
     positionRing(files, Math.min(280, 180 + files.length * 4), Math.PI / 12);
     positionRing(components, Math.min(390, 310 + components.length * 3), Math.PI / 6);
+    positionRing(memoryWings, 220, Math.PI / 8);
+    positionRing(memoryRooms, Math.min(500, 380 + memoryRooms.length * 4), Math.PI / 4);
+    positionRing(memoryHits, Math.min(620, 470 + memoryHits.length * 4), Math.PI / 3);
 
     function positionRing(nodes, radius, offset) {
       if (!nodes.length) return;
@@ -360,6 +424,28 @@ export async function reportCommand(
     updateSelection();
   }
 
+  function renderTimeline(query) {
+    var q = (query || '').toLowerCase();
+    timelineNote.textContent = timeline.note;
+    var shown = 0;
+    timelineItems.innerHTML = timeline.events
+      .filter(function (event) {
+        if (!q) return true;
+        return (event.label + ' ' + event.detail).toLowerCase().indexOf(q) !== -1;
+      })
+      .map(function (event) {
+        shown++;
+        return '<li class="timeline-item">' +
+          '<div class="meta">' + escapeHtml(event.label) + '<\/div>' +
+          '<div>' + escapeHtml(event.detail) + '<\/div>' +
+          '<\/li>';
+      })
+      .join('');
+    if (!shown) {
+      timelineItems.innerHTML = '<li class="timeline-item"><div>No timeline events match the current filter.<\/div><\/li>';
+    }
+  }
+
   function updateSelection() {
     var selected = graphElements.nodes.find(function (entry) { return entry.data.id === selectedNodeId; });
     graphElements.nodes.forEach(function (entry) {
@@ -391,15 +477,20 @@ export async function reportCommand(
 
   function activateView(view) {
     var listActive = view === 'list';
+    var graphActive = view === 'graph';
+    var timelineActive = view === 'timeline';
     listView.classList.toggle('active', listActive);
-    graphView.classList.toggle('active', !listActive);
+    graphView.classList.toggle('active', graphActive);
+    timelineView.classList.toggle('active', timelineActive);
     listViewButton.classList.toggle('active', listActive);
-    graphViewButton.classList.toggle('active', !listActive);
+    graphViewButton.classList.toggle('active', graphActive);
+    timelineViewButton.classList.toggle('active', timelineActive);
   }
 
   filter.addEventListener('input', function () { render(filter.value); });
   listViewButton.addEventListener('click', function () { activateView('list'); });
   graphViewButton.addEventListener('click', function () { activateView('graph'); });
+  timelineViewButton.addEventListener('click', function () { activateView('timeline'); });
   render('');
 })();
 </script>
@@ -469,6 +560,32 @@ export function buildReportGraphData(
         });
       }
       addEdge(edges, { source: wingId, target: roomId, type: 'memory-contains' });
+      continue;
+    }
+
+    if (item.section === 'memory-hit') {
+      const wingId = `memory-wing:${item.repo}`;
+      const roomId = `memory-room:${item.repo}:${item.path}`;
+      const hitId = `memory-hit:${item.repo}:${item.path}:${item.title}`;
+      if (!nodes.has(wingId)) {
+        nodes.set(wingId, { id: wingId, label: item.repo, type: 'memory-wing', repo: item.repo, title: `MemPalace wing ${item.repo}` });
+      }
+      if (!nodes.has(roomId)) {
+        nodes.set(roomId, { id: roomId, label: item.path, type: 'memory-room', repo: item.repo, path: item.path, title: `${item.repo} / ${item.path}` });
+      }
+      if (!nodes.has(hitId)) {
+        nodes.set(hitId, {
+          id: hitId,
+          label: item.title,
+          type: 'memory-hit',
+          repo: item.repo,
+          path: item.path,
+          title: item.title,
+          snippet: item.snippet
+        });
+      }
+      addEdge(edges, { source: wingId, target: roomId, type: 'memory-contains' });
+      addEdge(edges, { source: roomId, target: hitId, type: 'memory-match' });
       continue;
     }
 
@@ -543,4 +660,40 @@ export async function readMempalaceSummary(config: Parameters<typeof readMempala
       count: item.count
     }))
   };
+}
+
+function reportMemorySearchItems(memoryHits: Awaited<ReturnType<typeof searchMempalace>> | undefined): ReportItem[] {
+  if (!memoryHits || memoryHits.error) return [];
+  return memoryHits.results.map(hit => ({
+    section: 'memory-hit',
+    repo: hit.wing,
+    path: hit.room,
+    title: hit.source_file ?? `${hit.wing} memory`,
+    snippet: hit.text.replace(/\s+/g, ' ').trim().slice(0, 280),
+    stale: false
+  }));
+}
+
+function buildReportTimeline(
+  timeline: Awaited<ReturnType<typeof timelineMempalace>>,
+  limit: number,
+  entity?: string
+): ReportTimeline {
+  if (timeline.error) {
+    return { note: timeline.error, events: [] };
+  }
+
+  const events = (timeline.timeline ?? []).slice(0, limit).map(event => {
+    if (event && typeof event === 'object') {
+      const value = event as Record<string, unknown>;
+      const label = [value.valid_from, value.subject, value.predicate, value.object].filter(Boolean).join(' · ') || 'Timeline event';
+      return { label, detail: JSON.stringify(value) };
+    }
+    return { label: 'Timeline event', detail: String(event) };
+  });
+
+  const scope = entity ? `entity ${entity}` : 'all entities';
+  const total = timeline.count ?? events.length;
+  const note = `${total} timeline event(s) for ${scope}${total > limit ? `; showing first ${limit}` : ''}`;
+  return { note, events };
 }

@@ -63,8 +63,12 @@ test('reportCommand writes an HTML report with status, repos, architecture, and 
     await indexWorkspace(cwd);
     const output = path.join(cwd, 'report.html');
     const lines = await captureLog(() => reportCommand(
-      { output },
-      { readMempalaceSummary: async () => ({ available: true, totalDrawers: 3, note: '3 drawers across 2 room(s)', items: [{ section: 'memory', repo: 'app', path: 'decisions', title: 'app / decisions', snippet: '2 drawers in MemPalace', stale: false, count: 2 }] }) }
+      { output, memoryQuery: 'graphql', memoryWing: 'app', memoryRoom: 'decisions', timelineEntity: 'graphql', timelineLimit: '10' },
+      {
+        readMempalaceSummary: async () => ({ available: true, totalDrawers: 3, note: '3 drawers across 2 room(s)', items: [{ section: 'memory', repo: 'app', path: 'decisions', title: 'app / decisions', snippet: '2 drawers in MemPalace', stale: false, count: 2 }] }),
+        searchMempalaceFn: async () => ({ query: 'graphql', results: [{ wing: 'app', room: 'decisions', source_file: 'notes.md', text: 'GraphQL decision memory hit' }] }),
+        timelineMempalaceFn: async () => ({ entity: 'graphql', count: 1, timeline: [{ subject: 'api', predicate: 'uses', object: 'graphql', valid_from: '2026-01-01' }] })
+      }
     ));
 
     const html = await readText(output);
@@ -73,8 +77,12 @@ test('reportCommand writes an HTML report with status, repos, architecture, and 
     assert.match(html, /"section":"architecture"/);
     assert.match(html, /"section":"recent"/);
     assert.match(html, /"section":"memory"/);
+    assert.match(html, /"section":"memory-hit"/);
     assert.match(html, /3 drawers across 2 room\(s\)/);
+    assert.match(html, /GraphQL decision memory hit/);
+    assert.match(html, /MemPalace timeline/);
     assert.match(html, /id="graph"/, 'should include the graph svg container');
+    assert.match(html, /id="timeline-view"/, 'should include the timeline view');
     assert.match(html, /ctxhub-report-graph/, 'should include graph JSON payload');
     assert.match(html, /id="filter"/, 'should include the client-side filter input');
     assert.ok(lines.some(line => line.includes('Wrote report:')));
@@ -104,6 +112,14 @@ test('buildReportGraphData links repos to files and architecture components', ()
         snippet: '2 drawers in MemPalace',
         stale: false,
         count: 2
+      },
+      {
+        section: 'memory-hit',
+        repo: 'app',
+        path: 'decisions',
+        title: 'notes.md',
+        snippet: 'GraphQL decision memory hit',
+        stale: false
       }
     ]
   );
@@ -113,10 +129,12 @@ test('buildReportGraphData links repos to files and architecture components', ()
   assert.ok(graph.nodes.some(node => node.id === 'component:app' && node.type === 'component'));
   assert.ok(graph.nodes.some(node => node.id === 'memory-wing:app' && node.type === 'memory-wing'));
   assert.ok(graph.nodes.some(node => node.id === 'memory-room:app:decisions' && node.type === 'memory-room'));
+  assert.ok(graph.nodes.some(node => node.id === 'memory-hit:app:decisions:notes.md' && node.type === 'memory-hit'));
   assert.ok(graph.edges.some(edge => edge.source === 'repo:app' && edge.target === 'file:app:architecture.mmd' && edge.type === 'contains'));
   assert.ok(graph.edges.some(edge => edge.source === 'file:app:architecture.mmd' && edge.target === 'component:db' && edge.type === 'documents'));
   assert.ok(graph.edges.some(edge => edge.source === 'component:app' && edge.target === 'component:db' && edge.type === 'depends-on'));
   assert.ok(graph.edges.some(edge => edge.source === 'memory-wing:app' && edge.target === 'memory-room:app:decisions' && edge.type === 'memory-contains'));
+  assert.ok(graph.edges.some(edge => edge.source === 'memory-room:app:decisions' && edge.target === 'memory-hit:app:decisions:notes.md' && edge.type === 'memory-match'));
 });
 
 test('parseMempalaceStatus extracts wing and room counts into report items', () => {
