@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendSuggestedEvalCases, evaluateAgentSuite, evaluateSuite, renderAgentEvalMarkdown, renderEvalMarkdown, suggestEvalQueries } from './eval.js';
+import { appendSuggestedEvalCases, evaluateAgentSuite, evaluateSuite, HEALTH_EVAL_SUITE, renderAgentEvalMarkdown, renderEvalMarkdown, suggestEvalQueries } from './eval.js';
 import { defaultConfig } from '../config/defaultConfig.js';
 import type { CtxhubConfig, SearchResult } from '../config/types.js';
 import type { RunAgentResult } from '../llm/runAgent.js';
@@ -206,6 +206,41 @@ test('suggestEvalQueries applies a configured policy block once a team opts in, 
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test('HEALTH_EVAL_SUITE has 5 cases, each with at least one open-ended expected', () => {
+  assert.equal(HEALTH_EVAL_SUITE.cases.length, 5);
+  for (const testCase of HEALTH_EVAL_SUITE.cases) {
+    assert.ok(testCase.query.length > 0, 'each case must have a non-empty query');
+    assert.ok(testCase.expected.length > 0, 'each case must have at least one expected entry');
+    // Open-ended expectations (no repo/path) pass as long as any result is returned
+    assert.ok(testCase.expected.every(e => !e.repo && !e.path), `case "${testCase.query}" should use open-ended expectations`);
+  }
+});
+
+test('health eval passes when every query returns at least one result', async () => {
+  const run = await evaluateSuite(
+    HEALTH_EVAL_SUITE,
+    async () => [result('api', 'README.md', 1)],
+    'builtin:health'
+  );
+  assert.equal(run.summary.passed, HEALTH_EVAL_SUITE.cases.length);
+  assert.equal(run.summary.failed, 0);
+});
+
+test('health eval fails when a query returns no results', async () => {
+  let callCount = 0;
+  const run = await evaluateSuite(
+    HEALTH_EVAL_SUITE,
+    async () => {
+      callCount++;
+      // Return no results for the third query only
+      return callCount === 3 ? [] : [result('api', 'README.md', 1)];
+    },
+    'builtin:health'
+  );
+  assert.equal(run.summary.failed, 1);
+  assert.equal(run.summary.passed, HEALTH_EVAL_SUITE.cases.length - 1);
 });
 
 test('appendSuggestedEvalCases appends only new queries and leaves existing ones intact', () => {

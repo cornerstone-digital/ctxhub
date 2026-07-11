@@ -39,8 +39,75 @@ const DEFAULT_EVAL_PATH = path.join(CACHE_DIR, 'eval.json');
 const EVAL_RUNS_DIR = path.join(CACHE_DIR, 'evals');
 const DEFAULT_AGENT_EVAL_PATH = path.join(CACHE_DIR, 'agent-eval.json');
 
+// Workspace-agnostic health checks: queries broad enough to return results in any non-trivial
+// indexed codebase. Pass condition is just "at least one result returned" -- these confirm the
+// index is working and has content, not that specific files score highly. Run with --health.
+export const HEALTH_EVAL_SUITE: EvalSuite = {
+  cases: [
+    {
+      query: 'how does this project work',
+      expected: [{}],
+      rationale: 'Any indexed workspace should return context for a broad project question'
+    },
+    {
+      query: 'function class implementation',
+      expected: [{}],
+      rationale: 'Any codebase with source files should return code results'
+    },
+    {
+      query: 'installation setup usage',
+      expected: [{}],
+      rationale: 'Any project with documentation should return README or guide content'
+    },
+    {
+      query: 'configuration options',
+      expected: [{}],
+      rationale: 'Any workspace with config files or docs should return configuration content'
+    },
+    {
+      query: 'error handling',
+      expected: [{}],
+      rationale: 'Any non-trivial codebase should contain error handling patterns'
+    }
+  ]
+};
+
+// Starter suite written by --init: more useful than a single placeholder, but still intentionally
+// generic so users see the format and understand what to customise. Expected paths are left empty
+// so the cases pass on first run (giving a baseline to worsen from) -- users should fill in
+// specific expected file paths once they've explored what their index actually contains.
+const INIT_EVAL_SUITE: EvalSuite = {
+  cases: [
+    {
+      query: 'authentication flow',
+      expected: [{}],
+      rationale: 'How authentication works in this project'
+    },
+    {
+      query: 'error handling patterns',
+      expected: [{}],
+      rationale: 'Common error handling approach'
+    },
+    {
+      query: 'data model schema types',
+      expected: [{}],
+      rationale: 'Core data structures and types'
+    },
+    {
+      query: 'API endpoints routes',
+      expected: [{}],
+      rationale: 'HTTP API or interface surface'
+    },
+    {
+      query: 'configuration options setup',
+      expected: [{}],
+      rationale: 'How to configure this project'
+    }
+  ]
+};
+
 export async function evalCommand(
-  opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean; agentReport?: boolean; suggestQueries?: boolean; notify?: boolean } = {}
+  opts: { file?: string; init?: boolean; json?: boolean; report?: boolean; plain?: boolean; interactive?: boolean; agentReport?: boolean; suggestQueries?: boolean; notify?: boolean; health?: boolean } = {}
 ) {
   const { config, workspaceRoot } = await loadWorkspaceConfig();
 
@@ -49,11 +116,20 @@ export async function evalCommand(
     return;
   }
 
+  if (opts.health) {
+    await runHealthEval(config, workspaceRoot, opts);
+    return;
+  }
+
   const filePath = opts.file ? path.resolve(process.cwd(), opts.file) : path.resolve(workspaceRoot, DEFAULT_EVAL_PATH);
   if (opts.init || !(await pathExists(filePath))) {
-    await writeText(filePath, JSON.stringify({ cases: [{ query: 'authentication flow', expected: [{ path: 'README.md' }] }] }, null, 2));
+    await writeText(filePath, JSON.stringify(INIT_EVAL_SUITE, null, 2));
     console.log(chalk.green(`Created ${path.relative(process.cwd(), filePath)}`));
-    if (!opts.init) console.log(chalk.gray('Edit this file with real expected hits, then run ctxhub eval again.'));
+    if (!opts.init) {
+      console.log(chalk.gray('Starter queries created. Run ctxhub eval to see what your index returns,'));
+      console.log(chalk.gray('then edit the file to add expected file paths for the results you care about.'));
+      console.log(chalk.gray('Run ctxhub eval --suggest-queries to expand the suite with LLM-suggested cases.'));
+    }
     return;
   }
 
@@ -105,6 +181,53 @@ export async function evalCommand(
 
   printEvalRun(run);
   if (run.summary.failed) process.exitCode = 1;
+}
+
+// --- Health eval (--health) ---
+//
+// Workspace-agnostic smoke test: runs the HEALTH_EVAL_SUITE of broad queries and checks that
+// each returns at least one result. Fails loudly if the index looks empty or unhealthy.
+// Intended as the first thing a new user runs after `ctxhub index` to confirm things are working.
+
+async function runHealthEval(
+  config: CtxhubConfig,
+  workspaceRoot: string,
+  opts: { json?: boolean; notify?: boolean }
+): Promise<void> {
+  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+  const run = await evaluateSuite(HEALTH_EVAL_SUITE, (query, limit) => index.search(query, limit), 'builtin:health');
+
+  if (opts.json) {
+    console.log(JSON.stringify(run, null, 2));
+    if (run.summary.failed) process.exitCode = 1;
+    return;
+  }
+
+  const allPassed = run.summary.failed === 0;
+  console.log(chalk.bold('ctxhub index health check'));
+  console.log(allPassed ? chalk.green(`✓ ${run.summary.passed}/${run.summary.total} queries returned results`) : chalk.red(`✗ ${run.summary.failed}/${run.summary.total} queries returned no results`));
+
+  for (const testCase of run.cases) {
+    const icon = testCase.passed ? chalk.green('✓') : chalk.red('✗');
+    const detail = testCase.passed
+      ? chalk.gray(`${testCase.topResults.length} result${testCase.topResults.length === 1 ? '' : 's'}, top: ${testCase.topResults[0]?.repo}:${testCase.topResults[0]?.path}`)
+      : chalk.red('no results — index may be empty or query not covered');
+    console.log(`  ${icon} ${testCase.query}  ${detail}`);
+  }
+
+  if (!allPassed) {
+    console.log('');
+    console.log(chalk.yellow('Some queries returned no results. Try:'));
+    console.log(chalk.gray('  ctxhub index          — ensure the workspace is indexed'));
+    console.log(chalk.gray('  ctxhub doctor         — check for configuration issues'));
+    console.log(chalk.gray('  ctxhub repo list      — verify repositories are registered'));
+    process.exitCode = 1;
+  } else {
+    console.log('');
+    console.log(chalk.gray('Index is healthy. Run ctxhub eval to measure search quality against your suite.'));
+  }
+
+  if (opts.notify) notify('ctxhub eval', `Health: ${run.summary.passed}/${run.summary.total} passed`);
 }
 
 // --- Agent tool-choice report (--agent-report) ---

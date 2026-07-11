@@ -566,6 +566,7 @@ export function buildProgram(): Command {
     .command('eval')
     .option('--file <path>', 'Eval suite JSON path')
     .option('--init', 'Create a starter eval suite')
+    .option('--health', 'Run built-in workspace-agnostic health checks (5 broad queries; confirms the index is working)')
     .option('--suggest-queries', 'Ask the configured agent CLI for additional golden queries and append them to the eval suite for review')
     .option('--json', 'Print JSON')
     .option('--report', 'Write a Markdown eval report under .ctxhub/cache/evals/')
@@ -573,7 +574,7 @@ export function buildProgram(): Command {
     .option('--no-interactive', 'Disable interactive terminal summaries')
     .option('--agent-report', 'Check whether an agent reaches for the tool ctxhub\'s skill docs recommend (requires llm.enabled)')
     .option('--notify', 'Send a desktop notification when an LLM-backed eval mode (--agent-report/--suggest-queries) finishes')
-    .description('Run golden query checks against the workspace index')
+    .description('Run golden query checks against the workspace index. Use --health for a quick index smoke test.')
     .action(evalCommand);
 
   const validate = program.command('validate').description('Validate indexed docs and architecture artifacts');

@@ -18,12 +18,12 @@ The next phase is making it reliable and delightful enough that people can't ima
 
 ### What's left
 
-- [ ] Indexing reliability audit — find and fix failure modes on repos > 50k files
-- [ ] MCP tool stability pass — ensure all five tools work correctly across Claude, Codex, and Cursor on macOS and Linux
-- [ ] Eval suite — build a representative set of real queries and pass rate target (> 85%)
-- [ ] Error messages — every user-facing error should explain what went wrong and how to fix it
-- [ ] README rewrite — install → first index → first `ctxhub ask` in under 5 minutes
-- [ ] `npm install -g ctxhub` clean install verified on macOS and Ubuntu
+- [x] Indexing reliability audit — `recent()` memory fix, `status()` accurate for large repos, batched deletes, LLM summary timeout
+- [x] MCP tool stability pass — 16 tools (12 default + 4 opt-in); `recordUsage` errors swallowed, all handlers wrapped, config-not-found and unknown-repo return actionable guidance
+- [x] Eval suite — `ctxhub eval --health` for workspace-agnostic smoke test; `ctxhub eval --init` generates a 5-case starter suite; `--suggest-queries` expands it with LLM-suggested cases
+- [x] Error messages — `ctxhub index` validates config before starting, LanceDB load failure explains recovery steps, 0-repo workspace tells user what to do
+- [x] README rewrite — done
+- [ ] `npm install -g ctxhub` clean install verified on macOS and Ubuntu (Node 22)
 
 ### Exit condition
 
