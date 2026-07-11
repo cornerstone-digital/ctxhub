@@ -24,7 +24,7 @@ type ContextPack = Awaited<ReturnType<typeof createContextPack>>;
 export type ReviewerProfile = { name: string; kind: 'contract' | 'docs' | 'generic'; focus?: string; persona?: string };
 export type ReviewerProfileSuite = { profiles: ReviewerProfile[] };
 
-const DEFAULT_REVIEW_PROFILES_PATH = path.join(CACHE_DIR, 'review-profiles.json');
+export const DEFAULT_REVIEW_PROFILES_PATH = path.join(CACHE_DIR, 'review-profiles.json');
 
 // The exact 5 built-in personas from #27, now expressed as data instead of a hardcoded switch --
 // #28's acceptance criteria requires built-ins to use the same profile shape as anything a team
@@ -70,39 +70,48 @@ export type ReviewOptions = {
   notify?: boolean;
 };
 
-export async function reviewCommand(topic: string, opts: ReviewOptions) {
-  const { config: loadedConfig, workspaceRoot } = await loadWorkspaceConfig();
+export type ReviewResult = {
+  topic: string;
+  persona: string;
+  changed: Map<string, string[]>;
+  contextPack: ContextPack;
+  findings: string[];
+  llmNotice?: string;
+};
+
+// Extracted from reviewCommand so the Mission Control UI's review screen can reuse the exact same
+// evidence-gathering/persona logic the CLI does -- `cwd` defaults to process.cwd() for the CLI
+// path but the HTTP handler passes an explicit registered workspace path, same pattern as
+// createExplainResult/createContextPack.
+export async function createReviewResult(topic: string, opts: ReviewOptions, cwd = process.cwd()): Promise<ReviewResult> {
+  const { config: loadedConfig, workspaceRoot } = await loadWorkspaceConfig(cwd);
   const config: CtxhubConfig = opts.llm === undefined ? loadedConfig : { ...loadedConfig, llm: { ...loadedConfig.llm, enabled: opts.llm } };
   const base = opts.base ?? 'origin/main';
-  const pack = await createContextPack(topic, Number(opts.limit ?? 8));
+  const pack = await createContextPack(topic, Number(opts.limit ?? 8), cwd);
 
-  const profilesPath = opts.profiles ? path.resolve(process.cwd(), opts.profiles) : path.resolve(workspaceRoot, DEFAULT_REVIEW_PROFILES_PATH);
+  const profilesPath = opts.profiles ? path.resolve(cwd, opts.profiles) : path.resolve(workspaceRoot, DEFAULT_REVIEW_PROFILES_PATH);
   const suite = await loadReviewerProfiles(profilesPath);
   const profile = suite.profiles.find(candidate => candidate.name === opts.as);
   if (!profile) {
     const available = suite.profiles.map(candidate => candidate.name).join(', ');
-    throw new Error(`Unknown review persona: ${opts.as}. Available personas: ${available} (edit ${path.relative(process.cwd(), profilesPath)} to add more).`);
+    throw new Error(`Unknown review persona: ${opts.as}. Available personas: ${available} (edit ${path.relative(cwd, profilesPath)} to add more).`);
   }
 
   const { changed, findings, llmNotice } = await gatherPersonaFindings(profile, topic, config, workspaceRoot, base, pack);
+  return { topic, persona: profile.name, changed, contextPack: pack, findings, ...(llmNotice ? { llmNotice } : {}) };
+}
 
-  if (opts.notify) notify('ctxhub review', `${profile.name}: ${findings.length} finding(s) for ${topic}`);
+export async function reviewCommand(topic: string, opts: ReviewOptions) {
+  const { changed, findings, llmNotice, persona, contextPack: pack } = await createReviewResult(topic, opts);
 
-  const payload = {
-    topic,
-    persona: profile.name,
-    changed: Object.fromEntries(changed),
-    contextPack: pack,
-    findings,
-    ...(llmNotice ? { llmNotice } : {})
-  };
+  if (opts.notify) notify('ctxhub review', `${persona}: ${findings.length} finding(s) for ${topic}`);
 
   if (opts.json) {
-    console.log(JSON.stringify(payload, null, 2));
+    console.log(JSON.stringify({ topic, persona, changed: Object.fromEntries(changed), contextPack: pack, findings, ...(llmNotice ? { llmNotice } : {}) }, null, 2));
     return;
   }
 
-  console.log(chalk.bold(`Review (${profile.name}): ${topic}`));
+  console.log(chalk.bold(`Review (${persona}): ${topic}`));
   for (const [repo, files] of changed) {
     console.log(`\n${chalk.green(repo)}`);
     for (const file of files) console.log(`- ${file}`);

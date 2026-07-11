@@ -19,6 +19,7 @@ import { pathExists } from '../utils/fs.js';
 import type { CtxhubConfig, ExecutionProfile, RepoConfig } from '../config/types.js';
 import { getSkillsStatus, installSkills } from '../commands/skills.js';
 import { getPersonasStatus, initPersonas, syncPersonas } from '../commands/personas.js';
+import { createReviewResult, loadReviewerProfiles, DEFAULT_REVIEW_PROFILES_PATH } from '../commands/review.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
@@ -314,6 +315,18 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const chatMatch = /^\/workspaces\/([^/]+)\/chat$/.exec(url.pathname);
   if (req.method === 'POST' && chatMatch) {
     await handleWorkspaceChat(req, res, decodeURIComponent(chatMatch[1]));
+    return;
+  }
+
+  const reviewProfilesMatch = /^\/workspaces\/([^/]+)\/review-profiles$/.exec(url.pathname);
+  if (req.method === 'GET' && reviewProfilesMatch) {
+    await handleReviewProfiles(res, decodeURIComponent(reviewProfilesMatch[1]));
+    return;
+  }
+
+  const reviewMatch = /^\/workspaces\/([^/]+)\/review$/.exec(url.pathname);
+  if (req.method === 'POST' && reviewMatch) {
+    await handleWorkspaceReview(req, res, decodeURIComponent(reviewMatch[1]));
     return;
   }
 
@@ -745,6 +758,45 @@ async function handleWorkspaceChat(req: http.IncomingMessage, res: http.ServerRe
 
   const result = await createExplainResult(query.trim(), 8, workspace.path);
   sendJson(res, 200, result);
+}
+
+async function handleReviewProfiles(res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => entry.name === name);
+  if (!workspace || !workspace.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  const profilesPath = resolve(workspaceRoot, DEFAULT_REVIEW_PROFILES_PATH);
+  const suite = await loadReviewerProfiles(profilesPath);
+  sendJson(res, 200, suite);
+}
+
+async function handleWorkspaceReview(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => entry.name === name);
+  if (!workspace || !workspace.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { topic?: unknown; as?: unknown; base?: unknown };
+  const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+  const as = typeof body.as === 'string' ? body.as.trim() : '';
+  if (!topic || !as) {
+    sendJson(res, 400, { error: 'Missing or empty "topic"/"as" field in request body' });
+    return;
+  }
+  const base = typeof body.base === 'string' && body.base.trim() ? body.base.trim() : undefined;
+
+  try {
+    const result = await createReviewResult(topic, { as, base }, workspace.path);
+    sendJson(res, 200, { ...result, changed: Object.fromEntries(result.changed) });
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {

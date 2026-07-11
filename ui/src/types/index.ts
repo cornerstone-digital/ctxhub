@@ -194,6 +194,24 @@ export interface PersonasStatus {
   compiledFor: LlmAgentName[];
 }
 
+export interface ReviewerProfile {
+  name: string;
+  kind: 'contract' | 'docs' | 'generic';
+  focus?: string;
+  persona?: string;
+}
+
+export interface ReviewResult {
+  topic: string;
+  persona: string;
+  changed: Record<string, string[]>;
+  contextPack: {
+    suggestedReadingOrder: Array<{ repo: string; filePath: string; title?: string }>;
+  };
+  findings: string[];
+  llmNotice?: string;
+}
+
 export interface ActivityEvent {
   id: string;
   text: string;

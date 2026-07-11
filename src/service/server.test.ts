@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
-import { initConfig } from '../config/config.js';
+import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 import { registerWorkspace } from '../workspaces/registry.js';
+import { indexWorkspace } from '../indexing/indexer.js';
+import { runGit } from '../git/git.js';
 import { createServiceServer } from './server.js';
 
 async function withRunningServer(run: (baseUrl: string) => Promise<void>) {
@@ -269,6 +271,85 @@ test('personas: init scaffolds a starter persona, sync compiles it, status refle
       assert.equal(syncRes.status, 200);
       const syncBody = await syncRes.json();
       assert.ok(syncBody.compiledFor.includes('claude'));
+    })
+  );
+});
+
+async function withReviewableWorkspace(name: string, run: (baseUrl: string) => Promise<void>) {
+  const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `ctxhub-service-server-review-${name}-`));
+  try {
+    await initConfig(name, workspaceDir);
+
+    const repoPath = path.join(workspaceDir, 'app');
+    await mkdir(repoPath, { recursive: true });
+    await writeFile(path.join(repoPath, 'README.md'), '# App\n\nHow to set this up.\n');
+    await runGit(['init'], repoPath);
+    await runGit(['config', 'user.email', 'test@example.com'], repoPath);
+    await runGit(['config', 'user.name', 'Test'], repoPath);
+    await runGit(['add', '.'], repoPath);
+    await runGit(['commit', '-m', 'init'], repoPath);
+    await runGit(['branch', 'base'], repoPath);
+    await writeFile(path.join(repoPath, 'README.md'), '# App\n\nHow to set this up.\n\nUpdated.\n');
+    await runGit(['add', '.'], repoPath);
+    await runGit(['commit', '-m', 'update readme'], repoPath);
+
+    const config = await loadConfig(workspaceDir);
+    config.repositories.push({ name: 'app', path: './app', git: true });
+    config.index.provider = 'local-json';
+    config.index.path = '.ctxhub/index/local.json';
+    await saveConfig(config, workspaceDir);
+    await indexWorkspace(workspaceDir, false);
+
+    await registerWorkspace(workspaceDir, name);
+    await withRunningServer(run);
+  } finally {
+    await rm(workspaceDir, { recursive: true, force: true });
+  }
+}
+
+test('GET /workspaces/:name/review-profiles seeds and returns the 5 built-in personas', () => {
+  return withIsolatedCtxhubHome(() =>
+    withReviewableWorkspace('review-ws', async baseUrl => {
+      const res = await fetch(`${baseUrl}/workspaces/review-ws/review-profiles`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      const names = body.profiles.map((p: { name: string }) => p.name);
+      assert.deepEqual(names.sort(), ['bug-hunter', 'contract', 'docs', 'performance', 'security']);
+    })
+  );
+});
+
+test('POST /workspaces/:name/review runs a real persona-grounded review against the real git diff', () => {
+  return withIsolatedCtxhubHome(() =>
+    withReviewableWorkspace('review-ws', async baseUrl => {
+      const res = await fetch(`${baseUrl}/workspaces/review-ws/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: 'README setup instructions', as: 'bug-hunter', base: 'base' })
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.persona, 'bug-hunter');
+      assert.ok(body.changed.app.includes('README.md'));
+      // llm.enabled defaults to false for a freshly initialized workspace -- synthesizeReviewFindings
+      // degrades gracefully to an empty findings list plus a notice, rather than erroring.
+      assert.deepEqual(body.findings, []);
+      assert.match(body.llmNotice, /disabled/);
+    })
+  );
+});
+
+test('POST /workspaces/:name/review 400s for an unknown persona name', () => {
+  return withIsolatedCtxhubHome(() =>
+    withReviewableWorkspace('review-ws', async baseUrl => {
+      const res = await fetch(`${baseUrl}/workspaces/review-ws/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: 'anything', as: 'not-a-real-persona' })
+      });
+      assert.equal(res.status, 400);
+      const body = await res.json();
+      assert.match(body.error, /Unknown review persona/);
     })
   );
 });

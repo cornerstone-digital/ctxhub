@@ -14,6 +14,8 @@ import type {
   KnowledgeNodeContent,
   PersonasStatus,
   RepoConfig,
+  ReviewerProfile,
+  ReviewResult,
   SkillStatus,
   Workspace,
   WorkspaceStatus,
@@ -157,6 +159,21 @@ export function usePromoteCaptainRunMutation() {
   return useMutation({
     mutationFn: ({ name, runId, repo, title }: { name: string; runId: string; repo: string; title?: string }) =>
       postJson<{ notePath: string }>(`/captains/${encodeURIComponent(name)}/runs/${encodeURIComponent(runId)}/promote`, { repo, title }),
+  })
+}
+
+export function useReviewProfiles(workspace: string | null) {
+  return useQuery({
+    queryKey: ['review-profiles', workspace],
+    queryFn: () => fetchJson<{ profiles: ReviewerProfile[] }>(`/workspaces/${encodeURIComponent(workspace!)}/review-profiles`),
+    enabled: workspace !== null,
+  })
+}
+
+export function useReviewMutation() {
+  return useMutation({
+    mutationFn: ({ workspace, topic, as, base }: { workspace: string; topic: string; as: string; base?: string }) =>
+      postJson<ReviewResult>(`/workspaces/${encodeURIComponent(workspace)}/review`, { topic, as, base }),
   })
 }
 

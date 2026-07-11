@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ActivityEvent, AgentToken, ChatMessage, CtxhubEventEnvelope } from '../types'
 
-export type FleetView = 'fleet' | 'captains' | 'knowledge' | 'config' | 'skills'
+export type FleetView = 'fleet' | 'captains' | 'knowledge' | 'config' | 'skills' | 'review'
 
 interface FleetStore {
   activeView: FleetView
