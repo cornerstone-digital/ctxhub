@@ -50,6 +50,16 @@ function fieldsFor(event: CtxhubEventEnvelope): Array<{ label: string; value: st
         { label: 'From workspace', value: event.fromWorkspace },
         { label: 'To workspace', value: event.toWorkspace },
       ]
+    case 'skills.installed':
+      return [
+        { label: 'Workspace', value: event.workspace },
+        { label: 'Agents', value: event.agents.join(', ') || 'all' },
+      ]
+    case 'personas.synced':
+      return [
+        { label: 'Workspace', value: event.workspace },
+        { label: 'Agents', value: event.agents.join(', ') || 'all' },
+      ]
   }
 }
 
@@ -62,6 +72,8 @@ const KIND_BY_TYPE: Record<CtxhubEventEnvelope['type'], 'ok' | 'warn' | 'error'>
   'captain.run.completed': 'ok',
   'captain.run.failed': 'error',
   'captain.handoff': 'warn',
+  'skills.installed': 'ok',
+  'personas.synced': 'ok',
 }
 
 export function EventDetailPanel() {

@@ -39,7 +39,15 @@ export const SKILL_TEMPLATES: SkillTemplate[] = SUPPORTED_SKILL_AGENTS.flatMap(a
   }))
 );
 
+// Thin CLI-facing wrapper -- kept to exactly the (agents) signature commander's action handler
+// expects (a second positional arg here would silently receive commander's Command object, not
+// a cwd). installSkills() below takes the real optional cwd for callers that already know their
+// workspace root (the control-plane service, in particular).
 export async function skillsInstallCommand(agents: string[] = []) {
+  return installSkills(agents);
+}
+
+export async function installSkills(agents: string[] = [], cwd = process.cwd()): Promise<void> {
   const targets = agents.length ? agents : [...SUPPORTED_SKILL_AGENTS];
 
   for (const agent of targets) {
@@ -48,9 +56,9 @@ export async function skillsInstallCommand(agents: string[] = []) {
     }
   }
 
-  const workspace = await loadWorkspaceConfig()
+  const workspace = await loadWorkspaceConfig(cwd)
     .then(({ config, workspaceRoot }) => ({ config, workspaceRoot }))
-    .catch(() => ({ config: undefined, workspaceRoot: process.cwd() }));
+    .catch(() => ({ config: undefined, workspaceRoot: cwd }));
   const { config, workspaceRoot } = workspace;
   const repoRoots = await configuredRepoRoots(config, workspaceRoot);
 
@@ -69,6 +77,25 @@ export async function skillsInstallCommand(agents: string[] = []) {
       }
     }
   }
+}
+
+// Read-only status check for the dashboard: which (agent, skill) pairs are actually installed at
+// this workspace root right now, without writing anything. Mirrors SKILL_TEMPLATES' own
+// agent/id/target pairing so "installed" here can never drift from what `skills install` would
+// actually write.
+export type SkillStatus = { agent: SkillAgent; id: SkillId; label?: string; installed: boolean; path: string };
+
+export async function getSkillsStatus(cwd = process.cwd()): Promise<SkillStatus[]> {
+  const workspaceRoot = await loadWorkspaceConfig(cwd)
+    .then(({ workspaceRoot: root }) => root)
+    .catch(() => cwd);
+
+  const statuses: SkillStatus[] = [];
+  for (const { agent, id, label, target } of SKILL_TEMPLATES) {
+    const destination = target(workspaceRoot);
+    statuses.push({ agent, id, label, installed: await pathExists(destination), path: destination });
+  }
+  return statuses;
 }
 
 async function configuredRepoRoots(config: CtxhubConfig | undefined, workspaceRoot: string): Promise<string[]> {

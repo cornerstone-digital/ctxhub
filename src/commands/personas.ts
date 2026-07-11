@@ -8,19 +8,24 @@ import { ensureDir, pathExists, writeText } from '../utils/fs.js';
 import { agentsWithCapability } from '../llm/harness.js';
 import { initAgentsDirectory, loadPersona, loadPersonaManifest, type Persona } from '../personas/persona.js';
 
-export async function personasInitCommand() {
-  const { workspaceRoot } = await loadWorkspaceConfig();
+export async function personasInitCommand(): Promise<void> {
+  await initPersonas();
+}
+
+export async function initPersonas(cwd = process.cwd()): Promise<{ created: string[] }> {
+  const { workspaceRoot } = await loadWorkspaceConfig(cwd);
   const { created } = await initAgentsDirectory(workspaceRoot);
 
   if (!created.length) {
     console.log(chalk.yellow('agents/ already exists -- nothing to scaffold.'));
-    return;
+    return { created };
   }
 
   console.log(chalk.green('Scaffolded:'));
   for (const file of created) console.log(`  ${file}`);
   console.log(chalk.gray('Edit these to match your team, then use --as <persona> on explain/ask/handoff/review.'));
   console.log(chalk.gray('See docs/personas.md for how this works.'));
+  return { created };
 }
 
 // docs/personas.md Phase 3: all four harnesses have real, documented native subagent support,
@@ -52,6 +57,10 @@ export function compilePersonaFile(agent: PersonaSyncAgent, persona: Persona): C
 }
 
 export async function personasSyncCommand(agents: string[] = []) {
+  return syncPersonas(agents);
+}
+
+export async function syncPersonas(agents: string[] = [], cwd = process.cwd()): Promise<void> {
   const targets = agents.length ? agents : [...SUPPORTED_PERSONA_SYNC_AGENTS];
   for (const agent of targets) {
     if (!(SUPPORTED_PERSONA_SYNC_AGENTS as readonly string[]).includes(agent)) {
@@ -59,7 +68,7 @@ export async function personasSyncCommand(agents: string[] = []) {
     }
   }
 
-  const { config, workspaceRoot } = await loadWorkspaceConfig();
+  const { config, workspaceRoot } = await loadWorkspaceConfig(cwd);
   const manifest = await loadPersonaManifest(workspaceRoot);
   const names = Object.keys(manifest.personas);
 
@@ -88,6 +97,36 @@ export async function personasSyncCommand(agents: string[] = []) {
       }
     }
   }
+}
+
+export type PersonasStatus = {
+  personas: Array<{ name: string; description?: string }>;
+  policies: string[];
+  // Which harnesses already have a compiled native subagent file for at least one persona --
+  // read-only signal for the dashboard, not a substitute for actually re-running sync (a persona
+  // added since the last sync wouldn't show as compiled for any agent yet).
+  compiledFor: PersonaSyncAgent[];
+};
+
+export async function getPersonasStatus(cwd = process.cwd()): Promise<PersonasStatus> {
+  const { workspaceRoot } = await loadWorkspaceConfig(cwd);
+  const manifest = await loadPersonaManifest(workspaceRoot);
+  const names = Object.keys(manifest.personas);
+
+  const personas: Array<{ name: string; description?: string }> = [];
+  for (const name of names) {
+    const persona = await loadPersona(workspaceRoot, name);
+    if (persona) personas.push({ name: persona.name, description: persona.description });
+  }
+
+  const compiledFor: PersonaSyncAgent[] = [];
+  for (const agent of SUPPORTED_PERSONA_SYNC_AGENTS) {
+    const root = PERSONA_TARGET_ROOTS[agent](workspaceRoot);
+    const hasAny = await Promise.all(names.map(async name => pathExists(path.join(root, `${name}.md`)) || pathExists(path.join(root, `${name}.toml`)) || pathExists(path.join(root, `${name}.agent.md`))));
+    if (hasAny.some(Boolean)) compiledFor.push(agent);
+  }
+
+  return { personas, policies: manifest.policies, compiledFor };
 }
 
 // Claude Code: .claude/agents/<name>.md -- YAML frontmatter (name, description; optionally tools,

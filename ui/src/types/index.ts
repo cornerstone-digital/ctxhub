@@ -45,7 +45,9 @@ export type CtxhubEvent =
   | { type: 'captain.run.started'; task: string; workspace: string }
   | { type: 'captain.run.completed'; task: string; workspace: string; runId: string }
   | { type: 'captain.run.failed'; task: string; workspace: string; error: string }
-  | { type: 'captain.handoff'; from: string; to: string; fromWorkspace: string; toWorkspace: string };
+  | { type: 'captain.handoff'; from: string; to: string; fromWorkspace: string; toWorkspace: string }
+  | { type: 'skills.installed'; workspace: string; agents: string[] }
+  | { type: 'personas.synced'; workspace: string; agents: string[] };
 
 export type CtxhubEventEnvelope = CtxhubEvent & { id: string; at: string };
 
@@ -139,6 +141,53 @@ export interface ChatMessage {
   content: string;
   citations?: ExplainResult['citations'];
   timestamp: Date;
+}
+
+export interface RepoConfig {
+  name: string;
+  path: string;
+  include?: string[];
+  exclude?: string[];
+  git?: boolean;
+}
+
+export type LlmAgentName = 'claude' | 'codex' | 'copilot' | 'cursor';
+
+export interface ExecutionProfile {
+  persona?: string;
+  runtime: LlmAgentName | 'direct-api';
+  model?: string;
+  tags?: string[];
+  gateway?: { baseUrl: string; apiKeyEnv?: string };
+}
+
+// Mirrors config/types.ts's CtxhubConfig -- everything the workspace's ctxhub.yaml holds, as
+// returned by GET /workspaces/:name/config.
+export interface CtxhubConfig {
+  version: number;
+  workspace: { name: string };
+  repositories: RepoConfig[];
+  knowledge: { include: string[]; exclude: string[] };
+  memory: { provider: 'local-json' | 'mempalace'; path: string };
+  index: { provider: 'local-json' | 'lancedb'; path: string; table: string; incremental: boolean; chunkSize: number; concurrency?: number };
+  hooks: { postPull?: string; postIndex?: string };
+  privacy: { redactPatterns: string[] };
+  llm: { enabled: boolean; agent?: LlmAgentName; timeoutMs: number };
+  executionProfiles: Record<string, ExecutionProfile>;
+}
+
+export interface SkillStatus {
+  agent: LlmAgentName;
+  id: string;
+  label?: string;
+  installed: boolean;
+  path: string;
+}
+
+export interface PersonasStatus {
+  personas: Array<{ name: string; description?: string }>;
+  policies: string[];
+  compiledFor: LlmAgentName[];
 }
 
 export interface ActivityEvent {

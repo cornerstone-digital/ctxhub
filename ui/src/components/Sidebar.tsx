@@ -1,4 +1,4 @@
-import { Network, Users, BookOpen, RefreshCw } from 'lucide-react'
+import { Network, Users, BookOpen, RefreshCw, Hexagon, Folder } from 'lucide-react'
 import { useWorkspaces, useHealth, useWorkspaceStatus, useIndexStatus } from '../api/client'
 import { useFleetStore, type FleetView } from '../store/fleet'
 import { healthColor } from '../lib/utils'
@@ -78,6 +78,8 @@ export function Sidebar() {
     { icon: Network, label: 'Fleet', view: 'fleet' },
     { icon: Users, label: 'Captains', view: 'captains' },
     { icon: BookOpen, label: 'Knowledge', view: 'knowledge' },
+    { icon: Hexagon, label: 'Config', view: 'config' },
+    { icon: Folder, label: 'Skills & Personas', view: 'skills' },
   ]
 
   return (

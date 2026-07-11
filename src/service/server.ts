@@ -1,9 +1,9 @@
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, extname } from 'node:path';
+import { dirname, join, extname, resolve, relative } from 'node:path';
 import { promises as fsPromises } from 'node:fs';
 import { listWorkspaces } from '../workspaces/registry.js';
-import { loadWorkspaceConfig } from '../config/config.js';
+import { loadWorkspaceConfig, saveConfig } from '../config/config.js';
 import { buildDoctorChecks, runDoctorChecks, type CheckLine } from '../commands/doctorChecks.js';
 import { getPackageVersion } from '../utils/version.js';
 import { renderFleetViewHtml } from './fleetView.js';
@@ -14,6 +14,11 @@ import { eventBus, type CtxhubEventEnvelope } from '../events/eventBus.js';
 import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
 import { listCaptainRuns, promoteCaptainRun, runCaptainTask } from '../captains/runner.js';
 import { buildKnowledgeGraph, findKnowledgeGraphNodeContent } from '../indexing/knowledgeGraph.js';
+import { isGitRepo } from '../git/git.js';
+import { pathExists } from '../utils/fs.js';
+import type { CtxhubConfig, ExecutionProfile, RepoConfig } from '../config/types.js';
+import { getSkillsStatus, installSkills } from '../commands/skills.js';
+import { getPersonasStatus, initPersonas, syncPersonas } from '../commands/personas.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
@@ -139,7 +144,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   // CORS headers for dev (Vite dev server proxies in prod)
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -213,6 +218,68 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const reposMatch = /^\/workspaces\/([^/]+)\/repos$/.exec(url.pathname);
   if (req.method === 'GET' && reposMatch) {
     await handleWorkspaceRepos(res, decodeURIComponent(reposMatch[1]));
+    return;
+  }
+  if (req.method === 'POST' && reposMatch) {
+    await handleAddRepo(req, res, decodeURIComponent(reposMatch[1]));
+    return;
+  }
+
+  const repoDeleteMatch = /^\/workspaces\/([^/]+)\/repos\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && repoDeleteMatch) {
+    await handleRemoveRepo(res, decodeURIComponent(repoDeleteMatch[1]), decodeURIComponent(repoDeleteMatch[2]));
+    return;
+  }
+
+  const configMatch = /^\/workspaces\/([^/]+)\/config$/.exec(url.pathname);
+  if (req.method === 'GET' && configMatch) {
+    await handleGetConfig(res, decodeURIComponent(configMatch[1]));
+    return;
+  }
+  if (req.method === 'PATCH' && configMatch) {
+    await handlePatchConfig(req, res, decodeURIComponent(configMatch[1]));
+    return;
+  }
+
+  const profilesMatch = /^\/workspaces\/([^/]+)\/execution-profiles$/.exec(url.pathname);
+  if (req.method === 'POST' && profilesMatch) {
+    await handleUpsertExecutionProfile(req, res, decodeURIComponent(profilesMatch[1]));
+    return;
+  }
+
+  const profileDeleteMatch = /^\/workspaces\/([^/]+)\/execution-profiles\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && profileDeleteMatch) {
+    await handleRemoveExecutionProfile(res, decodeURIComponent(profileDeleteMatch[1]), decodeURIComponent(profileDeleteMatch[2]));
+    return;
+  }
+
+  const skillsMatch = /^\/workspaces\/([^/]+)\/skills$/.exec(url.pathname);
+  if (req.method === 'GET' && skillsMatch) {
+    await handleGetSkillsStatus(res, decodeURIComponent(skillsMatch[1]));
+    return;
+  }
+
+  const skillsInstallMatch = /^\/workspaces\/([^/]+)\/skills\/install$/.exec(url.pathname);
+  if (req.method === 'POST' && skillsInstallMatch) {
+    await handleInstallSkills(req, res, decodeURIComponent(skillsInstallMatch[1]));
+    return;
+  }
+
+  const personasMatch = /^\/workspaces\/([^/]+)\/personas$/.exec(url.pathname);
+  if (req.method === 'GET' && personasMatch) {
+    await handleGetPersonasStatus(res, decodeURIComponent(personasMatch[1]));
+    return;
+  }
+
+  const personasInitMatch = /^\/workspaces\/([^/]+)\/personas\/init$/.exec(url.pathname);
+  if (req.method === 'POST' && personasInitMatch) {
+    await handleInitPersonas(res, decodeURIComponent(personasInitMatch[1]));
+    return;
+  }
+
+  const personasSyncMatch = /^\/workspaces\/([^/]+)\/personas\/sync$/.exec(url.pathname);
+  if (req.method === 'POST' && personasSyncMatch) {
+    await handleSyncPersonas(req, res, decodeURIComponent(personasSyncMatch[1]));
     return;
   }
 
@@ -349,6 +416,181 @@ async function handleWorkspaceRepos(res: http.ServerResponse, name: string): Pro
 
   const { config } = await loadWorkspaceConfig(workspace.path);
   sendJson(res, 200, { repos: config.repositories.map(repo => repo.name) });
+}
+
+// Shared by every workspace-scoped config handler below -- looks up the registered workspace by
+// name, 404s and returns undefined if it's missing or its path no longer exists. Handlers just
+// bail out on an undefined return; the 404 response is already sent.
+async function findExistingWorkspace(res: http.ServerResponse, name: string): Promise<{ path: string } | undefined> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => entry.name === name);
+  if (!workspace || !workspace.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return undefined;
+  }
+  return workspace;
+}
+
+async function handleGetConfig(res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+  const { config } = await loadWorkspaceConfig(workspace.path);
+  sendJson(res, 200, config);
+}
+
+// Deliberately narrow: only knowledge/privacy/llm are mergeable here (plain settings objects,
+// safe to patch field-by-field). repositories and executionProfiles have their own
+// dedicated add/remove endpoints below instead of being merge-patchable, since both are
+// name-keyed collections where "merge this partial object in" is ambiguous (upsert one entry?
+// replace the whole list?) in a way a settings object isn't.
+async function handlePatchConfig(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  const patch = (await readJsonBody(req)) as Partial<Pick<CtxhubConfig, 'knowledge' | 'privacy' | 'llm'>>;
+
+  const updated: CtxhubConfig = {
+    ...config,
+    knowledge: { ...config.knowledge, ...patch.knowledge },
+    privacy: { ...config.privacy, ...patch.privacy },
+    llm: { ...config.llm, ...patch.llm }
+  };
+
+  await saveConfig(updated, workspaceRoot);
+  sendJson(res, 200, updated);
+}
+
+async function handleAddRepo(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const body = (await readJsonBody(req)) as { name?: string; path?: string };
+  if (!body.name || !body.path) {
+    sendJson(res, 400, { error: 'name and path are required' });
+    return;
+  }
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  if (config.repositories.some(repo => repo.name === body.name)) {
+    sendJson(res, 400, { error: `Repository already exists: ${body.name}` });
+    return;
+  }
+
+  const absolutePath = resolve(workspaceRoot, body.path);
+  if (!(await pathExists(absolutePath))) {
+    sendJson(res, 400, { error: `Repository path does not exist: ${body.path}` });
+    return;
+  }
+
+  const repo: RepoConfig = {
+    name: body.name,
+    path: relative(workspaceRoot, absolutePath) || '.',
+    git: await isGitRepo(absolutePath)
+  };
+  config.repositories.push(repo);
+  await saveConfig(config, workspaceRoot);
+  sendJson(res, 201, repo);
+}
+
+async function handleRemoveRepo(res: http.ServerResponse, name: string, repoName: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  const index = config.repositories.findIndex(repo => repo.name === repoName);
+  if (index === -1) {
+    sendJson(res, 404, { error: `No repository named "${repoName}"` });
+    return;
+  }
+
+  config.repositories.splice(index, 1);
+  await saveConfig(config, workspaceRoot);
+  sendJson(res, 200, { removed: true });
+}
+
+async function handleUpsertExecutionProfile(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const body = (await readJsonBody(req)) as { name?: string; profile?: ExecutionProfile };
+  if (!body.name || !body.profile || !body.profile.runtime) {
+    sendJson(res, 400, { error: 'name and profile.runtime are required' });
+    return;
+  }
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  config.executionProfiles = { ...config.executionProfiles, [body.name]: body.profile };
+  await saveConfig(config, workspaceRoot);
+  sendJson(res, 200, { name: body.name, profile: body.profile });
+}
+
+async function handleRemoveExecutionProfile(res: http.ServerResponse, name: string, profileName: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  if (!(profileName in config.executionProfiles)) {
+    sendJson(res, 404, { error: `No execution profile named "${profileName}"` });
+    return;
+  }
+
+  const rest = { ...config.executionProfiles };
+  delete rest[profileName];
+  config.executionProfiles = rest;
+  await saveConfig(config, workspaceRoot);
+  sendJson(res, 200, { removed: true });
+}
+
+async function handleGetSkillsStatus(res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+  sendJson(res, 200, { skills: await getSkillsStatus(workspace.path) });
+}
+
+async function handleInstallSkills(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const body = (await readJsonBody(req)) as { agents?: string[] };
+  const agents = body.agents ?? [];
+
+  try {
+    await installSkills(agents, workspace.path);
+    eventBus.publish({ type: 'skills.installed', workspace: name, agents });
+    sendJson(res, 200, { skills: await getSkillsStatus(workspace.path) });
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleGetPersonasStatus(res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+  sendJson(res, 200, await getPersonasStatus(workspace.path));
+}
+
+async function handleInitPersonas(res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+  const { created } = await initPersonas(workspace.path);
+  sendJson(res, 200, { created, status: await getPersonasStatus(workspace.path) });
+}
+
+async function handleSyncPersonas(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const body = (await readJsonBody(req)) as { agents?: string[] };
+  const agents = body.agents ?? [];
+
+  try {
+    await syncPersonas(agents, workspace.path);
+    eventBus.publish({ type: 'personas.synced', workspace: name, agents });
+    sendJson(res, 200, await getPersonasStatus(workspace.path));
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 async function handleKnowledgeGraph(res: http.ServerResponse, name: string): Promise<void> {

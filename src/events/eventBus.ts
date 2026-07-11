@@ -17,7 +17,9 @@ export type CtxhubEvent =
   | { type: 'captain.run.started'; task: string; workspace: string }
   | { type: 'captain.run.completed'; task: string; workspace: string; runId: string }
   | { type: 'captain.run.failed'; task: string; workspace: string; error: string }
-  | { type: 'captain.handoff'; from: string; to: string; fromWorkspace: string; toWorkspace: string };
+  | { type: 'captain.handoff'; from: string; to: string; fromWorkspace: string; toWorkspace: string }
+  | { type: 'skills.installed'; workspace: string; agents: string[] }
+  | { type: 'personas.synced'; workspace: string; agents: string[] };
 
 export type CtxhubEventEnvelope = CtxhubEvent & { id: string; at: string };
 

@@ -9,6 +9,8 @@ import { ChatPanel } from './components/ChatPanel'
 import { EventLog } from './components/EventLog'
 import { CaptainsView } from './components/CaptainsView'
 import { KnowledgeGraphView } from './components/KnowledgeGraphView'
+import { ConfigView } from './components/ConfigView'
+import { SkillsPersonasView } from './components/SkillsPersonasView'
 
 function ResizeHandleH() {
   return (
@@ -60,6 +62,8 @@ export default function App() {
               {activeView === 'fleet' && <GraphCanvas />}
               {activeView === 'captains' && <CaptainsView />}
               {activeView === 'knowledge' && <KnowledgeGraphView />}
+              {activeView === 'config' && <ConfigView />}
+              {activeView === 'skills' && <SkillsPersonasView />}
             </Panel>
             <ResizeHandleV />
             <Panel defaultSize={22} minSize={10} maxSize={45} style={{ display: 'flex', flexDirection: 'column' }}>

@@ -4,11 +4,16 @@ import type {
   AgentToken,
   CaptainRunRecord,
   CaptainTask,
+  CtxhubConfig,
   CtxhubEventEnvelope,
+  ExecutionProfile,
   ExplainResult,
   IndexJobState,
   KnowledgeGraph,
   KnowledgeNodeContent,
+  PersonasStatus,
+  RepoConfig,
+  SkillStatus,
   Workspace,
   WorkspaceStatus,
 } from '../types'
@@ -25,6 +30,16 @@ async function postJson<T>(url: string, body?: unknown): Promise<T> {
     method: 'POST',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
+  return res.json() as Promise<T>
+}
+
+async function patchJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
   return res.json() as Promise<T>
@@ -167,6 +182,107 @@ export function useKnowledgeGraphNode(workspace: string | null, nodeId: string |
   })
 }
 
+// --- Workspace config: repos, execution profiles, general settings ---------------------------
+
+export function useWorkspaceConfig(name: string | null) {
+  return useQuery({
+    queryKey: ['workspace-config', name],
+    queryFn: () => fetchJson<CtxhubConfig>(`/workspaces/${encodeURIComponent(name!)}/config`),
+    enabled: name !== null,
+  })
+}
+
+export function usePatchConfigMutation(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (patch: { knowledge?: Partial<CtxhubConfig['knowledge']>; privacy?: Partial<CtxhubConfig['privacy']>; llm?: Partial<CtxhubConfig['llm']> }) =>
+      patchJson<CtxhubConfig>(`/workspaces/${encodeURIComponent(name)}/config`, patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['workspace-config', name] }),
+  })
+}
+
+export function useAddRepoMutation(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (repo: { name: string; path: string }) => postJson<RepoConfig>(`/workspaces/${encodeURIComponent(name)}/repos`, repo),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workspace-config', name] })
+      void qc.invalidateQueries({ queryKey: ['workspace-repos', name] })
+    },
+  })
+}
+
+export function useRemoveRepoMutation(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (repoName: string) => deleteJson<{ removed: boolean }>(`/workspaces/${encodeURIComponent(name)}/repos/${encodeURIComponent(repoName)}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workspace-config', name] })
+      void qc.invalidateQueries({ queryKey: ['workspace-repos', name] })
+    },
+  })
+}
+
+export function useUpsertExecutionProfileMutation(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { name: string; profile: ExecutionProfile }) =>
+      postJson<{ name: string; profile: ExecutionProfile }>(`/workspaces/${encodeURIComponent(name)}/execution-profiles`, input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['workspace-config', name] }),
+  })
+}
+
+export function useRemoveExecutionProfileMutation(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (profileName: string) =>
+      deleteJson<{ removed: boolean }>(`/workspaces/${encodeURIComponent(name)}/execution-profiles/${encodeURIComponent(profileName)}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['workspace-config', name] }),
+  })
+}
+
+// --- Skills & Personas ---------------------------------------------------------------------
+
+export function useSkillsStatus(name: string | null) {
+  return useQuery({
+    queryKey: ['skills-status', name],
+    queryFn: () => fetchJson<{ skills: SkillStatus[] }>(`/workspaces/${encodeURIComponent(name!)}/skills`),
+    enabled: name !== null,
+  })
+}
+
+export function useInstallSkillsMutation(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (agents: string[]) => postJson<{ skills: SkillStatus[] }>(`/workspaces/${encodeURIComponent(name)}/skills/install`, { agents }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['skills-status', name] }),
+  })
+}
+
+export function usePersonasStatus(name: string | null) {
+  return useQuery({
+    queryKey: ['personas-status', name],
+    queryFn: () => fetchJson<PersonasStatus>(`/workspaces/${encodeURIComponent(name!)}/personas`),
+    enabled: name !== null,
+  })
+}
+
+export function useInitPersonasMutation(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson<{ created: string[]; status: PersonasStatus }>(`/workspaces/${encodeURIComponent(name)}/personas/init`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['personas-status', name] }),
+  })
+}
+
+export function useSyncPersonasMutation(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (agents: string[]) => postJson<PersonasStatus>(`/workspaces/${encodeURIComponent(name)}/personas/sync`, { agents }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['personas-status', name] }),
+  })
+}
+
 function summarize(event: CtxhubEventEnvelope): { text: string; kind: 'ok' | 'warn' | 'error' | 'info' } {
   switch (event.type) {
     case 'index.started':
@@ -183,6 +299,10 @@ function summarize(event: CtxhubEventEnvelope): { text: string; kind: 'ok' | 'wa
       return { text: `Captain "${event.task}" failed on "${event.workspace}": ${event.error}`, kind: 'error' }
     case 'captain.handoff':
       return { text: `Captain "${event.from}" handed off to "${event.to}"`, kind: 'info' }
+    case 'skills.installed':
+      return { text: `Installed skills for ${event.agents.join(', ') || 'all agents'} on "${event.workspace}"`, kind: 'ok' }
+    case 'personas.synced':
+      return { text: `Synced personas for ${event.agents.join(', ') || 'all agents'} on "${event.workspace}"`, kind: 'ok' }
     default:
       return { text: event.type, kind: 'info' }
   }

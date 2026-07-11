@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { initConfig } from '../config/config.js';
 import { registerWorkspace } from '../workspaces/registry.js';
@@ -95,6 +95,180 @@ test('GET /workspaces/:name/status 404s for an unregistered name', () => {
     withRunningServer(async baseUrl => {
       const res = await fetch(`${baseUrl}/workspaces/nonexistent/status`);
       assert.equal(res.status, 404);
+    })
+  );
+});
+
+async function withRegisteredWorkspace(name: string, run: (baseUrl: string, workspaceDir: string) => Promise<void>) {
+  const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `ctxhub-service-server-ws-${name}-`));
+  try {
+    await initConfig(name, workspaceDir);
+    await registerWorkspace(workspaceDir, name);
+    await withRunningServer(baseUrl => run(baseUrl, workspaceDir));
+  } finally {
+    await rm(workspaceDir, { recursive: true, force: true });
+  }
+}
+
+test('GET /workspaces/:name/config returns the full workspace config', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('config-ws', async baseUrl => {
+      const res = await fetch(`${baseUrl}/workspaces/config-ws/config`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.workspace.name, 'config-ws');
+      assert.ok(Array.isArray(body.knowledge.include));
+      assert.ok(Array.isArray(body.privacy.redactPatterns));
+    })
+  );
+});
+
+test('PATCH /workspaces/:name/config merges knowledge/privacy/llm without touching other sections', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('patch-ws', async baseUrl => {
+      const before = await (await fetch(`${baseUrl}/workspaces/patch-ws/config`)).json();
+
+      const res = await fetch(`${baseUrl}/workspaces/patch-ws/config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ privacy: { redactPatterns: ['api[_-]?key'] }, llm: { enabled: true } })
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+
+      assert.deepEqual(body.privacy.redactPatterns, ['api[_-]?key']);
+      assert.equal(body.llm.enabled, true);
+      // Untouched sections survive the patch unchanged.
+      assert.deepEqual(body.knowledge, before.knowledge);
+      assert.equal(body.index.provider, before.index.provider);
+    })
+  );
+});
+
+test('POST /workspaces/:name/repos adds a repo, rejects a duplicate name and a nonexistent path', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('repo-ws', async (baseUrl, workspaceDir) => {
+      await mkdir(path.join(workspaceDir, 'app'));
+
+      const addRes = await fetch(`${baseUrl}/workspaces/repo-ws/repos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'app', path: 'app' })
+      });
+      assert.equal(addRes.status, 201);
+      const added = await addRes.json();
+      assert.equal(added.name, 'app');
+      assert.equal(added.git, false);
+
+      const dupRes = await fetch(`${baseUrl}/workspaces/repo-ws/repos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'app', path: 'app' })
+      });
+      assert.equal(dupRes.status, 400);
+
+      const missingRes = await fetch(`${baseUrl}/workspaces/repo-ws/repos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'ghost', path: 'does-not-exist' })
+      });
+      assert.equal(missingRes.status, 400);
+
+      const listRes = await fetch(`${baseUrl}/workspaces/repo-ws/repos`);
+      const listBody = await listRes.json();
+      assert.deepEqual(listBody.repos, ['app']);
+    })
+  );
+});
+
+test('DELETE /workspaces/:name/repos/:repoName removes a repo and 404s for an unknown one', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('repo-del-ws', async (baseUrl, workspaceDir) => {
+      await mkdir(path.join(workspaceDir, 'app'));
+      await fetch(`${baseUrl}/workspaces/repo-del-ws/repos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'app', path: 'app' })
+      });
+
+      const missingRes = await fetch(`${baseUrl}/workspaces/repo-del-ws/repos/ghost`, { method: 'DELETE' });
+      assert.equal(missingRes.status, 404);
+
+      const delRes = await fetch(`${baseUrl}/workspaces/repo-del-ws/repos/app`, { method: 'DELETE' });
+      assert.equal(delRes.status, 200);
+      assert.deepEqual((await delRes.json()).removed, true);
+
+      const listBody = await (await fetch(`${baseUrl}/workspaces/repo-del-ws/repos`)).json();
+      assert.deepEqual(listBody.repos, []);
+    })
+  );
+});
+
+test('execution profiles: upsert, read back via config, and remove', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('profile-ws', async baseUrl => {
+      const upsertRes = await fetch(`${baseUrl}/workspaces/profile-ws/execution-profiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'fast', profile: { runtime: 'claude', model: 'haiku' } })
+      });
+      assert.equal(upsertRes.status, 200);
+
+      const config = await (await fetch(`${baseUrl}/workspaces/profile-ws/config`)).json();
+      assert.deepEqual(config.executionProfiles.fast, { runtime: 'claude', model: 'haiku' });
+
+      const missingRes = await fetch(`${baseUrl}/workspaces/profile-ws/execution-profiles/ghost`, { method: 'DELETE' });
+      assert.equal(missingRes.status, 404);
+
+      const delRes = await fetch(`${baseUrl}/workspaces/profile-ws/execution-profiles/fast`, { method: 'DELETE' });
+      assert.equal(delRes.status, 200);
+
+      const configAfter = await (await fetch(`${baseUrl}/workspaces/profile-ws/config`)).json();
+      assert.deepEqual(configAfter.executionProfiles, {});
+    })
+  );
+});
+
+test('skills: status reports nothing installed, install writes real files, status reflects it', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('skills-ws', async baseUrl => {
+      const before = await (await fetch(`${baseUrl}/workspaces/skills-ws/skills`)).json();
+      assert.ok(before.skills.length > 0);
+      assert.ok(before.skills.every((s: { installed: boolean }) => s.installed === false));
+
+      const installRes = await fetch(`${baseUrl}/workspaces/skills-ws/skills/install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agents: ['claude'] })
+      });
+      assert.equal(installRes.status, 200);
+      const installed = (await installRes.json()).skills;
+      assert.ok(installed.filter((s: { agent: string; installed: boolean }) => s.agent === 'claude').every((s: { installed: boolean }) => s.installed));
+      assert.ok(installed.filter((s: { agent: string; installed: boolean }) => s.agent !== 'claude').every((s: { installed: boolean }) => !s.installed));
+    })
+  );
+});
+
+test('personas: init scaffolds a starter persona, sync compiles it, status reflects both', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('personas-ws', async baseUrl => {
+      const empty = await (await fetch(`${baseUrl}/workspaces/personas-ws/personas`)).json();
+      assert.deepEqual(empty.personas, []);
+
+      const initRes = await fetch(`${baseUrl}/workspaces/personas-ws/personas/init`, { method: 'POST' });
+      assert.equal(initRes.status, 200);
+      const initBody = await initRes.json();
+      assert.ok(initBody.created.length > 0);
+      assert.ok(initBody.status.personas.some((p: { name: string }) => p.name === 'architect'));
+
+      const syncRes = await fetch(`${baseUrl}/workspaces/personas-ws/personas/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agents: ['claude'] })
+      });
+      assert.equal(syncRes.status, 200);
+      const syncBody = await syncRes.json();
+      assert.ok(syncBody.compiledFor.includes('claude'));
     })
   );
 });
