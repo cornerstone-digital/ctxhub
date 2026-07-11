@@ -44,6 +44,14 @@ export type KnowledgeGraph = {
 const MAX_SIMILARITY_NODES = 120;
 const SIMILARITY_NEIGHBORS = 4;
 const SIMILARITY_CONCURRENCY = 8;
+// How many recently-indexed chunks to scan when deriving the file list. Was 3000 chunks, quietly
+// tight enough that ctxhub's own workspace (2211 chunks across 259 files) was already within
+// range of hitting it -- past that, files stop appearing as graph nodes at all, not just missing
+// similarity edges, which would have quietly broken the "every file is a node" guarantee this
+// module makes elsewhere. Now safe to raise generously: LanceDbIndex.recent() no longer caps its
+// own underlying fetch before sorting, so this number only bounds memory/time here, not
+// correctness.
+const MAX_INDEXED_DOCS_SCANNED = 20_000;
 
 // Mirrors chunk.ts's extractDiagramComponents token-cleaning so a relationship line's first two
 // real identifiers become the edge's (from, to) -- deliberately not re-parsing full Mermaid
@@ -106,7 +114,7 @@ async function similarityMatchesForFile(
 
 export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: string): Promise<KnowledgeGraph> {
   const provider = getProvider(config, workspaceRoot);
-  const docs = await provider.recent(3000);
+  const docs = await provider.recent(MAX_INDEXED_DOCS_SCANNED);
   const byFile = indexFilesByNodeId(docs);
 
   const allFiles = [...byFile.entries()];
@@ -176,7 +184,7 @@ export async function expandKnowledgeGraphNode(
   nodeId: string
 ): Promise<KnowledgeGraphEdge[] | undefined> {
   const provider = getProvider(config, workspaceRoot);
-  const docs = await provider.recent(3000);
+  const docs = await provider.recent(MAX_INDEXED_DOCS_SCANNED);
   const byFile = indexFilesByNodeId(docs);
   const doc = byFile.get(nodeId);
   if (!doc) return undefined;
@@ -218,7 +226,7 @@ export async function findKnowledgeGraphNodeContent(
   nodeId: string
 ): Promise<KnowledgeNodeContent | undefined> {
   const provider = getProvider(config, workspaceRoot);
-  const docs = await provider.recent(3000);
+  const docs = await provider.recent(MAX_INDEXED_DOCS_SCANNED);
 
   const fileDoc = indexFilesByNodeId(docs).get(nodeId);
   if (fileDoc) {

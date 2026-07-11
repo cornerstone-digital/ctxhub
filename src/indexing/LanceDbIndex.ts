@@ -85,7 +85,10 @@ export class LanceDbIndex implements IndexProvider {
       const terms = searchTerms(query);
       return rows.map(row => rowToSearchResult(row, terms)).sort((a, b) => b.score - a.score);
     } catch {
-      const rows = await table.query().limit(10000).toArray();
+      // No `.limit()` call here deliberately -- a plain (non-vector) LanceDB query has no default
+      // limit when omitted, so this scans the whole table rather than silently searching only an
+      // arbitrary subset of it for workspaces past whatever cap would otherwise be hardcoded here.
+      const rows = await table.query().toArray();
       return lexicalSearch(rows.map(rowToDocument), query, limit);
     }
   }
@@ -93,7 +96,11 @@ export class LanceDbIndex implements IndexProvider {
   async recent(limit = 20): Promise<IndexedDocument[]> {
     const table = await this.existingTable();
     if (!table) return [];
-    const rows = await table.query().limit(10000).toArray();
+    // Same reasoning as search()'s fallback above: fetch everything, then sort-by-recency and
+    // slice to `limit` in application code. A pre-sort `.limit()` here would silently truncate to
+    // an arbitrary (not actually "most recent") subset for any workspace with more rows than the
+    // cap, before sorting ever got a chance to run on the full set.
+    const rows = await table.query().toArray();
     return rows
       .map(rowToDocument)
       .sort((a, b) => b.lastIndexed.localeCompare(a.lastIndexed))
