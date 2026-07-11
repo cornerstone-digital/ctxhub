@@ -25,7 +25,9 @@ interface FleetStore {
 
   chatMessages: ChatMessage[]
   addChatMessage: (msg: ChatMessage) => void
-  clearChatMessages: () => void
+  // Scoped to one workspace's own thread, not the whole history -- clearing while chatting with
+  // A shouldn't silently wipe out a still-open conversation with B.
+  clearChatMessages: (workspace: string) => void
 
   activity: ActivityEvent[]
   addActivity: (text: string, type: ActivityEvent['type'], raw?: CtxhubEventEnvelope) => void
@@ -64,7 +66,10 @@ export const useFleetStore = create<FleetStore>((set) => ({
     set((state) => ({
       chatMessages: [...state.chatMessages, msg].slice(-100),
     })),
-  clearChatMessages: () => set({ chatMessages: [] }),
+  clearChatMessages: (workspace) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.filter((m) => m.workspace !== workspace),
+    })),
 
   activity: [],
   addActivity: (text, type, raw) =>

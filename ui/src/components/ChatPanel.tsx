@@ -1,5 +1,5 @@
 import { Fragment, useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import { Send, MessageSquare, ChevronDown } from 'lucide-react'
+import { Send, MessageSquare, ChevronDown, X } from 'lucide-react'
 import { useFleetStore, makeMsgId } from '../store/fleet'
 import { useWorkspaces, useChatMutation, useKnowledgeGraph } from '../api/client'
 import type { ChatMessage } from '../types'
@@ -195,7 +195,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 export function ChatPanel() {
   const { data: wsData } = useWorkspaces()
   const workspaces = wsData?.workspaces ?? []
-  const { chatWorkspace, setChatWorkspace, chatMessages, addChatMessage, addActivity } = useFleetStore()
+  const { chatWorkspace, setChatWorkspace, chatMessages, addChatMessage, clearChatMessages, addActivity } = useFleetStore()
   const mutation = useChatMutation()
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -263,15 +263,11 @@ export function ChatPanel() {
     [handleSend]
   )
 
-  // Filter workspace messages for current chatWorkspace
-  const currentMessages = chatWorkspace
-    ? chatMessages.filter(
-        m =>
-          m.role === 'user' ||
-          m.role === 'assistant' ||
-          m.role === 'system'
-      )
-    : []
+  // Filter to only this workspace's own thread -- each message is tagged with the workspace it
+  // was actually asked against (see handleSend below), independent of whatever's currently
+  // selected, so switching workspaces here shows that workspace's own history rather than every
+  // message ever sent across every workspace mixed into one thread.
+  const currentMessages = chatWorkspace ? chatMessages.filter(m => m.workspace === chatWorkspace) : []
 
   return (
     <div
@@ -295,16 +291,28 @@ export function ChatPanel() {
           </span>
         </div>
         {chatWorkspace && (
-          <span
-            className="text-xs px-2 py-0.5 rounded-full font-medium truncate max-w-[140px]"
-            style={{
-              background: 'var(--accent-dim)',
-              border: '1px solid rgba(124,110,245,0.3)',
-              color: 'var(--accent)',
-            }}
-          >
-            {chatWorkspace}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span
+              className="text-xs px-2 py-0.5 rounded-full font-medium truncate max-w-[140px]"
+              style={{
+                background: 'var(--accent-dim)',
+                border: '1px solid rgba(124,110,245,0.3)',
+                color: 'var(--accent)',
+              }}
+            >
+              {chatWorkspace}
+            </span>
+            {currentMessages.length > 0 && (
+              <button
+                onClick={() => clearChatMessages(chatWorkspace)}
+                className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
+                style={{ color: 'var(--text-muted)' }}
+                title={`Clear conversation with ${chatWorkspace}`}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
         )}
       </div>
 
