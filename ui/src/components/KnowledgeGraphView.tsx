@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo, type ReactNode } from 'react'
 import * as d3 from 'd3'
 import { BookOpen, ChevronDown, X } from 'lucide-react'
 import { useWorkspaces, useKnowledgeGraph, useKnowledgeGraphNode } from '../api/client'
@@ -26,11 +26,56 @@ function repoColor(repo: string, repos: string[]): string {
   return REPO_PALETTE[i % REPO_PALETTE.length] ?? '#7c6ef5'
 }
 
+const MAX_HIGHLIGHT_MATCHES = 400
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Renders `text` as-is when there's no active search, otherwise wraps every case-insensitive
+// match of `query` in a <mark> -- same query driving the graph's own dim/highlight filtering, so
+// what's dimmed on the canvas and what's marked in the preview always agree on what "matches"
+// means. Capped rather than unbounded: a short, very common query against a 200k-char file could
+// otherwise produce thousands of <mark> elements and visibly stall the render.
+function highlightMatches(text: string, query: string): ReactNode {
+  const q = query.trim()
+  if (!q) return text
+
+  const re = new RegExp(`(${escapeRegExp(q)})`, 'gi')
+  const parts = text.split(re)
+  if (parts.length <= 1) return text
+
+  let matchCount = 0
+  return parts.map((part, i) => {
+    const isMatch = i % 2 === 1
+    if (isMatch) matchCount++
+    if (isMatch && matchCount <= MAX_HIGHLIGHT_MATCHES) {
+      return (
+        <mark key={i} style={{ background: 'rgba(245,166,35,0.45)', color: 'inherit', borderRadius: 2 }}>
+          {part}
+        </mark>
+      )
+    }
+    return <span key={i}>{part}</span>
+  })
+}
+
 // Same right-hand slide-in pattern as DetailPanel/EventDetailPanel elsewhere in this app --
 // clicking a node previews what's actually indexed for it, not just the label/repo/connection
 // count the hover tooltip already shows.
-function NodePreviewPanel({ workspace, nodeId, onClose }: { workspace: string; nodeId: string; onClose: () => void }) {
+function NodePreviewPanel({ workspace, nodeId, query, onClose }: { workspace: string; nodeId: string; query: string; onClose: () => void }) {
   const { data, isLoading, error } = useKnowledgeGraphNode(workspace, nodeId)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Jump straight to the relevant part of a long file instead of leaving the reader to scroll
+  // and hunt for what matched -- same query that dims the graph down to matching nodes.
+  useEffect(() => {
+    if (!data || !query.trim()) return
+    const id = requestAnimationFrame(() => {
+      scrollRef.current?.querySelector('mark')?.scrollIntoView({ block: 'center' })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [data, query])
 
   return (
     <div
@@ -46,7 +91,7 @@ function NodePreviewPanel({ workspace, nodeId, onClose }: { workspace: string; n
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {isLoading && (
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             Loading…
@@ -80,7 +125,7 @@ function NodePreviewPanel({ workspace, nodeId, onClose }: { workspace: string; n
                   Indexed summary
                 </p>
                 <p className="text-[11px] leading-relaxed p-2 rounded-md" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-                  {data.summary}
+                  {highlightMatches(data.summary, query)}
                 </p>
               </div>
             )}
@@ -93,7 +138,7 @@ function NodePreviewPanel({ workspace, nodeId, onClose }: { workspace: string; n
                 className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-md"
                 style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
               >
-                {data.content}
+                {highlightMatches(data.content, query)}
               </pre>
               {data.truncated && (
                 <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
@@ -123,7 +168,7 @@ function NodePreviewPanel({ workspace, nodeId, onClose }: { workspace: string; n
                   className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-md"
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
                 >
-                  {diagram.content}
+                  {highlightMatches(diagram.content, query)}
                 </pre>
               </div>
             ))}
@@ -563,6 +608,7 @@ export function KnowledgeGraphView() {
         <NodePreviewPanel
           workspace={workspace}
           nodeId={selectedNodeId}
+          query={searchText}
           onClose={() => {
             selectedRef.current = null
             setSelectedNodeId(null)
