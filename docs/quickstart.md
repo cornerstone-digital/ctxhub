@@ -1,7 +1,8 @@
 # Quickstart
 
-ctxhub works with a single repo, a monorepo, or a parent directory holding several repos. Pick the
-path that matches your situation.
+ctxhub gives your AI agents a shared, searchable understanding of your codebase — and gives you Mission Control to watch what they find, review their work, and turn every engineering decision into searchable knowledge.
+
+This guide gets you from zero to your first indexed workspace and first Captain result. ctxhub works with a single repo, a monorepo, or a parent directory holding several repos — pick the path that matches your situation.
 
 **What you'll have at the end:**
 

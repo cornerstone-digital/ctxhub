@@ -1,6 +1,10 @@
-# ctxhub CLI
+# ctxhub
 
-A multi-repo context and memory server for AI coding agents. ctxhub indexes your workspace, exposes it to agents via MCP tools, and keeps a clean boundary between the project index, personal memory, and team-shared notes.
+**Make every AI agent understand your codebase.**
+
+AI coding tools solved generation. They didn't solve context. They didn't solve coordination. They didn't solve memory. ctxhub does.
+
+ctxhub is the open-source context layer for AI engineering. It gives your entire agent fleet — Claude, Codex, GitHub Copilot, Cursor, local models — a shared, searchable memory of your codebase, schedules agents to work on your behalf, and gives you a live dashboard to watch, control, and act on everything they find.
 
 → **[Quickstart](./docs/quickstart.md)** · **[Architecture](./docs/architecture.md)** · **[Philosophy](./docs/philosophy.md)** · **[Roadmap](./ROADMAP.md)**
 
@@ -9,19 +13,18 @@ A multi-repo context and memory server for AI coding agents. ctxhub indexes your
 ## How it works
 
 ```
-Your workspace (one or more git repos)
-        │
-        ▼
-  ctxhub index          ← docs, code, architecture diagrams → LanceDB
-        │
-        ▼
-  ctxhub mcp            ← MCP server (stdio)
-        │
-        ▼
-  Claude / Codex / Cursor / Copilot
+     Mission Control          ← watch, review, promote
+           ▲
+     ctxhub Runtime           ← index, memory, MCP, personas
+           ▲
+       AI Models              ← Claude, Codex, Cursor, Ollama
 ```
 
-Agents query the index through MCP tools (`search`, `context_pack`, `open_chunk`, etc.) instead of grepping every repo themselves. The index is read-only — agent notes go to MemPalace or `agent-notes/` in the repo, never into the index.
+**The runtime** indexes your codebase and exposes it to every agent through MCP tools. Agents get shared, structured context instead of grepping repos themselves.
+
+**Mission Control** is the live dashboard where you see what your agents are doing, review what they found, and promote findings into searchable institutional knowledge. Open it with `ctxhub dashboard`.
+
+**The models are interchangeable.** ctxhub works with whatever you already use and doesn't care if that changes.
 
 ---
 

@@ -1,99 +1,92 @@
 # Why ctxhub is shaped this way
 
-This is the "why," not the "how" (see [architecture.md](./architecture.md)) or the "what do I run
-first" (see [quickstart.md](./quickstart.md)). A few decisions recur throughout the codebase and
-are worth stating explicitly, since they explain choices that might otherwise look arbitrary.
+*The mission is to turn every engineering decision into institutional knowledge. The principles are: open context, humans stay in control, knowledge compounds. This document explains how those commitments show up in specific technical decisions.*
 
-## Two pillars: context/memory fabric, and a customizable orchestration framework
+See [architecture.md](./architecture.md) for *how* it's built, [quickstart.md](./quickstart.md) for how to get started, and [docs/strategy/PRINCIPLES.md](./strategy/PRINCIPLES.md) for the full principles.
 
-ctxhub is the open context and memory fabric around whichever coding harness you already use
-(Claude Code, Codex, Copilot, Cursor) — that's everything described below this section, and it
-isn't going away. Alongside it, ctxhub is also becoming a **personal, customizable orchestration
-framework**: a local control plane (see [docs/control-plane.md](./control-plane.md)) for running
-your own agentic workflows — across multiple workspaces, with personas, execution profiles, and
-scheduled/triggered Captains — rather than only answering one bounded question at a time. Both
-pillars share the same discipline: evidence-grounded, opt-in, local-first, and legible enough that
-a user can see and edit exactly what's configured. The orchestration pillar doesn't change who
-actually runs a model — see "Harnesses execute; ctxhub decides what and when," below — it changes
-how much of the *decision-making* (which workspace, which persona, which harness, on what trigger)
-ctxhub is trusted to do on your behalf.
+---
 
-## Harnesses execute; ctxhub decides what and when
+## The design philosophy
 
-Every LLM-backed feature, from a one-shot `ctxhub explain` to a scheduled Workspace Captain,
-shells out to a harness CLI you already have configured (`runAgentPrompt`) rather than adding a
-second inference engine or model-hosting layer of its own. This holds as ctxhub grows into an
-orchestration framework: a Captain deciding *when* to run a task and *which* persona/execution
-profile to use is still ctxhub; the model call itself still belongs to Claude Code, Codex, Copilot,
-Cursor, or (for direct API access with no harness CLI installed) an explicit gateway adapter. This
-keeps ctxhub vendor-neutral and out of the business of hosting or wrapping inference itself.
+**AI should feel like another engineer on the team — capable, helpful, and operating within boundaries the team has agreed on.**
 
-## The index is a read-only mirror; memory is a separate, writable layer
+Not a chatbot. Not an oracle. A colleague: one that works continuously, surfaces findings for review, earns more autonomy as trust grows, and whose output becomes part of the shared engineering record.
 
-ctxhub's own index (LanceDB or `local-json`) is deliberately **read-only** — a mirror of what's
-actually in git, refreshed via `ctxhub sync`/a post-commit hook. It is not a place for an agent to
-stash its own notes, and that's on purpose: mixing "official repo content" with "agent scratch
-notes" in the same search results would make both worse — you'd never be sure whether a hit was
-reviewed team knowledge or one agent's unverified aside from three sessions ago.
+Every major product decision flows from this: Personas give AI a role and reasoning style. Captains give it recurring responsibilities. Missions let it execute multi-step work. Approvals keep humans in the loop. Mission Control makes the whole AI workforce visible. Memory makes what it learns persistent.
+
+When a feature is unclear, ask: does this make the AI feel more like a trusted colleague, or does it make it feel more like a tool you invoke and forget?
+
+---
+
+## The context layer sits above the models
+
+ctxhub is the context layer for AI engineering — the shared, structured understanding of a codebase that every AI agent needs but none of them maintain on their own. Every technical decision flows from that responsibility.
+
+This means ctxhub is explicitly not a model provider, not an editor, and not a coding agent. It sits above all of those. When a Captain runs, ctxhub decides *what* to ask and *when* to ask it; the model call itself belongs to Claude, Codex, Copilot, Cursor, or a direct API gateway. This keeps ctxhub vendor-neutral and out of the business of hosting or wrapping inference.
+
+New features that push ctxhub toward becoming a coding assistant or a model wrapper are misaligned. The question to ask is: does this extend the context layer, or does it add something that belongs elsewhere?
+
+---
+
+## Humans stay in control — by design, not by policy
+
+The approval queue isn't a safety net bolted on after the fact. It's how trust gets built. Each time a human reviews a Captain finding and promotes it (or rejects it), they're calibrating how much the AI's judgement can be relied on next time.
+
+This shows up in specific constraints:
+
+- `ctxhub captain run` never writes to a repo. It writes to a pending-approval queue. Promotion is always a separate, human-invoked action.
+- `ctxhub note promote` is the one explicit bridge between agent memory and team-shared notes — copying a MemPalace hit into a note is a deliberate decision, not something that happens implicitly.
+- LLM features are opt-in (`llm.enabled: false` by default) and never the only path. Turning LLM off degrades a feature, it doesn't break it.
+
+Automation that removes human review without first establishing trust is the wrong direction, even if it's faster. Earn the trust incrementally; extend autonomy as evidence accumulates.
+
+---
+
+## The index is a read-only mirror; memory is a separate writable layer
+
+The index (LanceDB or `local-json`) mirrors what's in git. It is not a place for agents to stash notes. Mixing reviewed team knowledge with unverified agent scratchpad in the same search results makes both worse — a hit would carry ambiguous authority.
 
 Two separate, purpose-built paths exist instead:
 
-- **MemPalace** (or the `local-json` fallback) for personal/session memory — durable across an
-  agent's own sessions, not shared with the team, not indexed by ctxhub.
-- **`ctxhub note add`** for team-shared notes — a git-tracked file that shows up in a normal PR
-  diff for review, and gets indexed like any other doc once merged.
+- **MemPalace** (or `local-json` fallback) for personal and session memory — durable across an agent's sessions, not shared with the team, not indexed.
+- **`ctxhub note add`** for team-shared notes — git-tracked, shows up in PR diffs for review, indexed after merge.
 
-`ctxhub note promote` is the one explicit, one-way bridge between them: copying a MemPalace hit
-into a team note is a deliberate decision, not something that happens implicitly. See
-[README.md#two-kinds-of-agent-memory](../README.md#two-kinds-of-agent-memory) for the concrete
-command-level split.
+`ctxhub note promote` is the explicit one-way bridge. A MemPalace finding becomes a team note only through a human decision.
 
-## Local-first, no server, by default
+---
 
-`ctxhub report` writes one self-contained HTML file — no CDN assets, no local server, nothing that
-needs to stay running. This wasn't the easy default; it was picked deliberately over spinning up a
-live dashboard, because a workspace tool that quietly opens a network listener is a different (and
-larger) trust surface than one that writes a file you can open, inspect, and delete. The tradeoff
-this creates — a new free-text memory query needs a report regeneration, since a static file can't
-run a new server-side search — is treated as an acceptable consequence of that choice, not a
-compromise to quietly work around later.
+## Local-first is a trust decision, not a performance decision
 
-The same bias shows up in the embeddings decision: lexical/full-text search already covers a
-typical multi-repo doc+code corpus well, so ctxhub doesn't bundle a local embedding model as a
-second native-binary dependency for what would be modest benefit on identifier-dense content. This
-was decided against, not merely deferred (see [ROADMAP.md](../ROADMAP.md)).
+Nothing in ctxhub requires a network connection. This wasn't the easy default — it was chosen because a tool that quietly opens a network listener is a larger trust surface than one that operates entirely on your machine.
 
-## LLM features are opt-in, evidence-grounded, and never load-bearing
+The same thinking applies to embeddings: lexical/full-text search covers a typical multi-repo doc+code corpus well enough that a second native-binary dependency for a local embedding model isn't justified by the improvement. Decided against, not deferred.
 
-Every LLM-backed feature (`explain`, `pr-context`'s contract-risk review, `review`, `handoff`'s
-summary, note/diagram drafts, and others) shares the same three properties:
+Mission Control (`localhost:7342`) is an exception: it runs locally on purpose, with no external data transmission.
+
+---
+
+## LLM features are opt-in, grounded, and fallback-safe
+
+Every LLM-backed feature shares three properties:
 
 1. **Off by default.** `llm.enabled: false` until a user turns it on.
-2. **Grounded in evidence ctxhub already gathered** — a context pack, a diff, an architecture
-   graph — never free-floating model knowledge. Prompts are explicit that only cited
-   `repo:path` evidence may be used; inventing one is treated as a bug, not a quality nuance.
-3. **Never the only path.** Every LLM-backed feature has a non-LLM fallback that still produces a
-   useful result (the raw evidence bundle, the un-synthesized structured bundle) when disabled,
-   unavailable, or timed out. Turning the LLM off should degrade a feature, not break it.
+2. **Evidence-grounded.** Prompts are built from ctxhub-gathered evidence (context packs, diffs, architecture graphs). Inventing a `repo:path` citation that wasn't in the evidence is treated as a bug, not a quality nuance.
+3. **Non-LLM fallback.** Every LLM feature produces a useful result (the raw evidence bundle, the structured context) when disabled or unavailable. The LLM path enriches; it doesn't replace.
 
-[NEXT_FEATURES #30](../NEXT_FEATURES.md)'s evidence-backed confidence scoring follows the same
-discipline in the other direction: a score built from real, inspectable signals (source type,
-recency, corroboration, doc/code agreement) — never a model's own self-reported confidence, and
-never requiring an LLM call at all.
+Confidence scoring follows the same discipline in reverse: scores are computed from real, inspectable signals (source type, recency, corroboration, doc/code agreement) — never from a model's self-reported confidence.
 
-## One dual surface for humans and agents, not two products
+---
 
-Most features exist as both a CLI command and an MCP tool, because the two audiences (a person at
-a terminal, an agent through MCP) need the same underlying answer, not two different tools that
-could drift apart. `ctxhub agent <name>` and `ctxhub skills install` exist for the same reason from
-the other direction: skills teach an agent *when* to reach for a tool it already has, so the
-capability and the guidance to use it well ship together instead of one lagging the other.
+## One surface for humans and agents, not two products
 
-## Don't reimplement what already does the job well
+Most features exist as both a CLI command and an MCP tool, because a person at a terminal and an agent through MCP need the same underlying answer. Building two separate implementations that could drift apart would undermine the whole premise.
 
-ctxhub shells out to MemPalace's real engine for durable memory rather than reimplementing search/
-storage/timeline logic itself (see `src/memory/mempalaceCli.ts` and ROADMAP.md's "Not planned"
-section). The same instinct applies to `ctxhub review`'s reviewer personas: `contract` and `docs`
-reuse `pr-context`'s risk review and `graph --drift`'s repair suggestions unmodified rather than
-re-deriving the same evidence a second way. New surface area is for genuinely new capability, not
-for wrapping something that already works.
+Skills (`ctxhub skills install`) apply the same logic: they teach an agent *when* to reach for a tool it already has access to. Capability and usage guidance ship together.
+
+---
+
+## Don't reimplement what already works
+
+ctxhub shells out to MemPalace's real engine for durable memory rather than reimplementing search, storage, and timeline logic itself. `ctxhub review`'s `contract` and `docs` personas reuse `pr-context`'s risk review and `graph --drift`'s repair suggestions unmodified. New surface area is for genuinely new capability, not for wrapping something that already works well.
+
+The test: if removing this code would make an existing, working thing worse, it's wrapping. If removing it would leave a gap that nothing else fills, it's new capability.
