@@ -33,13 +33,15 @@ export type KnowledgeGraphEdge = {
 export type KnowledgeGraph = {
   nodes: KnowledgeGraphNode[];
   edges: KnowledgeGraphEdge[];
-  // True when there were more indexed files than MAX_FILE_NODES -- the graph still renders, just
-  // not every file in a large workspace, same "directional signal, not exhaustive" tradeoff
-  // `ctxhub stats` already documents for its own estimates.
+  // True when there were more indexed files than MAX_SIMILARITY_NODES -- every file still becomes
+  // a node (Obsidian-style: no cap on what's shown, d3's canvas rendering handles a few thousand
+  // nodes fine), but files beyond the budget only carry diagram edges, not similarity edges, since
+  // computing those needs a real index search per file. "Truncated" now describes edge coverage,
+  // not node visibility.
   truncated: boolean;
 };
 
-const MAX_FILE_NODES = 120;
+const MAX_SIMILARITY_NODES = 120;
 const SIMILARITY_NEIGHBORS = 4;
 const SIMILARITY_CONCURRENCY = 8;
 
@@ -81,16 +83,40 @@ function getProvider(config: CtxhubConfig, workspaceRoot: string): IndexProvider
   return createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
 }
 
+// Shared by the bulk build (one call per file, budget-limited) and expandKnowledgeGraphNode (one
+// call for a single node, invoked on demand) so there's exactly one definition of "how a file's
+// similarity edges are computed" -- never two implementations to keep in sync.
+async function similarityMatchesForFile(
+  provider: IndexProvider,
+  key: string,
+  doc: IndexedDocument,
+  nodeIds: Set<string>
+): Promise<Array<{ target: string; weight: number }>> {
+  const query = (doc.title ?? doc.content).slice(0, 300).trim();
+  if (!query) return [];
+  const results = await provider.search(query, SIMILARITY_NEIGHBORS + 1).catch(() => []);
+  const matches: Array<{ target: string; weight: number }> = [];
+  for (const result of results) {
+    const targetKey = fileNodeId(result);
+    if (targetKey === key || !nodeIds.has(targetKey)) continue;
+    matches.push({ target: targetKey, weight: result.score });
+  }
+  return matches;
+}
+
 export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: string): Promise<KnowledgeGraph> {
   const provider = getProvider(config, workspaceRoot);
   const docs = await provider.recent(3000);
   const byFile = indexFilesByNodeId(docs);
 
   const allFiles = [...byFile.entries()];
-  const truncated = allFiles.length > MAX_FILE_NODES;
-  const fileEntries = allFiles.slice(0, MAX_FILE_NODES);
+  const truncated = allFiles.length > MAX_SIMILARITY_NODES;
+  // `provider.recent()` returns most-recently-indexed first, so this budget naturally favors
+  // fresher files over stale ones when a workspace has more files than the similarity-search
+  // budget covers -- not an arbitrary cutoff.
+  const similarityEntries = allFiles.slice(0, MAX_SIMILARITY_NODES);
 
-  const nodes: KnowledgeGraphNode[] = fileEntries.map(([key, doc]) => ({
+  const nodes: KnowledgeGraphNode[] = allFiles.map(([key, doc]) => ({
     id: key,
     label: doc.filePath.split('/').pop() ?? doc.filePath,
     repo: doc.repo,
@@ -109,15 +135,9 @@ export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: s
     edges.push({ source, target, weight, kind });
   }
 
-  await mapWithConcurrencyLimit(fileEntries, SIMILARITY_CONCURRENCY, async ([key, doc]) => {
-    const query = (doc.title ?? doc.content).slice(0, 300).trim();
-    if (!query) return;
-    const results = await provider.search(query, SIMILARITY_NEIGHBORS + 1).catch(() => []);
-    for (const result of results) {
-      const targetKey = fileNodeId(result);
-      if (!nodeIds.has(targetKey)) continue;
-      addEdge(key, targetKey, result.score, 'similarity');
-    }
+  await mapWithConcurrencyLimit(similarityEntries, SIMILARITY_CONCURRENCY, async ([key, doc]) => {
+    const matches = await similarityMatchesForFile(provider, key, doc, nodeIds);
+    for (const match of matches) addEdge(key, match.target, match.weight, 'similarity');
   });
 
   for (const doc of docs) {
@@ -143,6 +163,27 @@ export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: s
   for (const node of nodes) node.connections = degree.get(node.id) ?? 0;
 
   return { nodes, edges, truncated };
+}
+
+// On-demand counterpart to the bulk similarity-edge pass above: lets the UI "expand" a single node
+// that missed the MAX_SIMILARITY_NODES budget (or just re-check a node's neighbors) with one real
+// index search, rather than the whole-workspace 120x-search cost -- cheap enough to run on every
+// node click. Every file is already a node by the time this runs (buildKnowledgeGraph has no
+// display cap), so this only ever needs to return new edges, never new nodes.
+export async function expandKnowledgeGraphNode(
+  config: CtxhubConfig,
+  workspaceRoot: string,
+  nodeId: string
+): Promise<KnowledgeGraphEdge[] | undefined> {
+  const provider = getProvider(config, workspaceRoot);
+  const docs = await provider.recent(3000);
+  const byFile = indexFilesByNodeId(docs);
+  const doc = byFile.get(nodeId);
+  if (!doc) return undefined;
+
+  const nodeIds = new Set(byFile.keys());
+  const matches = await similarityMatchesForFile(provider, nodeId, doc, nodeIds);
+  return matches.map(match => ({ source: nodeId, target: match.target, weight: match.weight, kind: 'similarity' as const }));
 }
 
 export type KnowledgeNodeContent =

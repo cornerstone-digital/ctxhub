@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile, unlink } from 'node:fs/promises';
 import { indexWorkspace } from './indexer.js';
-import { buildKnowledgeGraph, findKnowledgeGraphNodeContent } from './knowledgeGraph.js';
+import { buildKnowledgeGraph, findKnowledgeGraphNodeContent, expandKnowledgeGraphNode } from './knowledgeGraph.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 
 async function withWorkspace(run: (cwd: string) => Promise<void>) {
@@ -60,6 +60,45 @@ test('buildKnowledgeGraph produces one node per indexed file plus component node
   });
 });
 
+test('buildKnowledgeGraph renders every file as a node even past the similarity-edge budget (Obsidian-style: no display cap)', () => {
+  const cwd = mkdtemp(path.join(os.tmpdir(), 'ctxhub-kg-many-'));
+  return cwd.then(async dir => {
+    const originalCwd = process.cwd();
+    try {
+      await initConfig('ws', dir);
+      const repoPath = path.join(dir, 'app');
+      await mkdir(repoPath, { recursive: true });
+
+      const FILE_COUNT = 130; // one past MAX_SIMILARITY_NODES (120)
+      for (let i = 0; i < FILE_COUNT; i++) {
+        await writeFile(path.join(repoPath, `note-${i}.md`), `# Note ${i}\n\nContent for note ${i}.\n`);
+      }
+
+      const config = await loadConfig(dir);
+      config.repositories.push({ name: 'app', path: './app', git: false });
+      config.index.provider = 'local-json';
+      config.index.path = '.ctxhub/index/local.json';
+      await saveConfig(config, dir);
+
+      process.chdir(dir);
+      await indexWorkspace(dir, false);
+
+      const graph = await buildKnowledgeGraph(config, dir);
+      const fileNodes = graph.nodes.filter(n => n.kind === 'file');
+
+      // Every indexed file becomes a node -- unlike the old MAX_FILE_NODES cap, node count is not
+      // limited to the similarity-edge budget.
+      assert.equal(fileNodes.length, FILE_COUNT);
+      // But the budget still bounds the expensive part (one real index search per file for
+      // similarity edges), so `truncated` now reports edge coverage, not missing nodes.
+      assert.equal(graph.truncated, true);
+    } finally {
+      process.chdir(originalCwd);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 test('buildKnowledgeGraph links diagram components with real edges parsed from relationship lines', () => {
   return withWorkspace(async cwd => {
     const config = await loadConfig(cwd);
@@ -87,6 +126,34 @@ test('buildKnowledgeGraph finds a similarity edge between two files with related
         ((e.source === billing!.id && e.target === invoices!.id) || (e.source === invoices!.id && e.target === billing!.id))
     );
     assert.ok(linked, 'expected a similarity edge between billing.md and invoices.md');
+  });
+});
+
+test('expandKnowledgeGraphNode finds the same similarity edge on demand, for a single node, without a full graph rebuild', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    const graph = await buildKnowledgeGraph(config, cwd);
+    const invoices = graph.nodes.find(n => n.id.endsWith('invoices.md'));
+    assert.ok(invoices);
+
+    // The bulk build's edge above is found via lexical search from invoices.md's content
+    // (asymmetric like lexical search generally is -- billing.md's content doesn't rank
+    // invoices.md highly enough as a query, but invoices.md's content does rank billing.md), so
+    // expand from the same direction here for a real, non-flaky assertion.
+    const edges = await expandKnowledgeGraphNode(config, cwd, invoices!.id);
+    assert.ok(edges);
+    assert.ok(
+      edges!.some(e => e.source === invoices!.id && e.target.endsWith('billing.md')),
+      'expected expandKnowledgeGraphNode to find billing.md as a similarity neighbor of invoices.md'
+    );
+  });
+});
+
+test('expandKnowledgeGraphNode returns undefined for a node id that matches no indexed file', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    const edges = await expandKnowledgeGraphNode(config, cwd, 'app:nonexistent.md');
+    assert.equal(edges, undefined);
   });
 });
 

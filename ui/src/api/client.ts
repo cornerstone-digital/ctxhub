@@ -10,6 +10,7 @@ import type {
   ExplainResult,
   IndexJobState,
   KnowledgeGraph,
+  KnowledgeGraphEdge,
   KnowledgeNodeContent,
   PersonasStatus,
   RepoConfig,
@@ -180,6 +181,16 @@ export function useKnowledgeGraphNode(workspace: string | null, nodeId: string |
     queryFn: () => fetchJson<KnowledgeNodeContent>(`/workspaces/${encodeURIComponent(workspace!)}/knowledge-graph/node?id=${encodeURIComponent(nodeId!)}`),
     enabled: workspace !== null && nodeId !== null,
   })
+}
+
+// Plain imperative fetch, not a useQuery hook: KnowledgeGraphView calls this directly from its
+// node-click handler to splice fresh edges into the already-running d3 simulation, which is
+// mutable canvas/ref state react-query's declarative cache model doesn't fit.
+export async function fetchKnowledgeGraphExpand(workspace: string, nodeId: string): Promise<KnowledgeGraphEdge[]> {
+  const result = await fetchJson<{ edges: KnowledgeGraphEdge[] }>(
+    `/workspaces/${encodeURIComponent(workspace)}/knowledge-graph/expand?id=${encodeURIComponent(nodeId)}`
+  )
+  return result.edges
 }
 
 // --- Workspace config: repos, execution profiles, general settings ---------------------------

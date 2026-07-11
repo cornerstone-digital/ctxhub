@@ -7,6 +7,13 @@ interface FleetStore {
   activeView: FleetView
   setActiveView: (view: FleetView) => void
 
+  // Set by a citation click in Chat; consumed once by KnowledgeGraphView to switch workspace,
+  // select the matching node, and fit the view to it -- then cleared. Not folded into
+  // `activeView`/`selectedWorkspace` since those are generic navigation state and this is a
+  // one-shot instruction with its own payload.
+  pendingKnowledgeFocus: { workspace: string; nodeId: string } | null
+  setPendingKnowledgeFocus: (target: { workspace: string; nodeId: string } | null) => void
+
   selectedWorkspace: string | null
   setSelectedWorkspace: (name: string | null) => void
 
@@ -37,6 +44,9 @@ let chatIdCounter = 0
 export const useFleetStore = create<FleetStore>((set) => ({
   activeView: 'fleet',
   setActiveView: (view) => set({ activeView: view }),
+
+  pendingKnowledgeFocus: null,
+  setPendingKnowledgeFocus: (target) => set({ pendingKnowledgeFocus: target }),
 
   selectedWorkspace: null,
   // Mutually exclusive with selectedEvent -- both render as the same right-hand slide-in over

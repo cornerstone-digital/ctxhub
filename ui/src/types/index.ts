@@ -141,6 +141,10 @@ export interface ChatMessage {
   content: string;
   citations?: ExplainResult['citations'];
   timestamp: Date;
+  // The workspace this message was actually asked against -- kept on the message itself, not
+  // read from the currently-selected chat workspace, so a citation click still jumps to the right
+  // Knowledge graph even if the user has since switched workspaces in the selector.
+  workspace: string;
 }
 
 export interface RepoConfig {

@@ -13,7 +13,7 @@ import { notify } from '../utils/notify.js';
 import { eventBus, type CtxhubEventEnvelope } from '../events/eventBus.js';
 import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
 import { listCaptainRuns, promoteCaptainRun, runCaptainTask } from '../captains/runner.js';
-import { buildKnowledgeGraph, findKnowledgeGraphNodeContent } from '../indexing/knowledgeGraph.js';
+import { buildKnowledgeGraph, findKnowledgeGraphNodeContent, expandKnowledgeGraphNode } from '../indexing/knowledgeGraph.js';
 import { isGitRepo } from '../git/git.js';
 import { pathExists } from '../utils/fs.js';
 import type { CtxhubConfig, ExecutionProfile, RepoConfig } from '../config/types.js';
@@ -297,6 +297,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       return;
     }
     await handleKnowledgeGraphNode(res, decodeURIComponent(knowledgeGraphNodeMatch[1]), nodeId);
+    return;
+  }
+
+  const knowledgeGraphExpandMatch = /^\/workspaces\/([^/]+)\/knowledge-graph\/expand$/.exec(url.pathname);
+  if (req.method === 'GET' && knowledgeGraphExpandMatch) {
+    const nodeId = url.searchParams.get('id');
+    if (!nodeId) {
+      sendJson(res, 400, { error: 'Missing "id" query parameter' });
+      return;
+    }
+    await handleKnowledgeGraphExpand(res, decodeURIComponent(knowledgeGraphExpandMatch[1]), nodeId);
     return;
   }
 
@@ -626,6 +637,31 @@ async function handleKnowledgeGraphNode(res: http.ServerResponse, name: string, 
       return;
     }
     sendJson(res, 200, content);
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+// Backs the Knowledge view's "expand on click" behavior: a node past the bulk build's
+// similarity-edge budget renders with no similarity edges yet -- clicking it fires this, one real
+// index search, and the UI splices whatever comes back into the already-running simulation. Lets
+// a user freely navigate outward from any node instead of being stuck with one fixed snapshot.
+async function handleKnowledgeGraphExpand(res: http.ServerResponse, name: string, nodeId: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => entry.name === name);
+  if (!workspace || !workspace.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  try {
+    const edges = await expandKnowledgeGraphNode(config, workspaceRoot, nodeId);
+    if (!edges) {
+      sendJson(res, 404, { error: `No indexed file found for node "${nodeId}"` });
+      return;
+    }
+    sendJson(res, 200, { edges });
   } catch (error) {
     sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
   }

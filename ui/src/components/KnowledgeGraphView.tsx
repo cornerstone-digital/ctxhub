@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState, useCallback, useMemo, type ReactNode } from 'react'
 import * as d3 from 'd3'
 import { BookOpen, ChevronDown, X } from 'lucide-react'
-import { useWorkspaces, useKnowledgeGraph, useKnowledgeGraphNode } from '../api/client'
+import { useWorkspaces, useKnowledgeGraph, useKnowledgeGraphNode, fetchKnowledgeGraphExpand } from '../api/client'
 import { relTime } from '../lib/utils'
+import { useFleetStore } from '../store/fleet'
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '../types'
 
 interface NodeDatum extends d3.SimulationNodeDatum {
@@ -270,6 +271,9 @@ export function KnowledgeGraphView() {
   const hoveredRef = useRef<string | null>(null)
   const selectedRef = useRef<string | null>(null)
   const visibleRef = useRef<Set<string> | null>(null)
+  // Nodes already expanded this session (bulk-build edges or a prior click) -- skips a redundant
+  // identical search when the same node is clicked again.
+  const expandedRef = useRef<Set<string>>(new Set())
 
   const { data: wsData } = useWorkspaces()
   const workspaces = wsData?.workspaces ?? []
@@ -345,6 +349,7 @@ export function KnowledgeGraphView() {
 
     nodesRef.current = nodes
     linksRef.current = links
+    expandedRef.current = new Set()
 
     const sim = d3
       .forceSimulation<NodeDatum>(nodes)
@@ -390,11 +395,56 @@ export function KnowledgeGraphView() {
     }
     canvas.addEventListener('mousemove', handleMouseMove)
 
+    // Obsidian-style free navigation: a file node past the bulk build's similarity-edge budget
+    // (or, in a huge workspace, simply never searched-from yet) renders with no similarity edges.
+    // Clicking it fires one on-demand search (fetchKnowledgeGraphExpand) and splices whatever
+    // comes back straight into the running simulation, so panning/zooming the user already did
+    // isn't disturbed -- only new links/labels appear. Best-effort: a failed expand still lets the
+    // click open the preview panel via setSelectedNodeId above.
+    async function expandNode(nodeId: string, ws: string) {
+      if (expandedRef.current.has(nodeId)) return
+      expandedRef.current.add(nodeId)
+      let newEdges: KnowledgeGraphEdge[]
+      try {
+        newEdges = await fetchKnowledgeGraphExpand(ws, nodeId)
+      } catch {
+        return
+      }
+      if (newEdges.length === 0) return
+
+      const nodeById = new Map(nodesRef.current.map(n => [n.id, n]))
+      const existingKeys = new Set(
+        linksRef.current.map(l => [(l.source as NodeDatum).id, (l.target as NodeDatum).id].sort().join('::'))
+      )
+      let added = 0
+      for (const edge of newEdges) {
+        const key = [edge.source, edge.target].sort().join('::')
+        if (existingKeys.has(key)) continue
+        const source = nodeById.get(edge.source)
+        const target = nodeById.get(edge.target)
+        if (!source || !target) continue
+        existingKeys.add(key)
+        linksRef.current.push({ source, target, kind: 'similarity' })
+        source.connections++
+        target.connections++
+        added++
+      }
+      if (added === 0) return
+
+      // Re-heat rather than restart from scratch -- the existing layout stays put, new links just
+      // pull their two nodes gently toward each other on top of it.
+      sim.force('link', d3.forceLink<NodeDatum, LinkDatum>(linksRef.current).id(d => d.id).distance(60).strength(0.3))
+      sim.alpha(0.3).restart()
+    }
+
     function handleClick(e: MouseEvent) {
       const rect = canvas!.getBoundingClientRect()
       const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top)
       selectedRef.current = hit?.id ?? null
       setSelectedNodeId(hit?.id ?? null)
+      if (hit && hit.kind === 'file' && workspace) {
+        void expandNode(hit.id, workspace)
+      }
     }
     canvas.addEventListener('click', handleClick)
 
@@ -499,13 +549,16 @@ export function KnowledgeGraphView() {
       canvas.removeEventListener('click', handleClick)
       ro.disconnect()
     }
-  }, [graph, repos])
+  }, [graph, repos, workspace])
 
   // A node id is only meaningful for the graph it came from -- switching workspaces should never
   // leave a stale selection pointing at a node that no longer exists in the new graph.
   useEffect(() => {
     setSelectedNodeId(null)
   }, [workspace])
+
+  const pendingKnowledgeFocus = useFleetStore(s => s.pendingKnowledgeFocus)
+  const setPendingKnowledgeFocus = useFleetStore(s => s.setPendingKnowledgeFocus)
 
   const fitToNodes = useCallback((predicate?: (n: NodeDatum) => boolean) => {
     const canvas = canvasRef.current
@@ -537,6 +590,28 @@ export function KnowledgeGraphView() {
   useEffect(() => {
     if (graph) setTimeout(handleFit, 400)
   }, [graph, handleFit])
+
+  // Deep link from a Chat citation click (see ChatPanel's jumpToCitation): switch to the target
+  // workspace first if needed, then once that workspace's graph has actually loaded (not a stale
+  // previous-workspace graph -- react-query returns `undefined` while the new query key is in
+  // flight, so this bails cleanly rather than racing), select and fit the matching node. Cleared
+  // after acting so it only ever fires once per click, and silently drops if the cited file isn't
+  // (or is no longer) a graph node rather than getting stuck waiting forever.
+  useEffect(() => {
+    if (!pendingKnowledgeFocus) return
+    if (workspace !== pendingKnowledgeFocus.workspace) {
+      setWorkspace(pendingKnowledgeFocus.workspace)
+      return
+    }
+    if (!graph) return
+    const match = graph.nodes.find(n => n.id === pendingKnowledgeFocus.nodeId)
+    if (match) {
+      selectedRef.current = match.id
+      setSelectedNodeId(match.id)
+      setTimeout(() => fitToNodes(n => n.id === match.id), 450)
+    }
+    setPendingKnowledgeFocus(null)
+  }, [pendingKnowledgeFocus, workspace, graph, fitToNodes, setPendingKnowledgeFocus])
 
   // Narrowing down via search/filter also re-frames the view around what matched -- "focus in on
   // certain files" means actually looking at them, not just dimming everything else in place.
@@ -574,7 +649,7 @@ export function KnowledgeGraphView() {
           {graph && (
             <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
               {visible ? `${visible.size} of ${graph.nodes.length} nodes` : `${graph.nodes.length} nodes · ${graph.edges.length} edges`}
-              {graph.truncated ? ' · showing top files' : ''}
+              {graph.truncated ? ' · similarity links limited to the most recent files' : ''}
             </span>
           )}
         </div>
