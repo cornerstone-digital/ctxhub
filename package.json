@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "git:unlock": "node -e \"['HEAD','index'].forEach(f => { try { require('node:fs').rmSync(`.git/${f}.lock`); console.log(`removed .git/${f}.lock`); } catch {} })\"",
+    "git:unlock": "node -e \"['HEAD','index'].forEach(f => { try { require('node:fs').rmSync('.git/'+f+'.lock'); console.log('removed .git/'+f+'.lock'); } catch(e) { if(e.code!=='ENOENT') throw e; } })\"",
     "build": "npm run clean && tsc && node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\" && npm run build:ui",
     "build:ui": "npm --prefix ui install && npm --prefix ui run build",
     "dev": "tsx src/index.ts",
