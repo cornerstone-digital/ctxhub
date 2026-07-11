@@ -9,12 +9,17 @@ import { createIndexProvider } from '../indexing/providers.js';
 import { createMemoryAdapter } from '../memory/LocalJsonMemory.js';
 import { detectDrift } from '../utils/drift.js';
 import { detectAvailableAgent, isAgentCliAvailable } from '../llm/runAgent.js';
+import { isAuthConfigured, loadAuthConfig } from '../auth/config.js';
+import { loadTokens, isTokenExpired } from '../auth/store.js';
+import { loadGroupStore } from '../groups/store.js';
+import { getPackageVersion, fetchLatestNpmVersion, compareSemver } from '../utils/version.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'error';
 export type CheckLine = { status: CheckStatus; message: string };
 export type DoctorCheck = { id: string; run: () => Promise<CheckLine[]> };
 
 export const CHECK_LABELS: Record<string, string> = {
+  version: 'ctxhub version',
   node: 'Node.js',
   git: 'Git',
   config: 'Config',
@@ -25,13 +30,98 @@ export const CHECK_LABELS: Record<string, string> = {
   'memory-provider': 'Memory provider',
   repos: 'Repositories',
   drift: 'Installed skills, agent configs & personas',
-  'llm-features': 'LLM-backed features'
+  'llm-features': 'LLM-backed features',
+  'enterprise-auth': 'Enterprise: Auth',
+  'enterprise-session': 'Enterprise: Session',
+  'enterprise-role-map': 'Enterprise: Role map',
+  'enterprise-groups': 'Enterprise: Groups store',
+  'enterprise-index': 'Enterprise: Indexed knowledge'
 };
+
+export function buildEnterpriseChecks(config: CtxhubConfig, workspaceRoot = process.cwd()): DoctorCheck[] {
+  return [
+    {
+      id: 'enterprise-auth',
+      run: async () => {
+        const configured = await isAuthConfigured();
+        if (configured) return [{ status: 'ok', message: 'Auth: Entra ID configured' }];
+        return [{ status: 'error', message: 'Auth: not configured (run: ctxhub auth configure)' }];
+      }
+    },
+    {
+      id: 'enterprise-session',
+      run: async () => {
+        const configured = await isAuthConfigured();
+        if (!configured) return [];
+        const tokens = await loadTokens();
+        if (!tokens) return [{ status: 'warn', message: 'Session: expired or not logged in (run: ctxhub login)' }];
+        const expired = isTokenExpired(tokens.ctxhubToken.expiresAt);
+        if (expired) return [{ status: 'warn', message: 'Session: expired or not logged in (run: ctxhub login)' }];
+        return [{ status: 'ok', message: `Session: active (${tokens.user.email})` }];
+      }
+    },
+    {
+      id: 'enterprise-role-map',
+      run: async () => {
+        const configured = await isAuthConfigured();
+        if (!configured) return [];
+        const authConfig = await loadAuthConfig();
+        const roleMap = authConfig?.roleMap;
+        const hasOwnerSubs = (roleMap?.ownerSubs?.length ?? 0) > 0;
+        const hasGroupRoles = Object.keys(roleMap?.groupRoles ?? {}).length > 0;
+        if (!hasOwnerSubs && !hasGroupRoles) {
+          return [{ status: 'warn', message: 'Role map: empty — all authenticated users will get default role' }];
+        }
+        return [{ status: 'ok', message: 'Role map: configured' }];
+      }
+    },
+    {
+      id: 'enterprise-groups',
+      run: async () => {
+        try {
+          await loadGroupStore();
+          return [{ status: 'ok', message: 'Groups: store OK' }];
+        } catch {
+          return [{ status: 'error', message: 'Groups: store corrupted or unreadable' }];
+        }
+      }
+    },
+    {
+      id: 'enterprise-index',
+      run: async () => {
+        try {
+          const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+          const status = await index.status();
+          if (status.documentCount === 0) {
+            return [{ status: 'warn', message: 'Index: no indexed documents found (run: ctxhub index)' }];
+          }
+          return [{ status: 'ok', message: `Index: ${status.documentCount} documents across 1 workspace` }];
+        } catch {
+          return [{ status: 'warn', message: 'Index: no indexed documents found (run: ctxhub index)' }];
+        }
+      }
+    }
+  ];
+}
 
 // Order matches the original sequential doctorCommand implementation exactly, so the
 // non-TTY (plain console.log) rendering path stays byte-for-byte identical.
-export function buildDoctorChecks(config: CtxhubConfig, configPath: string, workspaceRoot = process.cwd()): DoctorCheck[] {
-  return [
+export function buildDoctorChecks(config: CtxhubConfig, configPath: string, workspaceRoot = process.cwd(), opts: { enterprise?: boolean } = {}): DoctorCheck[] {
+  const checks: DoctorCheck[] = [
+    {
+      id: 'version',
+      run: async () => {
+        const current = getPackageVersion();
+        const latest = await fetchLatestNpmVersion(3_000);
+        if (!latest) {
+          return [{ status: 'ok', message: `ctxhub v${current} (version check skipped — no network)` }];
+        }
+        if (compareSemver(current, latest) < 0) {
+          return [{ status: 'warn', message: `ctxhub v${current} — update available: v${latest} (run: npm install -g ctxhub)` }];
+        }
+        return [{ status: 'ok', message: `ctxhub v${current} — up to date` }];
+      }
+    },
     {
       id: 'node',
       run: async () => [{ status: 'ok', message: `Node ${process.version}` }]
@@ -209,7 +299,14 @@ export function buildDoctorChecks(config: CtxhubConfig, configPath: string, work
       }
     }
   ];
+
+  if (opts.enterprise) {
+    checks.push(...buildEnterpriseChecks(config, workspaceRoot));
+  }
+
+  return checks;
 }
+
 
 export async function runDoctorChecks(
   checks: DoctorCheck[],

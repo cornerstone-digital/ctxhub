@@ -7,6 +7,75 @@ import { runInteractiveSearch } from '../tui/SearchApp.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 import { classifyResult, filterResults, localRgHints, normalizeSearchFacet, type SearchFacet } from '../context/searchFacets.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
+import { listWorkspaces } from '../workspaces/registry.js';
+
+export type SearchResult = {
+  workspace: string;
+  repo: string;
+  filePath: string;
+  id: string;
+  score: number;
+  snippet: string;
+  [key: string]: unknown;
+};
+
+export async function searchAllWorkspacesCommand(
+  query: string,
+  opts: { limit?: string; type?: string; code?: boolean; docs?: boolean; architecture?: boolean; notes?: boolean },
+): Promise<void> {
+  if (!query?.trim()) {
+    throw new Error('Provide a query for --all-workspaces search.');
+  }
+
+  const workspaces = await listWorkspaces();
+  const activeWorkspaces = workspaces.filter(ws => ws.exists);
+  if (!activeWorkspaces.length) {
+    console.log(chalk.yellow('No registered workspaces found.'));
+    return;
+  }
+
+  const facet = normalizeSearchFacet(
+    opts.code ? 'code' : opts.docs ? 'docs' : opts.architecture ? 'architecture' : opts.notes ? 'notes' : opts.type
+  );
+  const limit = Number(opts.limit ?? 5);
+
+  const allResults: SearchResult[] = [];
+  const seen = new Set<string>();
+
+  for (const ws of activeWorkspaces) {
+    try {
+      const { config, workspaceRoot } = await loadWorkspaceConfig(ws.path);
+      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+      const candidates = await index.search(query.trim(), searchLimit(limit, facet));
+      const filtered = filterResults(candidates, facet).slice(0, limit);
+
+      for (const chunk of filtered) {
+        if (!seen.has(chunk.id)) {
+          seen.add(chunk.id);
+          allResults.push({ ...(chunk as Record<string, unknown>), workspace: ws.name } as SearchResult);
+        }
+      }
+    } catch {
+      console.log(chalk.yellow(`Warning: could not search workspace "${ws.name}" — skipping.`));
+    }
+  }
+
+  allResults.sort((a, b) => b.score - a.score);
+  const topResults = allResults.slice(0, limit * activeWorkspaces.length);
+
+  if (!topResults.length) {
+    console.log(chalk.yellow('No results across all workspaces.'));
+    return;
+  }
+
+  for (const chunk of topResults) {
+    const label = classifyResult(chunk as Parameters<typeof classifyResult>[0]);
+    console.log(`\n${chalk.bold.blue('[' + chunk.workspace + ']')} ${chalk.green(chunk.repo)} ${chalk.gray(chunk.filePath)} ${chalk.cyan(`[${label}]`)}`);
+    if (chunk.title) console.log(chalk.bold(chunk.title as string));
+    console.log(chalk.gray(`id ${chunk.id.slice(0, 12)} · score ${chunk.score}`));
+    console.log(chunk.snippet);
+  }
+}
 
 export async function searchCommand(
   query: string | undefined,
@@ -20,9 +89,16 @@ export async function searchCommand(
     architecture?: boolean;
     notes?: boolean;
     rewriteQuery?: boolean;
+    allWorkspaces?: boolean;
   },
   deps: { runAgentPromptFn?: typeof runAgentPrompt } = {}
 ) {
+  if (opts.allWorkspaces) {
+    if (!query) throw new Error('Provide a query for --all-workspaces search.');
+    await searchAllWorkspacesCommand(query, opts);
+    return;
+  }
+
   const { config, workspaceRoot } = await loadWorkspaceConfig();
   const facet = selectedFacet(opts);
 

@@ -19,6 +19,7 @@ export type DoctorFixOptions = {
   fixPersonas?: boolean;
   interactive?: boolean;
   plain?: boolean;
+  enterprise?: boolean;
 };
 
 type FixAction = { description: string; apply: () => Promise<void> };
@@ -31,7 +32,7 @@ export async function doctorCommand(opts: DoctorFixOptions = {}) {
   }
 
   const { config, workspaceRoot } = await loadWorkspaceConfig();
-  const checks = buildDoctorChecks(config, configPath, workspaceRoot);
+  const checks = buildDoctorChecks(config, configPath, workspaceRoot, { enterprise: opts.enterprise });
 
   if (shouldUseInteractive(opts)) {
     const lines = await runDoctorChecklist(checks);

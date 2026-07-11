@@ -1,0 +1,9 @@
+src/
+docs/
+helm/
+.github/
+*.test.ts
+*.test.tsx
+coverage/
+.ctxhub/
+.env

@@ -12,7 +12,21 @@
     "skills",
     "ui/dist",
     "README.md",
+    "CHANGELOG.md",
     "ctxhub.example.yaml"
+  ],
+  "keywords": [
+    "ai",
+    "developer-tools",
+    "knowledge-management",
+    "rag",
+    "cli",
+    "mcp",
+    "llm",
+    "context",
+    "workspace",
+    "indexing",
+    "enterprise"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
@@ -41,6 +55,7 @@
     "fast-glob": "^3.3.3",
     "ink": "^7.1.0",
     "ink-text-input": "^6.0.0",
+    "jose": "^6.2.3",
     "js-yaml": "^4.1.0",
     "ora": "^8.2.0",
     "react": "^19.2.7",

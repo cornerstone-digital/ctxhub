@@ -1,0 +1,35 @@
+name: Publish Check
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish-dry-run:
+    name: npm pack dry-run
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify dist/ is present
+        run: |
+          if [ ! -d dist ]; then
+            echo "ERROR: dist/ directory is missing after build"
+            exit 1
+          fi
+          echo "dist/ is present"
+          ls -la dist/
+
+      - name: Pack dry-run (verify publishability)
+        run: npm pack --dry-run

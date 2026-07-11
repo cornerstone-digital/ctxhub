@@ -2,6 +2,21 @@ import type { CtxhubConfig } from '../config/types.js';
 import { runAgentPrompt } from '../llm/runAgent.js';
 import { isSourceFile, topLevelSymbols, type SymbolKind } from '../context/symbols.js';
 
+// ── Trust tiers ────────────────────────────────────────────────────────────────
+// Ordered from least to most trusted. Used in cross-org search to filter results.
+export type ChunkTrustTier = 'unverified' | 'reviewed' | 'promoted' | 'institutional' | 'canonical';
+
+export const TRUST_TIER_ORDER: ChunkTrustTier[] = ['unverified', 'reviewed', 'promoted', 'institutional', 'canonical'];
+
+/**
+ * Returns true if the chunk's trustTier is at least as trusted as `min`.
+ * Chunks without a trustTier are treated as 'unverified'.
+ */
+export function meetsMinTrustTier(chunk: { trustTier?: ChunkTrustTier }, min: ChunkTrustTier): boolean {
+  const tier = chunk.trustTier ?? 'unverified';
+  return TRUST_TIER_ORDER.indexOf(tier) >= TRUST_TIER_ORDER.indexOf(min);
+}
+
 export type TextChunk = {
   heading?: string;
   kind?: 'document' | 'architecture-diagram' | 'file-summary';

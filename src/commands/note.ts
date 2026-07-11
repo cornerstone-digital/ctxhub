@@ -80,6 +80,7 @@ captain-task: ${meta.captainTask}
 run-id: ${meta.runId}
 workspace: ${meta.workspace}
 query: "${shortQuery.replace(/"/g, "'")}"
+trust-tier: institutional
 ---
 
 # ${title}

@@ -29,7 +29,18 @@ export type CtxhubEvent =
   | { type: 'job.step.completed'; jobId: string; job: string; step: string; stepIndex: number }
   | { type: 'job.step.failed';    jobId: string; job: string; step: string; stepIndex: number; error: string }
   | { type: 'job.completed';      jobId: string; job: string }
-  | { type: 'job.failed';         jobId: string; job: string; error: string };
+  | { type: 'job.failed';         jobId: string; job: string; error: string }
+  // ── Auth ───────────────────────────────────────────────────────────────────
+  | { type: 'auth.login'; sub: string; email: string; name: string; roles: string[]; provider: 'entra' }
+  | { type: 'auth.logout'; sub: string; email: string }
+  | { type: 'auth.token_refresh'; sub: string; email: string }
+  | { type: 'auth.login_failed'; error: string }
+  | { type: 'auth.unauthorized'; path: string; method: string; reason: string }
+  // ── Corporate Groups ───────────────────────────────────────────────────────
+  | { type: 'group.created'; groupId: string; name: string; createdBy: string }
+  | { type: 'group.org_added'; groupId: string; orgId: string; orgName: string; tenantId: string; addedBy: string }
+  | { type: 'group.org_removed'; groupId: string; orgId: string; removedBy: string }
+  | { type: 'group.sharing_updated'; groupId: string; fromOrgId: string; toOrgId: string; mode: string; updatedBy: string };
 
 export type CtxhubEventEnvelope = CtxhubEvent & { id: string; at: string };
 

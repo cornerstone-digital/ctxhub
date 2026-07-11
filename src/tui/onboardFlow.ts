@@ -10,6 +10,9 @@ import { skillsInstallCommand, SUPPORTED_SKILL_AGENTS } from '../commands/skills
 import { createContextPack } from '../context/pack.js';
 import { llmDisabledNotice, runAgentPrompt } from '../llm/runAgent.js';
 import type { CtxhubConfig } from '../config/types.js';
+import { isAuthConfigured as defaultIsAuthConfigured, initAuthConfig as defaultInitAuthConfig } from '../auth/config.js';
+import { REDIRECT_URI } from '../auth/loginFlow.js';
+import type { AuthConfig, OidcConfig } from '../auth/types.js';
 
 export type OnboardDeps = {
   findConfigPath: typeof findConfigPath;
@@ -25,6 +28,10 @@ export type OnboardDeps = {
   indexCommand: typeof indexCommand;
   createContextPack: typeof createContextPack;
   runAgentPrompt: typeof runAgentPrompt;
+  /** Optional: check if enterprise auth is configured. Defaults to the real implementation. */
+  isAuthConfigured?: () => Promise<boolean>;
+  /** Optional: initialise enterprise auth config. Defaults to the real implementation. */
+  initAuthConfig?: (oidc: OidcConfig) => Promise<AuthConfig>;
 };
 
 async function defaultIsCommandAvailable(command: string): Promise<boolean> {
@@ -49,7 +56,9 @@ export const defaultOnboardDeps: OnboardDeps = {
   agentLaunchCommand,
   indexCommand,
   createContextPack,
-  runAgentPrompt
+  runAgentPrompt,
+  isAuthConfigured: defaultIsAuthConfigured,
+  initAuthConfig: defaultInitAuthConfig
 };
 
 // Bridges the linear onboarding flow to Ink: `suspendTerminal` hands the terminal to
@@ -75,6 +84,28 @@ export async function runOnboardFlow(cwd: string, io: OnboardIO, deps: OnboardDe
   }
 
   let config = await deps.loadConfig(cwd);
+
+  // ── Enterprise SSO step ──────────────────────────────────────────────────────
+  const checkAuth = deps.isAuthConfigured ?? defaultIsAuthConfigured;
+  const doInitAuth = deps.initAuthConfig ?? defaultInitAuthConfig;
+  const authAlreadyConfigured = await checkAuth();
+  if (!authAlreadyConfigured) {
+    const wantAuth = await io.askConfirm('Do you want to configure enterprise SSO (Microsoft Entra ID)?', false);
+    if (wantAuth) {
+      const tenantId = await io.askText('Tenant ID (from Azure portal → Entra ID)', '');
+      const clientId = await io.askText('Client ID (application ID)', '');
+      const clientSecret = await io.askText('Client secret', '');
+      if (tenantId && clientId && clientSecret) {
+        await io.suspendTerminal(async () => {
+          await doInitAuth({ tenantId, clientId, clientSecret, redirectUri: REDIRECT_URI });
+          console.log(chalk.green('✓ Enterprise auth configured.'));
+          console.log(chalk.gray('  Run: ctxhub login  (to sign in and obtain a session token)'));
+        });
+      } else {
+        console.log(chalk.yellow('Skipped: tenant ID, client ID, and client secret are all required.'));
+      }
+    }
+  }
 
   if (!config.repositories.length) {
     const shouldDiscover = await io.askConfirm('Discover Git repos under the current directory and add them?', true);

@@ -1,5 +1,61 @@
 # Contributing
 
+Contributions are welcome — code, tests, documentation, blueprints, and bug reports all count. No contribution is too small.
+
+## Where to start
+
+Look for issues labelled [`good first issue`](../../issues?q=is%3Aopen+label%3A%22good+first+issue%22) — each one has a clear definition of done and points to the relevant code. If you want to work on something, leave a comment so we don't duplicate effort.
+
+Not sure what to work on? The most useful contributions right now are:
+
+- Bug reports with a reproduction — a failing test case is even better
+- Documentation improvements — anywhere the README or quickstart confused you is a valid target
+- New Captain task definitions — share a `.yaml` that works well for your stack
+- Blueprint proposals — a packaged set of personas + captain tasks for a specific framework or domain (see [Blueprints](#blueprints) below)
+
+Read [ROADMAP.md](./ROADMAP.md) before proposing a large feature. Some things are deliberately not planned; the "What we are not optimising for" section explains the boundaries.
+
+**Review SLA:** No PR sits unreviewed for more than 7 days. If yours has — ping in the issue.
+
+---
+
+## Codebase orientation
+
+```
+src/
+  cli/         Commander.js program definition and entry point
+  commands/    One file per CLI command (index, search, reset, eval, …)
+  service/     HTTP server — Mission Control API and static file serving
+  captains/    Captain task definitions, scheduler, and runner
+  events/      Event bus (in-memory) and durable event log (events.jsonl)
+  mcp/         MCP server — tools exposed to AI agents
+  tui/         Ink TUI components — guided mode, onboarding, progress views
+  indexing/    Indexing pipeline — LanceDB (default) and LocalJson providers
+  memory/      Memory adapters (MemPalace, LocalJson)
+  jobs/        Job runner — multi-step mission execution
+  personas/    Persona loading and resolution
+  execution/   Execution profiles
+  llm/         LLM agent abstraction
+  workspaces/  Workspace registry and config
+  config/      Config loading (ctxhub.yaml)
+  git/         Git utilities
+  utils/       Shared helpers
+
+ui/            React + Vite — Mission Control dashboard
+  src/
+    components/  UI components (CaptainsView, Timeline, ReviewView, …)
+    api/         HTTP client (talks to src/service/)
+    store/       Fleet state
+
+docs/
+  adr/         Architectural Decision Records — read before making arch changes
+  strategy/    Vision, principles, roadmap, later phases
+```
+
+The CLI (`src/commands/`) and the service (`src/service/server.ts`) are the two main entry points. Most features touch one of: a command, an API route, a Captain/job scheduler, or an MCP tool.
+
+---
+
 ## Setup
 
 ```bash
@@ -55,6 +111,18 @@ The index and memory layers are both behind small interfaces so a new backend do
 - Memory providers implement `MemoryAdapter` (`src/memory/MemoryAdapter.ts`); see `LocalJsonMemory.ts`, which also holds `MempalaceMemory` and the `createMemoryAdapter` factory.
 
 See [ROADMAP.md](./ROADMAP.md) for what's already been decided against (and why) before proposing a new provider.
+
+## Blueprints
+
+A blueprint is a packaged set of personas, Captain task definitions, and mission templates for a specific stack or domain. They're the primary way the community extends ctxhub without touching core code.
+
+To propose a new blueprint:
+
+1. Open a [Blueprint Proposal](../../issues/new?template=blueprint_proposal.md) issue describing the target stack, what the Captain tasks cover, and any personas included.
+2. Once agreed, add your files under `examples/blueprints/<name>/` following the structure in `examples/blueprints/README.md`.
+3. Open a PR referencing the issue.
+
+Blueprint contributions don't need to pass the full test suite (blueprints are YAML/markdown, not TypeScript), but the example workspace they target should index cleanly.
 
 ## Commit messages
 

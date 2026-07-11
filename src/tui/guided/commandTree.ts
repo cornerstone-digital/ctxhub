@@ -34,6 +34,7 @@ const EXCLUDED_OPTIONS = new Set(['--plain', '--no-interactive']);
 // Anything not listed here falls into "Other" -- fail-open, so a future new command
 // never silently vanishes from the guided menu.
 const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
+  demo: 'Setup',
   init: 'Setup',
   onboard: 'Setup',
   doctor: 'Setup',
@@ -68,7 +69,15 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   dashboard: 'Fleet',
   reset: 'Setup',
   job: 'Fleet',
-  webhook: 'Fleet'
+  webhook: 'Fleet',
+  group: 'Fleet',
+  chunk: 'Search & Context',
+  share: 'Search & Context',
+  cloud: 'Fleet',
+  login: 'Setup',
+  logout: 'Setup',
+  auth: 'Setup',
+  version: 'Setup',
 };
 
 export function extractGuidedCommands(program: Command): GuidedCommand[] {

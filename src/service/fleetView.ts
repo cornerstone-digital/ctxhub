@@ -380,6 +380,8 @@ body{
   <div class="top-actions">
     <div id="clock"></div>
     <div class="top-div"></div>
+    <span id="sse-indicator" style="font-size:11px;font-weight:600;color:var(--warn);padding:0 6px;white-space:nowrap">&#9675; Offline</span>
+    <div class="top-div"></div>
     <button class="icon-btn" title="Refresh" id="btn-refresh">&#8635;</button>
   </div>
 </header>
@@ -388,8 +390,14 @@ body{
 <aside id="side">
   <div class="s-section">
     <div class="s-label">Navigation</div>
-    <div class="nav-item active">
+    <div class="nav-item active" id="nav-fleet" style="cursor:pointer">
       <span class="nav-icon">&#9672;</span> Fleet
+    </div>
+    <div class="nav-item" id="nav-groups" style="cursor:pointer">
+      <span class="nav-icon">&#9678;</span> Groups
+    </div>
+    <div class="nav-item" id="nav-cloud" style="cursor:pointer">
+      <span class="nav-icon">&#9729;</span> Cloud
     </div>
     <div class="nav-item" style="opacity:0.45;cursor:default" title="Coming in Phase 4 — Captains">
       <span class="nav-icon">&#9670;</span> Captains
@@ -435,6 +443,36 @@ body{
     <div class="det-acts">
       <button class="act-btn pri" id="det-chat-btn">&#9673; Ask this workspace</button>
       <button class="act-btn" id="det-refresh-btn">&#8635; Re-check health</button>
+    </div>
+  </div>
+
+  <!-- groups panel -->
+  <div id="groups-panel" style="display:none;position:absolute;inset:0;overflow-y:auto;padding:20px 24px;background:var(--bg-base)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <span style="color:var(--text-accent);font-size:18px">&#9678;</span>
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-1)">Corporate Groups</div>
+        <div style="font-size:11px;color:var(--text-3)">Cross-org knowledge sharing configuration</div>
+      </div>
+      <button class="tbtn" id="btn-groups-refresh" style="margin-left:auto">&#8635; Refresh</button>
+    </div>
+    <div id="groups-content">
+      <div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>
+    </div>
+  </div>
+
+  <!-- cloud panel -->
+  <div id="cloud-panel" style="display:none;position:absolute;inset:0;overflow-y:auto;padding:20px 24px;background:var(--bg-base)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <span style="color:var(--text-accent);font-size:18px">&#9729;</span>
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-1)">Cloud Sync</div>
+        <div style="font-size:11px;color:var(--text-3)">Push promoted knowledge to ctxhub Cloud</div>
+      </div>
+      <button class="tbtn" id="btn-cloud-refresh" style="margin-left:auto">&#8635; Refresh</button>
+    </div>
+    <div id="cloud-content">
+      <div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>
     </div>
   </div>
 </main>
@@ -1116,13 +1154,290 @@ document.getElementById('det-refresh-btn').addEventListener('click',function(){
   if(state.selected) fetchWsStatus(state.selected);
 });
 
-// ── Auto-refresh every 30s ───────────────────────────────────
-setInterval(function(){
-  state.workspaces.forEach(function(ws){ fetchWsStatus(ws.name); });
-},30000);
+// ── Groups / Cloud panels ────────────────────────────────────────────
+var GRAPH_ELEMENTS = ['gtb','graph-canvas','mmap'];
+var ALL_PANELS = ['groups-panel','cloud-panel'];
+
+function showView(view){
+  var isFleet = (view === 'fleet');
+  GRAPH_ELEMENTS.forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.style.display = isFleet ? '' : 'none';
+  });
+  ALL_PANELS.forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
+  if(!isFleet){
+    var panelId = view + '-panel';
+    var panelEl = document.getElementById(panelId);
+    if(panelEl) panelEl.style.display = '';
+  }
+  document.getElementById('nav-fleet').classList.toggle('active', isFleet);
+  document.getElementById('nav-groups').classList.toggle('active', view === 'groups');
+  document.getElementById('nav-cloud').classList.toggle('active', view === 'cloud');
+  if(view === 'groups') loadGroups();
+  if(view === 'cloud') loadCloud();
+}
+
+function loadGroups(){
+  document.getElementById('groups-content').innerHTML =
+    '<div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>';
+  fetch('/groups').then(function(r){ return r.json(); }).then(function(data){
+    renderGroups(data);
+  }).catch(function(err){
+    document.getElementById('groups-content').innerHTML =
+      '<div style="color:var(--error);font-size:12px">' + esc(String(err)) + '</div>';
+  });
+}
+
+function renderGroups(data){
+  var groups  = data.groups  || [];
+  var orgs    = data.orgs    || [];
+  var policies = data.sharingPolicies || [];
+  var el = document.getElementById('groups-content');
+
+  if(!groups.length){
+    el.innerHTML =
+      '<div style="color:var(--text-3);font-size:12px;padding:12px 0;line-height:1.8">' +
+      'No corporate groups configured.<br>' +
+      'Run: <code style="font-family:var(--font-mono)">ctxhub group create &lt;name&gt;</code>' +
+      '</div>';
+    return;
+  }
+
+  el.innerHTML = '';
+  groups.forEach(function(g){
+    var groupOrgs = orgs.filter(function(o){ return o.groupId === g.id; });
+
+    var card = document.createElement('div');
+    card.style.cssText =
+      'background:var(--bg-surface);border:1px solid var(--border-subtle);' +
+      'border-radius:var(--r-lg);padding:18px 20px;margin-bottom:16px';
+
+    // Header
+    var header =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">' +
+        '<span style="color:var(--text-accent);font-size:16px">&#9678;</span>' +
+        '<div style="font-size:14px;font-weight:600;color:var(--text-1)">' + esc(g.name) + '</div>' +
+        '<div style="font-size:10px;background:var(--accent-dim);color:var(--text-accent);' +
+        'padding:2px 8px;border-radius:20px;font-family:var(--font-mono)">' +
+        groupOrgs.length + ' org' + (groupOrgs.length !== 1 ? 's' : '') + '</div>' +
+        '<div style="margin-left:auto;font-size:10px;color:var(--text-3)">id: ' + esc(g.id.slice(0,8)) + '&hellip;</div>' +
+      '</div>';
+
+    // Org list
+    var orgRows = groupOrgs.map(function(o){
+      var tier = o.trustTier || 'participant';
+      var tierColor = tier === 'trusted' ? 'var(--ok)' : tier === 'observer' ? 'var(--muted)' : 'var(--accent)';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;' +
+        'border-bottom:1px solid var(--border-faint)">' +
+        '<div style="width:7px;height:7px;border-radius:50%;background:' + tierColor + ';flex-shrink:0"></div>' +
+        '<div style="flex:1;color:var(--text-1);font-size:12px">' + esc(o.name) + '</div>' +
+        '<div style="color:var(--text-3);font-size:10px;font-family:var(--font-mono)">' + esc(o.tenantId) + '</div>' +
+        '<div style="color:' + tierColor + ';font-size:10px;width:72px;text-align:right">' + esc(tier) + '</div>' +
+        '</div>';
+    }).join('');
+
+    // Sharing matrix
+    var sharingHtml = '';
+    if(groupOrgs.length > 1){
+      var headerCells = '<th style="padding:4px 10px;min-width:20px"></th>' +
+        groupOrgs.map(function(o){
+          return '<th style="color:var(--text-3);font-size:10px;padding:4px 10px;font-weight:400;white-space:nowrap">' +
+            esc(o.name.split(' ').slice(0,2).join(' ')) + '</th>';
+        }).join('');
+
+      var matrixRows = groupOrgs.map(function(from){
+        var cells = groupOrgs.map(function(to){
+          if(from.id === to.id)
+            return '<td style="background:var(--bg-elevated);color:var(--text-3);text-align:center;padding:4px 10px;font-size:12px">&mdash;</td>';
+          var policy = null;
+          for(var i=0;i<policies.length;i++){
+            if(policies[i].fromOrgId === from.id && policies[i].toOrgId === to.id){ policy=policies[i]; break; }
+          }
+          var mode = policy ? policy.mode : 'none';
+          var modeColor = mode === 'bidirectional' ? 'var(--ok)' : mode === 'read' ? 'var(--accent)' : 'var(--text-3)';
+          var modeIcon  = mode === 'bidirectional' ? '&#8644;' : mode === 'read' ? '&#8594;' : '&#10005;';
+          return '<td style="text-align:center;padding:4px 10px;font-size:12px;color:' + modeColor + '">' + modeIcon + '</td>';
+        }).join('');
+        return '<tr><td style="color:var(--text-2);font-size:10px;padding:4px 10px;white-space:nowrap;font-family:var(--font-mono)">' +
+          esc(from.name.split(' ').slice(0,2).join(' ')) + '</td>' + cells + '</tr>';
+      }).join('');
+
+      sharingHtml =
+        '<div style="margin-top:14px">' +
+        '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Sharing matrix</div>' +
+        '<div style="overflow-x:auto">' +
+        '<table style="border-collapse:collapse;background:var(--bg-elevated);border-radius:var(--r-sm);overflow:hidden;min-width:100%">' +
+        '<thead><tr>' + headerCells + '</tr></thead>' +
+        '<tbody>' + matrixRows + '</tbody>' +
+        '</table></div></div>';
+    }
+
+    card.innerHTML = header +
+      (orgRows ? '<div>' + orgRows + '</div>' : '<div style="color:var(--text-3);font-size:11px;padding:4px 0">No orgs added yet.</div>') +
+      sharingHtml;
+    el.appendChild(card);
+  });
+}
+
+document.getElementById('nav-fleet').addEventListener('click', function(){ showView('fleet'); });
+document.getElementById('nav-groups').addEventListener('click', function(){ showView('groups'); });
+document.getElementById('nav-cloud').addEventListener('click', function(){ showView('cloud'); });
+document.getElementById('btn-groups-refresh').addEventListener('click', function(){ loadGroups(); });
+document.getElementById('btn-cloud-refresh').addEventListener('click', function(){ loadCloud(); });
+
+// ── Cloud panel ──────────────────────────────────────────────
+
+function loadCloud(){
+  document.getElementById('cloud-content').innerHTML =
+    '<div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>';
+  fetch('/cloud/status').then(function(r){ return r.json(); }).then(function(data){
+    renderCloud(data);
+  }).catch(function(err){
+    document.getElementById('cloud-content').innerHTML =
+      '<div style="color:var(--error);font-size:12px">' + esc(String(err)) + '</div>';
+  });
+}
+
+function renderCloud(data){
+  var el = document.getElementById('cloud-content');
+
+  if(!data.configured){
+    el.innerHTML =
+      '<div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:18px 20px">' +
+      '<div style="color:var(--warn);font-size:13px;font-weight:600;margin-bottom:8px">&#9888; Not configured</div>' +
+      '<div style="color:var(--text-3);font-size:12px;line-height:1.8">' +
+      'Cloud sync is not configured.<br>' +
+      'Run: <code style="font-family:var(--font-mono)">ctxhub cloud configure --endpoint &lt;url&gt; --api-key &lt;key&gt;</code>' +
+      '</div></div>';
+    return;
+  }
+
+  var lastSync = data.lastSyncAt ? new Date(data.lastSyncAt).toLocaleString() : 'Never';
+
+  var statusCard =
+    '<div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:16px">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">' +
+    '<div style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></div>' +
+    '<div style="font-size:13px;font-weight:600;color:var(--text-1)">Connected</div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:12px">' +
+    '<div style="color:var(--text-3)">Endpoint</div>' +
+    '<div style="color:var(--text-1);font-family:var(--font-mono)">' + esc(data.endpoint || '—') + '</div>' +
+    '<div style="color:var(--text-3)">Last sync</div>' +
+    '<div style="color:var(--text-1)">' + esc(lastSync) + '</div>' +
+    '<div style="color:var(--text-3)">Chunks synced</div>' +
+    '<div style="color:var(--text-1)">' + (data.chunksSynced || 0) + '</div>' +
+    '<div style="color:var(--text-3)">Available now</div>' +
+    '<div style="color:var(--text-accent)">' + (data.chunksAvailable || 0) + ' institutional/canonical chunks</div>' +
+    '</div>' +
+    '<div style="margin-top:16px">' +
+    '<button class="act-btn pri" id="btn-sync-now" style="font-size:12px;padding:7px 16px">&#9729; Sync Now</button>' +
+    '<span id="sync-result" style="margin-left:12px;font-size:11px;color:var(--text-3)"></span>' +
+    '</div>' +
+    '</div>';
+
+  var chunksHeader =
+    '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Recently synced chunks</div>';
+
+  var chunksEmpty =
+    '<div style="background:var(--bg-surface);border:1px solid var(--border-faint);border-radius:var(--r);padding:14px 16px;' +
+    'color:var(--text-3);font-size:12px">No sync history available yet. Click Sync Now to push chunks to Cloud.</div>';
+
+  el.innerHTML = statusCard + chunksHeader + chunksEmpty;
+
+  document.getElementById('btn-sync-now').addEventListener('click', function(){
+    var btn = document.getElementById('btn-sync-now');
+    var result = document.getElementById('sync-result');
+    btn.disabled = true;
+    btn.textContent = 'Syncing…';
+    result.textContent = '';
+    fetch('/cloud/sync', { method: 'POST' }).then(function(r){ return r.json(); }).then(function(d){
+      btn.disabled = false;
+      btn.innerHTML = '&#9729; Sync Now';
+      if(d.error){
+        result.style.color = 'var(--error)';
+        result.textContent = d.error;
+      } else if(d.skipped){
+        result.style.color = 'var(--warn)';
+        result.textContent = 'Skipped — no eligible chunks';
+      } else {
+        result.style.color = 'var(--ok)';
+        result.textContent = '✓ Synced ' + (d.synced || 0) + ' chunks';
+        // Refresh status card after sync
+        setTimeout(loadCloud, 800);
+      }
+    }).catch(function(err){
+      btn.disabled = false;
+      btn.innerHTML = '&#9729; Sync Now';
+      result.style.color = 'var(--error)';
+      result.textContent = String(err);
+    });
+  });
+}
+
+// ── Server-Sent Events ────────────────────────────────────────
+// Connect to /events for real-time updates. Falls back to 30s polling on error.
+var sseConnected = false;
+var pollInterval = null;
+
+function startPolling(){
+  if(pollInterval) return;
+  pollInterval = setInterval(function(){
+    state.workspaces.forEach(function(ws){ fetchWsStatus(ws.name); });
+  }, 30000);
+}
+
+function stopPolling(){
+  if(pollInterval){ clearInterval(pollInterval); pollInterval = null; }
+}
+
+function setSseIndicator(connected){
+  sseConnected = connected;
+  var ind = document.getElementById('sse-indicator');
+  if(!ind) return;
+  ind.textContent = connected ? '● Live' : '○ Offline';
+  ind.style.color = connected ? 'var(--ok)' : 'var(--warn)';
+}
+
+function connectSSE(){
+  var es = new EventSource('/events');
+
+  es.addEventListener('open', function(){
+    setSseIndicator(true);
+    stopPolling();
+  });
+
+  es.addEventListener('error', function(){
+    setSseIndicator(false);
+    startPolling();
+  });
+
+  // captain_run_complete → refresh captains data (refetch workspace statuses)
+  es.addEventListener('message', function(e){
+    try {
+      var event = JSON.parse(e.data);
+      if(event.type === 'captain.run.completed'){
+        addActivity('<strong>Captain</strong> run complete: ' + esc(event.task||'') + ' on ' + esc(event.workspace||''), 'ok');
+        state.workspaces.forEach(function(ws){ fetchWsStatus(ws.name); });
+      } else if(event.type === 'index.completed'){
+        addActivity('<strong>Index</strong> complete: ' + esc(event.workspace||''), 'ok');
+        fetchWsStatus(event.workspace);
+      } else if(event.type === 'job.completed'){
+        addActivity('<strong>Job</strong> complete: ' + esc(event.job||''), 'ok');
+      }
+    } catch(err) { /* ignore malformed events */ }
+  });
+}
+
+// ── Auto-refresh every 30s (fallback when SSE unavailable) ───────────────────
+startPolling();
 
 // ── Boot ─────────────────────────────────────────────────────
 loadFleet();
+connectSSE();
 </script>
 </body>
 </html>`;

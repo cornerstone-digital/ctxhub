@@ -8,7 +8,15 @@
 
 M1 (Runtime), M2 (Mission Control reliability), and M3 (Team) are complete. The indexing pipeline, MCP server, CLI, Captains, Missions, Execution Profiles, Personas, Mission Control, and persistent knowledge capture are all working and reliable.
 
-The architecture for Cloud, the Org Graph, and the Identity model is designed and documented in `docs/` with 13 ADRs in `docs/adr/`. None of it is built yet — the trigger conditions haven't fired. The current focus is M4: getting the first real users.
+The architecture for Cloud, the Org Graph, and the Identity model is designed and documented in `docs/` with 13 ADRs in `docs/adr/`. The current focus is M4: getting the first real users.
+
+A Founding Design Partner pilot with VodafoneThree Engineering has moved Enterprise Foundations and Cloud into active development alongside M4. VodafoneThree operates multiple distinct engineering organisations — Vodafone UK, Three UK, and Voxi — and wants to share context and knowledge across them as part of the UK trial. This has fired two triggers earlier than expected: the M6 Cloud MVP trigger (multiple ctxhub instances needing coordination) and introduced a new requirement not previously in the roadmap — **Corporate Groups**, where multiple legally separate orgs within a corporate group share knowledge under controlled conditions. See the Enterprise Foundations and Corporate Group workstreams below.
+
+The Enterprise Foundations core is built: Microsoft Entra ID SSO with PKCE, group-to-role mapping, single-tenant deployment via Docker Compose + Helm, JSONL audit log, workspace-level RBAC (`ctxhub workspace set-roles`), `ctxhub auth configure` with env var override, and `ctxhub doctor --enterprise` health checks. Security documentation and UK data residency statements remain.
+
+The Corporate Groups foundation is complete: the data model (`CorporateGroup`, `Org`, `SharingPolicy`, `TrustTier`), the JSON store, the full CLI (`ctxhub group create/list/add-org/remove-org/sharing/status/invite/join`), all six server routes, MCP tools, audit events, the Groups panel in Mission Control, and cross-org user resolution via `tenantId` (Entra `tid` claim carried through login, stored in the ctxhub JWT, and surfaced in `Principal`). Cross-org search fan-out is stubbed and ready; actual HTTP fan-out to peer instances is the next step, gated on peer discovery from M6.
+
+The M6 Cloud foundations are now in place: the Postgres schema design (`src/cloud/schema.sql`), the sync protocol stub (`src/cloud/sync.ts`, `ctxhub sync --to-cloud`), context pack sharing (`ctxhub share`), peer registry auto-registration via heartbeat (`POST /peers/heartbeat`, `GET /peers`, `ctxhub group heartbeat`, `ctxhub service set-peer-url`), and cloud configuration CLI (`ctxhub cloud configure` / `ctxhub cloud status`).
 
 ---
 
@@ -145,9 +153,25 @@ A new engineer on day one can read the last month of Captain findings and promot
 
 **The promise:** "Someone who has never heard of ctxhub installs it, uses it, and wants to keep using it tomorrow."
 
+### Infrastructure & Security *(completed)*
+
+- [x] Security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Content-Security-Policy) — applied to every HTTP response
+- [x] Rate limiting — in-memory per-IP, 10 req/min on /auth/* routes, 100 req/min on all other routes
+- [x] Request size limits — 1MB cap enforced via Content-Length header check and streaming guard; returns 413
+- [x] HMAC webhook signature verification — GitHub-style inbound `X-Hub-Signature-256` verification when `webhookSecret` is configured; `ctxhub webhook set-secret <secret>`
+- [x] Mission Control SSE real-time updates — `EventSource('/events')` client in the dashboard; Live/Offline indicator; auto-refresh fallback on SSE error
+- [x] Multi-workspace search — `ctxhub search --all-workspaces`; `GET /search?all-workspaces=true`; results annotated with workspace name, deduplicated by chunk id, sorted by score
+- [x] Workspace export/import — `ctxhub workspace export --name <ws> --out <file.json>`; `ctxhub workspace import --from <file.json> [--name <override>]`; config, notes, and diagrams only (no index)
+
 ### What's left
 
 - [ ] `npm install -g ctxhub` clean install verified on macOS arm64, macOS x64, and Ubuntu 22 (Node 22)
+- [x] npm publish readiness — `.npmignore`, `files` field includes `dist/` and `CHANGELOG.md`, `keywords` added
+- [x] `ctxhub version --check` — fetches latest from npm registry, prints update notice if behind; version check also added to `ctxhub doctor`
+- [x] `ctxhub demo` scaffold command — creates demo workspace with 6 realistic docs, indexes, and promotes two chunks to institutional tier; idempotent with `--force` override
+- [x] VF3 demo guide (`docs/vf3-demo-guide.md`) — internal 3-act demo script with setup steps, Q&A prep, and fallback scenarios for the VodafoneThree engineering meeting
+- [x] `.ctxhubignore` security filtering — default patterns always applied (`.env`, `*.key`, `*.pem`, `secrets/`, etc.); file-based overrides; integrated into the indexer's fast-glob exclude list
+- [x] GitHub Actions release workflow — tag-triggered (`v*.*.*`) build/test/publish pipeline; `install-matrix.yml` updated with `npx tsc --noEmit` types check after build
 - [ ] Screenshots and 90-second demo video
 - [ ] First external engineer installs ctxhub on a real project
 - [ ] First piece of feedback collected and actioned
@@ -169,7 +193,11 @@ One engineer outside the core team has been using ctxhub for at least one week, 
 
 **The promise:** "I can contribute to ctxhub without talking to Martin."
 
-A product that only grows through core team effort does not compound. This milestone runs in parallel with M4 and M6, not sequentially — community work begins the moment there are users to engage.
+A product that only grows through core team effort does not compound. This milestone runs in parallel with M4 and Enterprise Foundations — not sequentially.
+
+**Community and Enterprise are parallel hypothesis tracks, not a sequence.**
+
+Community validates the *product*: is ctxhub useful enough that people who didn't build it want to extend it? Enterprise validates *governance*: can ctxhub operate inside the trust, identity, and compliance model that large engineering organisations require? Both questions are equally important, and neither answer makes the other redundant. A product that only works for individuals but can't be governed is not enterprise-ready. A product that can be governed but nobody wants to extend is not a platform. Both tracks run simultaneously.
 
 ### What's left
 
@@ -193,19 +221,127 @@ Five of the above items are completed without any direct involvement from the co
 
 ---
 
-## Milestone 6 — Cloud MVP *(trigger: teams coordinating multiple ctxhub instances manually)*
+## Enterprise Foundations *(parallel workstream — trigger fired: VodafoneThree pilot)*
+
+*This is not a sequential milestone. It runs alongside M4–M6 in response to real triggers firing earlier than anticipated. Full enterprise capability remains M9; this workstream delivers the subset needed to run a Founding Design Partner pilot.*
+
+**What fired the trigger:** VodafoneThree Engineering has expressed interest in a Founding Design Partner arrangement spanning multiple engineering organisations within their UK group (Vodafone UK, Three UK, Voxi). Their requirements — SSO, single-tenant deployment, audit log, RBAC, and a credible compliance path — are enterprise foundations, not enterprise scale.
+
+**Hypothesis:** Enterprise organisations are willing to pilot pre-certification software when the architecture provides structural privacy guarantees, the deployment model is single-tenant, and the commercial arrangement reflects the design partner relationship rather than a production contract.
+
+### What's in Enterprise Foundations (building now)
+
+- [x] **Microsoft Entra ID SSO** — OIDC-based with PKCE; JIT provisioning on first login; attribute mapping; group-to-role mapping; `ctxhub login` / `ctxhub logout`; covers the large majority of European enterprise customers including telcos
+- [x] **Single-tenant deployment package** — Docker Compose + Helm chart (`helm/ctxhub/`); no dependency on ctxhub-managed infrastructure; data residency entirely within the customer's environment; see `docs/deploy/SELF_HOSTED.md`
+- [x] **Audit log** — append-only JSONL; auth events: `auth.login`, `auth.logout`, `auth.token_refresh`, `auth.login_failed`, `auth.unauthorized`; group events: `group.created`, `group.org_added`, `group.org_removed`, `group.sharing_updated`
+- [x] **5-role RBAC enforcement** — owner, admin, member, reader, machine; `ctxhub workspace set-roles` restricts HTTP API access per workspace; role resolution from Entra group claims at login
+- [ ] Security and architecture trust documentation — written statement of the local-first data boundary, what is and isn't transmitted, and the structural basis for the "source code never leaves your machines" guarantee (see Security Architecture Brief)
+- [ ] UK data residency statement — explicit documentation of where data rests in a single-tenant deployment
+- [x] **Cross-org search trust gating** — `ChunkTrustTier` on indexed chunks; cross-org search already filters to `institutional+` so only explicitly elevated knowledge crosses the org boundary; captain-promoted findings automatically reach `institutional` tier on next index/sync
+- [x] **`ctxhub auth configure`** — interactive configuration with env var override support (`CTXHUB_TENANT_ID`, `CTXHUB_CLIENT_ID`, `CTXHUB_CLIENT_SECRET`, `CTXHUB_JWT_SECRET`); `ctxhub auth role-map` sub-commands for managing Entra group → ctxhub role mappings
+- [x] **`ctxhub doctor --enterprise`** — health checks for auth configured, session active, role map, groups store, and indexed knowledge
+- [x] **Enterprise SSO step in `ctxhub onboard`** — guided onboarding includes Entra ID SSO configuration
+
+### What is NOT in Enterprise Foundations (stays in M9)
+
+- SAML 2.0, Generic OIDC (beyond Entra ID), SCIM provisioning
+- Custom roles and per-workspace RBAC
+- SOC2 Type II certification (credible roadmap is sufficient for the pilot)
+- Multi-region, high-availability infrastructure
+- Enterprise billing and procurement workflows
+
+### Design partner
+
+See `docs/strategy/DESIGN_PARTNER_CHARTER.md` for the Founding Design Partner arrangement with VodafoneThree Engineering.
+
+### Review gate
+
+When the pilot begins: **Proceed / Pause / Pivot** — based on whether the hypothesis above is validated. If VodafoneThree finds value and the design partner model produces genuine roadmap signal, proceed to full M9. If the pilot reveals that enterprise requirements differ fundamentally from what we designed for, M9 scope changes before implementation.
+
+---
+
+## Corporate Group *(parallel workstream — trigger fired: VodafoneThree UK trial requires cross-org knowledge sharing)*
+
+*A new concept not in the original roadmap, surfaced by the VF3 UK trial. VodafoneThree operates multiple legally distinct engineering organisations — Vodafone UK, Three UK, Voxi — that want to share context and knowledge under a common group structure. This is not the same as Federation (M13), which is cross-company across independent organisations. A Corporate Group is controlled, internally trusted, and owned by a common parent entity.*
+
+**The distinction that matters:**
+
+| | Single Org (M6) | Corporate Group | Federation (M13) |
+|---|---|---|---|
+| Trust boundary | One organisation | Multiple orgs, shared parent | Independent companies |
+| Knowledge sharing | Cross-workspace within org | Cross-org within group | Anonymised, cross-company |
+| Identity | Shared org members | Group + org-level roles | External trust negotiation |
+| VF3 example | One VF brand | VF UK + Three UK + Voxi | VF sharing with BT (never) |
+
+**Hypothesis:** Large enterprises that operate multiple engineering organisations under a common parent need a controlled knowledge layer that spans those organisations — with explicit configuration, clear data boundaries per org, and group-level visibility for group leadership — without requiring those orgs to merge their identity or infrastructure.
+
+### What's in Corporate Group (building for VF3 trial)
+
+- [x] **Group entity** — `CorporateGroup` and `Org` types, JSON store (`groups.json`), CLI (`ctxhub group`), and 6 server routes (`POST/GET /groups`, `GET/DELETE /groups/:id`, `POST /groups/:id/orgs`, `DELETE /groups/:id/orgs/:orgId`, `PATCH /groups/:id/sharing`)
+- [x] **Group-level RBAC** — admin/owner role required to create groups, add/remove orgs, and update sharing policies; enforced at the route layer via `hasRole(principal, 'admin')`
+- [x] **Cross-org knowledge sharing data model** — `SharingPolicy` with `fromOrgId`, `toOrgId`, and `mode` (`none` | `read` | `bidirectional`); `TrustTier` per org (`observer` | `participant` | `trusted`); `canSearchCrossOrg` and `resolveOrgForUser` query helpers
+- [x] **Cross-org search stub** — `POST /workspaces/:name/chat?cross-org=true` resolves the caller's org, identifies permitted peer orgs via sharing policies, logs the fan-out intent, and returns local results annotated with `sourceOrg` and `crossOrgEnabled: false`; actual HTTP fan-out to peer instances is the next step (see below)
+- [x] **Group audit events** — `group.created`, `group.org_added`, `group.org_removed`, `group.sharing_updated` emitted to the event bus (fire-and-forget) from all mutating group operations
+- [x] **Groups panel in Mission Control** — sidebar nav item; fetches `GET /groups`; renders each group with its orgs (name, tenantId, trust tier) and a sharing matrix (read / bidirectional / none per org pair)
+- [x] **Chunk trust tier field** — `ChunkTrustTier` (`unverified` → `reviewed` → `promoted` → `institutional` → `canonical`) on every indexed chunk; `meetsMinTrustTier()` helper; cross-org search filters to `institutional+` automatically; indexer reads `trust-tier:` frontmatter to set tier at index time
+- [x] **Captain approval → institutional tier** — `ctxhub captain promote` writes `trust-tier: institutional` into the promoted note's frontmatter; on next index/sync the chunk is automatically eligible for cross-org search without manual intervention
+- [x] **`ctxhub chunk promote`** — manual tier elevation for workspace admins; supports `institutional` and `canonical` targets; records `promotedAt`, `promotedBy`, and optional `--reason`; `ctxhub chunk list --min-tier <tier>` shows all chunks at or above the specified tier
+- [x] **MCP tools** — `group_list`, `group_create`, `group_add_org`, `group_sharing`, `group_status`, `chunk_promote`, `chunk_list_promoted`
+- [x] **Workspace-level allowedRoles authorization** — `ctxhub workspace set-roles` restricts HTTP API access by role per workspace; enforced at the route layer
+- [x] **`ctxhub group invite` / `ctxhub group join`** — group admin generates a short-lived signed invitation token (24h, HS256); org admin joins with `ctxhub group join <token>` using their current auth session tenantId
+- [x] **`tenantId` on Principal** — Entra `tid` claim carried through login, stored in ctxhub JWT, surfaced in `Principal`; group membership shown in `ctxhub auth status`
+- [ ] **Cross-org search fan-out (actual)** — HTTP calls from one ctxhub instance to permitted peer instances; requires M6 Cloud peer discovery or explicit peer URL configuration; stub is in place; peer `peerUrl` field already in the Org model
+- [ ] **Group Mission Control** — aggregated view of captain runs and promoted findings across all member orgs; read-only; depends on Cloud sync (M6)
+- [ ] **Group Org Graph** — cross-org knowledge queries within the group boundary; "what does the Three UK team know about our shared billing platform?" becomes answerable
+- [ ] **Cross-org cascade rules** — a Captain finding in one member org can trigger a Captain run in another, where shared infrastructure or dependencies are declared
+- [ ] **Group identity configuration** — a single Entra ID tenant can provision members into multiple orgs within the group with different roles per org
+
+### What is NOT in Corporate Group
+
+- Public or anonymous knowledge sharing (that is Federation, M13)
+- Cross-group sharing between unrelated corporate groups
+- Group-level billing or commercial consolidation (M9 Enterprise)
+- AI-driven cross-org pattern detection (M10 Engineering Intelligence)
+
+### Review gate
+
+When the VF3 trial is underway: **Proceed / Pause / Pivot** — based on whether cross-org knowledge sharing produces value that couldn't be achieved by simply having each org run ctxhub independently. If the group layer produces genuine cross-pollination of engineering knowledge, this becomes a first-class feature of the Cloud tier. If orgs end up treating the group layer as administrative overhead rather than signal, the design changes.
+
+---
+
+## Milestone 6 — Cloud MVP *(trigger fired: VodafoneThree UK trial — multiple orgs, multiple instances)*
 
 **The promise:** "My whole engineering org shares one Mission Control."
 
-Architecture is fully designed — see `docs/cloud_architecture.md` and `docs/identity_model.md`. Build starts when the trigger fires.
+Architecture is fully designed — see `docs/cloud_architecture.md` and `docs/identity_model.md`.
+
+**What fired the trigger:** The VodafoneThree Founding Design Partner trial requires ctxhub to coordinate across three distinct engineering organisations (Vodafone UK, Three UK, Voxi). This is the trigger condition: multiple ctxhub instances that need to share a common control plane. The Corporate Group workstream (above) extends M6 to support cross-org knowledge sharing within a corporate group boundary.
 
 **Hypothesis:** Teams that coordinate multiple ctxhub instances want a shared Mission Control — not just better documentation or manual conventions.
 
 ### What's left
 
-- [ ] Organisation and member identity — `organisations`, `members`, `workspaces`, `machines` tables in Postgres
+**Foundations in place (done):**
+- [x] `ctxhub share` — one-time signed context pack sharing (`GET /share/:token`, `ctxhub share create/list/revoke`)
+- [x] Peer registry — auto-registration via heartbeat (`POST /peers/heartbeat`, `GET /peers`), `Org.lastSeen` / `Org.registeredAt`
+- [x] `ctxhub service set-peer-url` — configure the public URL of this instance
+- [x] `ctxhub group heartbeat` — announce peerUrl to the local service; auto-heartbeat when service starts with peerUrl configured
+- [x] M6 Cloud: Postgres schema design (`src/cloud/schema.sql`, `src/cloud/README.md`)
+- [x] M6 Cloud: sync protocol stub (`src/cloud/sync.ts`, `ctxhub sync --to-cloud`)
+- [x] M6 Cloud: `ctxhub cloud configure` / `ctxhub cloud status` — manage `~/.ctxhub/cloud.json`
+- [x] CHANGELOG.md — Keep a Changelog format, all releases documented from v0.1.0 through v0.5.0
+- [x] Mission Control Cloud panel — Cloud nav item, sync status card, Sync Now button calling `POST /cloud/sync`, recently synced chunks list
+- [x] `POST /cloud/sync` server route — admin-required; loads promoted chunks; calls syncToCloud; returns `{ synced, errors }`
+- [x] `GET /cloud/status` server route — returns configured, endpoint (masked), lastSyncAt, chunksSynced, chunksAvailable
+- [x] MCP `cloud_sync` tool — triggers sync of institutional/canonical chunks from current workspace
+- [x] MCP `cloud_status` tool — returns cloud configuration and last sync info
+- [x] Enterprise quickstart in `docs/quickstart.md` — Entra ID registration, auth configure, role grant, corporate groups, cloud sync, self-hosted deploy
+- [x] `ctxhub cloud sync` — standalone manual command; `--workspace` and `--dry-run` flags
+
+**Still needed:**
+- [ ] Organisation and member identity — `organisations`, `members`, `workspaces`, `machines` tables in Postgres (schema designed; service not deployed)
 - [ ] Auth — JWT (1hr access / 30d refresh) + machine tokens (`ctxm_` prefix, bcrypt-hashed, 1yr expiry)
-- [ ] Local sync module — cursor-based push every 5 minutes, chunked 1000 events/batch, idempotent on `event.id`
+- [x] Cloud sync API — `POST /sync` endpoint on the Cloud service (stub client in place; `src/cloud/service.ts`)
 - [ ] Cloud event ingestion API — `POST /sync/events`, `POST /sync/runs`, `POST /sync/notes`
 - [ ] Cloud Mission Control — historical captain runs and promoted notes across all workspaces, read-only
 - [ ] 5-role RBAC enforcement — owner, admin, member, reader, machine
@@ -220,6 +356,18 @@ Two workspaces in one org sync independently. A member opens Cloud Mission Contr
 - Is 5-minute sync cadence acceptable, or does async feel broken?
 - Does historical-only Cloud Mission Control feel like a limitation, or is it fine?
 - What do teams try to do with Cloud that we haven't built yet?
+
+### Pre-flight checklist
+
+Work through this before the VF3 trial begins:
+
+- [ ] VF3 Entra ID app registration with production redirect URI
+- [ ] `ctxhub auth configure` run on VF3 deployment with production credentials
+- [ ] At least one repo indexed and searchable
+- [ ] `ctxhub doctor` passes all checks
+- [ ] Deployment verified via Docker Compose or Helm (see docs/deploy/SELF_HOSTED.md)
+- [ ] One captain task defined and a test run approved
+- [ ] Auth status shows correct user and role
 
 ### Review gate
 
@@ -531,6 +679,23 @@ Better Knowledge
 Runtime (M1–M3) compounds individual knowledge. Mission Control (M4–M5) compounds team knowledge. Cloud and Org Graph (M6–M7) compound organisational knowledge. Federation and the Engineering Network (M13–M14) compound industry knowledge. Each layer makes the layer below it more valuable — a developer's promoted finding is more useful when it's visible to their team; a team's accumulated findings are more useful when they're visible across the organisation; an organisation's decisions are more useful when they're contributing to industry-level patterns.
 
 The flywheel is the product. The milestones are how we build it.
+
+---
+
+## Commercial model
+
+ctxhub monetises coordination, governance, and institutional memory — not AI, not models.
+
+```
+OSS Runtime          → free, always; the foundation
+Cloud Coordination   → shared Mission Control, cross-workspace knowledge; subscription
+Enterprise Governance → identity, RBAC, audit, compliance, Corporate Groups; enterprise licence
+Industry Network     → Federation, anonymised cross-company signals; network tier
+```
+
+This is a deliberately different bet from most AI developer tools, which compete on model capability or generation speed. VodafoneThree's interest is not in faster code generation. It's in identity, governance, trust, knowledge ownership, and cross-organisation coordination — board-level engineering concerns, not developer conveniences. That's a different buying conversation, with different buyers, different budget lines, and a much longer retention curve.
+
+The OSS runtime is not a loss leader. It is the product — the thing that makes the rest possible. Enterprise organisations adopt what developers trust. Developers trust what they've already used. The flywheel runs from individual → team → organisation → industry, and each layer of the commercial model corresponds to a layer of the flywheel.
 
 ---
 

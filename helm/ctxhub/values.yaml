@@ -1,0 +1,53 @@
+# Default values for ctxhub Helm chart.
+# Override in values-prod.yaml or with --set on the command line.
+
+replicaCount: 1
+
+image:
+  repository: ctxhub
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 7342
+
+# Microsoft Entra ID credentials.
+# Set these via --set or a separate secrets values file — never commit secrets.
+auth:
+  tenantId: ""
+  clientId: ""
+  clientSecret: ""
+
+persistence:
+  enabled: true
+  # storageClass: ""   # Leave empty for cluster default
+  size: 10Gi
+  accessMode: ReadWriteOnce
+  mountPath: /home/ctxhub/.ctxhub
+
+# Liveness and readiness probe configuration
+probes:
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+resources: {}
+  # Uncomment to set resource limits:
+  # limits:
+  #   cpu: 500m
+  #   memory: 512Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

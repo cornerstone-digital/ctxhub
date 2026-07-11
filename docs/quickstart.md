@@ -162,7 +162,117 @@ Inside a Claude Code session, no CLI commands typed:
 > **Claude**: *(uses the `search` MCP tool)* — reads results from `webhooks-service` and
 > `notifications-service`, answers with citations to both.
 
+## Enterprise setup
+
+This section covers the complete path for a production enterprise deployment — Entra ID SSO,
+role-based access control, corporate groups, and self-hosted Docker/Helm deployment. It assumes
+you are a technical admin and already have a working single-user ctxhub setup.
+
+### Prerequisites
+
+- Node 20+
+- An Azure account with permission to register applications in Microsoft Entra ID (formerly Azure AD)
+- Docker (for deployment) — see [Self-hosted deployment](#7-deploy)
+
+### 1. Register the Entra ID app
+
+In the [Azure portal](https://portal.azure.com):
+
+1. Go to **Microsoft Entra ID → App registrations → New registration**
+2. Set the application name (e.g. `ctxhub`)
+3. Set the redirect URI to `http://localhost:7342/auth/callback` (or your production URL)
+4. Under **API permissions**, add the following **delegated** Microsoft Graph permissions:
+   - `openid`, `profile`, `email`, `offline_access`
+   - `User.Read`
+5. Under **Certificates & secrets**, create a new client secret and copy it immediately
+6. Note your **Tenant ID** (Directory ID) and **Application (client) ID** from the Overview page
+
+### 2. Configure ctxhub auth
+
+```bash
+ctxhub auth configure \
+  --tenant-id <tenant-id> \
+  --client-id <client-id> \
+  --client-secret <secret>
+ctxhub login
+```
+
+`ctxhub login` opens a browser window for the PKCE OAuth flow. On success it stores a JWT in
+`~/.ctxhub/session.json`. You can also set these via environment variables
+(`CTXHUB_TENANT_ID`, `CTXHUB_CLIENT_ID`, `CTXHUB_CLIENT_SECRET`, `CTXHUB_JWT_SECRET`) to avoid
+storing secrets on disk.
+
+### 3. Grant owner access
+
+The first user to log in needs owner role to manage the instance. Check your login's `sub` claim
+and grant the role before re-logging in:
+
+```bash
+ctxhub auth status        # copy the Sub: value shown
+ctxhub auth role-map add-owner --sub <sub>
+ctxhub login              # re-login so the new JWT includes the owner claim
+```
+
+To map an entire Entra group to a role:
+
+```bash
+ctxhub auth role-map add --group-id <entra-group-object-id> --role admin
+```
+
+### 4. Set up a corporate group (multi-entity orgs)
+
+If your organisation has multiple legally separate entities that need to share knowledge (e.g.
+Vodafone UK, Three UK, and Voxi as separate Entra tenants), create a corporate group:
+
+```bash
+ctxhub group create --name "My Corp Group"
+# Note the group ID printed above
+ctxhub group add-org --group-id <id> --name "Org A" --tenant-id <tenant-id-A>
+ctxhub group add-org --group-id <id> --name "Org B" --tenant-id <tenant-id-B>
+
+# Enable read sharing from Org A to Org B
+ctxhub group sharing --group-id <id> --from-org <org-a-id> --to-org <org-b-id> --mode read
+```
+
+Cross-org search is automatically gated to `institutional` trust tier and above. Only knowledge
+explicitly promoted by a captain or admin crosses org boundaries.
+
+### 5. Index knowledge and verify
+
+```bash
+ctxhub index
+ctxhub doctor --enterprise
+```
+
+`ctxhub doctor --enterprise` checks: auth configured, active session, role map populated, groups
+store reachable, and indexed knowledge present.
+
+### 6. Cloud sync (optional)
+
+If you have a ctxhub Cloud endpoint, configure sync to push promoted chunks:
+
+```bash
+ctxhub cloud configure \
+  --endpoint https://cloud.ctxhub.io \
+  --api-key <key>
+ctxhub cloud sync --dry-run   # preview how many chunks would be pushed
+ctxhub cloud sync             # push institutional/canonical chunks to Cloud
+```
+
+### 7. Deploy
+
+For a production self-hosted deployment (Docker Compose or Helm), see
+[docs/deploy/SELF_HOSTED.md](./deploy/SELF_HOSTED.md). That guide covers:
+
+- Docker Compose single-node setup
+- Helm chart for Kubernetes
+- Environment variable reference
+- Data residency notes (all data remains within your own infrastructure)
+
+---
+
 ## Next
 
 - [architecture.md](./architecture.md) — how the pieces underneath work.
 - [README.md](../README.md) — full command reference and config schema.
+- [docs/deploy/SELF_HOSTED.md](./deploy/SELF_HOSTED.md) — production deployment guide.

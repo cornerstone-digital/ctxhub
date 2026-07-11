@@ -1,8 +1,10 @@
 import http from 'node:http';
+import { createHmac } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname, resolve, relative } from 'node:path';
 import { promises as fsPromises } from 'node:fs';
 import { listWorkspaces } from '../workspaces/registry.js';
+import { authenticate } from '../auth/middleware.js';
 import { loadWorkspaceConfig, saveConfig } from '../config/config.js';
 import { buildDoctorChecks, runDoctorChecks, type CheckLine } from '../commands/doctorChecks.js';
 import { getPackageVersion } from '../utils/version.js';
@@ -23,16 +25,29 @@ import { getSkillsStatus, installSkills } from '../commands/skills.js';
 import { getPersonasStatus, initPersonas, syncPersonas } from '../commands/personas.js';
 import { createReviewResult, loadReviewerProfiles, DEFAULT_REVIEW_PROFILES_PATH } from '../commands/review.js';
 import { addJobDefinition, getJobDefinition, listJobRuns, loadJobDefinitions, loadJobRun, removeJobDefinition } from '../jobs/jobStore.js';
+import { createGroup, addOrg, removeOrg, updateSharing, resolveOrgForUser, canSearchCrossOrg } from '../groups/groups.js';
+import { loadGroupStore, findGroup, findOrgsByGroup } from '../groups/store.js';
+import type { SharingMode, TrustTier } from '../groups/types.js';
+import type { Principal } from '../auth/types.js';
+import { hasRole } from '../auth/jwt.js';
 import { startJobBackground } from '../jobs/runner.js';
 import type { JobDefinition } from '../jobs/types.js';
 import type { EvalCase, EvalSuite } from '../commands/eval.js';
 import { CACHE_DIR } from '../config/config.js';
+import { RateLimiter, extractClientIp } from './rateLimiter.js';
+import { verifyShareToken, getShareSecret, getSharesDir } from '../commands/share.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
 // exposed to subscribers over SSE (GET /events) below. Desktop notifications are just one more
 // subscriber (see the eventBus.subscribe call below), not something index jobs call directly.
 export const DEFAULT_SERVICE_PORT = 7342;
+
+// ── Rate limiters ─────────────────────────────────────────────────────────────
+// Auth routes are tighter (10 req/min) to limit brute-force attempts. All other
+// routes get 100 req/min per IP. Windows reset whole (not rolling) every 60 s.
+const authRateLimiter = new RateLimiter({ windowMs: 60_000, maxRequests: 10 });
+const defaultRateLimiter = new RateLimiter({ windowMs: 60_000, maxRequests: 100 });
 
 // Desktop notifications are a bus subscriber like any other -- the indexer/captains publish
 // facts, they don't know or care that this listener happens to shell out to osascript/notify-send.
@@ -126,14 +141,24 @@ export type WorkspaceStatusResponse = {
   checks: CheckLine[];
 };
 
+class PayloadTooLargeError extends Error {
+  constructor() { super('Request body exceeds 1MB limit.'); this.name = 'PayloadTooLargeError'; }
+}
+
 async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+  // Fast path: reject before reading the stream when Content-Length is declared too large.
+  const declaredLength = req.headers['content-length'];
+  if (declaredLength && parseInt(declaredLength, 10) > 1_048_576) {
+    throw new PayloadTooLargeError();
+  }
+
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', chunk => {
       data += String(chunk);
       if (data.length > 1_048_576) { // 1 MB
         req.destroy();
-        reject(new Error('Request body too large'));
+        reject(new PayloadTooLargeError());
       }
     });
     req.on('end', () => { try { resolve(JSON.parse(data || '{}')); } catch { reject(new Error('Invalid JSON')); } });
@@ -141,27 +166,72 @@ async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
+// ── Security headers ──────────────────────────────────────────────────────────
+// Applied to every response before any routing logic runs. The dashboard HTML
+// route overrides CSP with a looser policy since it embeds inline scripts/styles.
+function addSecurityHeaders(res: http.ServerResponse): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'");
+}
+
 export function createServiceServer(): http.Server {
   return http.createServer((req, res) => {
-    void handleRequest(req, res).catch(error => sendJson(res, 500, { error: (error as Error).message }));
+    void handleRequest(req, res).catch(error => {
+      if (error instanceof PayloadTooLargeError) {
+        sendJson(res, 413, { error: 'payload_too_large', hint: 'Request body exceeds 1MB limit.' });
+      } else {
+        sendJson(res, 500, { error: (error as Error).message });
+      }
+    });
   });
 }
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
 
+  // Security headers — applied first, before any routing or auth checks.
+  addSecurityHeaders(res);
+
   // CORS headers for dev (Vite dev server proxies in prod)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
     return;
   }
 
+  // Rate limiting — applied before auth so that even unauthenticated callers are guarded.
+  {
+    const clientIp = extractClientIp(req.headers as Record<string, string | string[] | undefined>, req.socket.remoteAddress);
+    const isAuthRoute = url.pathname.startsWith('/auth/');
+    const limiter = isAuthRoute ? authRateLimiter : defaultRateLimiter;
+    const key = `${isAuthRoute ? 'auth' : 'default'}:${clientIp}`;
+    if (!limiter.check(key)) {
+      sendJson(res, 429, { error: 'rate_limit_exceeded', hint: 'Too many requests. Try again shortly.' });
+      return;
+    }
+  }
+
+  // Auth — when Entra ID is configured, every non-public route requires a valid Bearer JWT.
+  // In local mode (no auth configured) this is a no-op and every caller gets owner access.
+  const authOutcome = await authenticate(req, url);
+  if (!authOutcome.ok) {
+    sendJson(res, authOutcome.status, {
+      error: authOutcome.code,
+      hint: authOutcome.hint,
+    });
+    return;
+  }
+
   // Serve React UI from ui/dist if built, else fallback to fleet HTML
   if (req.method === 'GET' && url.pathname === '/') {
+    // Dashboard HTML embeds inline <script> and <style> — loosen CSP to allow it.
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:");
     const indexPath = join(UI_DIST, 'index.html');
     const indexExists = await fsPromises.access(indexPath).then(() => true).catch(() => false);
     if (indexExists) {
@@ -194,6 +264,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // ── Global multi-workspace search ─────────────────────────────────────────
+  if (req.method === 'GET' && url.pathname === '/search') {
+    await handleGlobalSearch(res, url);
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/events') {
     handleEventStream(req, res);
     return;
@@ -212,6 +288,33 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const workspaces = await listWorkspaces();
     sendJson(res, 200, { workspaces });
     return;
+  }
+
+  // ── Workspace-level role check ────────────────────────────────────────────
+  // For any /workspaces/:name/* route: if the workspace config declares allowedRoles,
+  // verify the principal has at least one matching role. Local mode (roles: ['owner'])
+  // always passes since owners are never restricted.
+  const workspaceRouteMatch = /^\/workspaces\/([^/]+)(?:\/|$)/.exec(url.pathname);
+  if (workspaceRouteMatch && url.pathname !== '/workspaces') {
+    const wsName = decodeURIComponent(workspaceRouteMatch[1]);
+    const workspaces = await listWorkspaces();
+    const wsEntry = workspaces.find(w => w.name === wsName);
+    if (wsEntry?.exists) {
+      try {
+        const { config: wsConfig } = await loadWorkspaceConfig(wsEntry.path);
+        const allowedRoles = wsConfig.workspace.allowedRoles;
+        if (allowedRoles && allowedRoles.length > 0) {
+          const principal = authOutcome.principal;
+          const hasAccess = principal.roles.some(r => allowedRoles.includes(r));
+          if (!hasAccess) {
+            sendJson(res, 403, { error: 'forbidden', hint: 'Your role does not permit access to this workspace' });
+            return;
+          }
+        }
+      } catch {
+        // Config unreadable — let the downstream handler return the appropriate error
+      }
+    }
   }
 
   const statusMatch = /^\/workspaces\/([^/]+)\/status$/.exec(url.pathname);
@@ -330,7 +433,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const chatMatch = /^\/workspaces\/([^/]+)\/chat$/.exec(url.pathname);
   if (req.method === 'POST' && chatMatch) {
-    await handleWorkspaceChat(req, res, decodeURIComponent(chatMatch[1]));
+    await handleWorkspaceChat(req, res, decodeURIComponent(chatMatch[1]), url, authOutcome.principal);
+    return;
+  }
+
+  const searchMatch = /^\/workspaces\/([^/]+)\/search$/.exec(url.pathname);
+  if (req.method === 'GET' && searchMatch) {
+    await handleWorkspaceSearch(res, decodeURIComponent(searchMatch[1]), url, req);
     return;
   }
 
@@ -499,6 +608,95 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const listProfilesMatch = /^\/workspaces\/([^/]+)\/execution-profiles$/.exec(url.pathname);
   if (req.method === 'GET' && listProfilesMatch) {
     await handleListExecutionProfiles(res, decodeURIComponent(listProfilesMatch[1]));
+    return;
+  }
+
+  // ── Auth routes ───────────────────────────────────────────────────────────
+  // These are public (no JWT required) — they are part of the login flow itself.
+
+  if (req.method === 'GET' && url.pathname === '/auth/status') {
+    const { isAuthConfigured } = await import('../auth/index.js');
+    const configured = await isAuthConfigured();
+    const { loadTokens } = await import('../auth/index.js');
+    const tokens = await loadTokens();
+    sendJson(res, 200, {
+      configured,
+      loggedIn: tokens !== null,
+      user: tokens?.user ?? null,
+      expiresAt: tokens?.ctxhubToken.expiresAt ?? null,
+    });
+    return;
+  }
+
+  // ── Corporate Groups ──────────────────────────────────────────────────────
+
+  if (req.method === 'POST' && url.pathname === '/groups') {
+    await handleGroupCreate(req, res, authOutcome.principal);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/groups') {
+    await handleGroupList(res);
+    return;
+  }
+
+  const groupGetMatch = /^\/groups\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'GET' && groupGetMatch) {
+    await handleGroupGet(res, decodeURIComponent(groupGetMatch[1]));
+    return;
+  }
+
+  const groupOrgsMatch = /^\/groups\/([^/]+)\/orgs$/.exec(url.pathname);
+  if (req.method === 'POST' && groupOrgsMatch) {
+    await handleGroupAddOrg(req, res, decodeURIComponent(groupOrgsMatch[1]), authOutcome.principal);
+    return;
+  }
+
+  const groupOrgDeleteMatch = /^\/groups\/([^/]+)\/orgs\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && groupOrgDeleteMatch) {
+    await handleGroupRemoveOrg(res, decodeURIComponent(groupOrgDeleteMatch[1]), decodeURIComponent(groupOrgDeleteMatch[2]), authOutcome.principal);
+    return;
+  }
+
+  const groupSharingMatch = /^\/groups\/([^/]+)\/sharing$/.exec(url.pathname);
+  if (req.method === 'PATCH' && groupSharingMatch) {
+    await handleGroupSharing(req, res, authOutcome.principal);
+    return;
+  }
+
+  // ── Share routes ──────────────────────────────────────────────────────────
+
+  const shareTokenMatch = /^\/share\/(.+)$/.exec(url.pathname);
+  if (req.method === 'GET' && shareTokenMatch) {
+    await handleShareGet(res, decodeURIComponent(shareTokenMatch[1]));
+    return;
+  }
+
+  // ── Peer discovery routes ─────────────────────────────────────────────────
+
+  if (req.method === 'POST' && url.pathname === '/peers/heartbeat') {
+    await handlePeerHeartbeat(req, res);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/peers') {
+    await handlePeerList(res);
+    return;
+  }
+
+  // ── Cloud sync route ──────────────────────────────────────────────────────
+
+  if (req.method === 'POST' && url.pathname === '/cloud/sync') {
+    if (!hasRole(authOutcome.principal, 'admin')) {
+      sendJson(res, 403, { error: 'Admin role required' });
+      return;
+    }
+    await handleCloudSync(res);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/cloud/status') {
+    await handleCloudStatus(res);
     return;
   }
 
@@ -872,7 +1070,40 @@ async function handleWorkspaceStatus(res: http.ServerResponse, name: string): Pr
   sendJson(res, 200, body);
 }
 
-async function handleWorkspaceChat(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+async function handleWorkspaceSearch(res: http.ServerResponse, name: string, url: URL, req: http.IncomingMessage): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => entry.name === name);
+  if (!workspace || !workspace.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const q = url.searchParams.get('q') ?? '';
+  if (!q.trim()) {
+    sendJson(res, 400, { error: 'Missing or empty "q" query parameter' });
+    return;
+  }
+  const limit = Math.min(Number(url.searchParams.get('limit') ?? 10), 50);
+  // When cross-org=true is passed, treat it as min-trust-tier=institutional so local results
+  // exposed to a requesting peer are always filtered to institutional+ chunks.
+  const crossOrgParam = url.searchParams.get('cross-org') === 'true';
+  const rawMinTrustTier = url.searchParams.get('min-trust-tier') ?? undefined;
+  const minTrustTier = (crossOrgParam ? 'institutional' : rawMinTrustTier) as import('../indexing/chunk.js').ChunkTrustTier | undefined;
+
+  const { config } = await loadWorkspaceConfig(workspace.path);
+  const { createIndexProvider } = await import('../indexing/providers.js');
+  const { meetsMinTrustTier } = await import('../indexing/chunk.js');
+  const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspace.path);
+  let results = await index.search(q.trim(), limit);
+
+  if (minTrustTier) {
+    results = results.filter(r => meetsMinTrustTier(r as { trustTier?: import('../indexing/chunk.js').ChunkTrustTier }, minTrustTier));
+  }
+
+  sendJson(res, 200, results);
+}
+
+async function handleWorkspaceChat(req: http.IncomingMessage, res: http.ServerResponse, name: string, url: URL, principal: Principal): Promise<void> {
   const workspaces = await listWorkspaces();
   const workspace = workspaces.find(entry => entry.name === name);
   if (!workspace) {
@@ -892,7 +1123,56 @@ async function handleWorkspaceChat(req: http.IncomingMessage, res: http.ServerRe
   }
 
   const result = await createExplainResult(query.trim(), 8, workspace.path);
-  sendJson(res, 200, result);
+
+  // ── Cross-org search fan-out ─────────────────────────────────────────────
+  const crossOrg = url.searchParams.get('cross-org') === 'true';
+  const store = await loadGroupStore();
+  const userOrg = principal.tenantId ? resolveOrgForUser(principal.tenantId, store) : undefined;
+
+  if (crossOrg && userOrg) {
+    const groupOrgs = findOrgsByGroup(store, userOrg.groupId);
+    const permitted = groupOrgs.filter(o => o.id !== userOrg.id && canSearchCrossOrg(store, userOrg.id, o.id));
+
+    // Forward the Authorization header to peer instances
+    const authHeader = req.headers['authorization'];
+    const peerResults: unknown[] = [];
+    let crossOrgEnabled = false;
+
+    for (const targetOrg of permitted) {
+      if (!targetOrg.peerUrl) {
+        console.log(`[cross-org] Org "${targetOrg.name}" (${targetOrg.id}) has no peerUrl — skipping`);
+        continue;
+      }
+      try {
+        const peerUrl = `${targetOrg.peerUrl}/workspaces/${encodeURIComponent(name)}/search?q=${encodeURIComponent(query.trim())}&limit=10&min-trust-tier=institutional`;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (authHeader) headers['Authorization'] = authHeader;
+        const peerRes = await fetch(peerUrl, { headers });
+        if (!peerRes.ok) {
+          console.warn(`[cross-org] Peer "${targetOrg.name}" returned ${peerRes.status} — skipping`);
+          continue;
+        }
+        const peerData = (await peerRes.json()) as unknown[];
+        if (Array.isArray(peerData)) {
+          const annotated = peerData.map(r => ({ ...(r as object), sourceOrg: { id: targetOrg.id, name: targetOrg.name } }));
+          peerResults.push(...annotated);
+          crossOrgEnabled = true;
+        }
+      } catch (err) {
+        console.warn(`[cross-org] Failed to fetch from peer "${targetOrg.name}": ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    sendJson(res, 200, {
+      ...result,
+      sourceOrg: { id: userOrg.id, name: userOrg.name },
+      crossOrgEnabled,
+      crossOrgResults: peerResults,
+      crossOrgOrgs: permitted.map(o => ({ id: o.id, name: o.name, hasPeer: Boolean(o.peerUrl) })),
+    });
+  } else {
+    sendJson(res, 200, { ...result, sourceOrg: null, crossOrgEnabled: false });
+  }
 }
 
 async function handleReviewProfiles(res: http.ServerResponse, name: string): Promise<void> {
@@ -936,6 +1216,21 @@ async function handleWorkspaceReview(req: http.IncomingMessage, res: http.Server
 
 // ── Webhook trigger ────────────────────────────────────────────────────────
 
+/** Read the raw request body as a Buffer (for HMAC signature verification). */
+async function readRawBody(req: http.IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > 1_048_576) { req.destroy(); reject(new PayloadTooLargeError()); return; }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 async function handleWebhookTrigger(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -954,6 +1249,19 @@ async function handleWebhookTrigger(
   if (!config.webhooks?.token || config.webhooks.token !== token) {
     sendJson(res, 401, { error: 'Invalid or missing webhook token' });
     return;
+  }
+
+  // HMAC-SHA256 signature verification (GitHub-style inbound pattern).
+  // If a webhookSecret is configured, the caller must include a valid
+  // X-Hub-Signature-256: sha256=<hex> header computed over the raw body.
+  if (config.webhooks.webhookSecret) {
+    const rawBody = await readRawBody(req);
+    const expected = `sha256=${createHmac('sha256', config.webhooks.webhookSecret).update(rawBody).digest('hex')}`;
+    const provided = req.headers['x-hub-signature-256'];
+    if (!provided || provided !== expected) {
+      sendJson(res, 401, { error: 'Invalid or missing X-Hub-Signature-256 header' });
+      return;
+    }
   }
 
   // Try job first, then captain.
@@ -1119,6 +1427,397 @@ async function handleListExecutionProfiles(res: http.ServerResponse, name: strin
 
   const { config } = await loadWorkspaceConfig(workspace.path);
   sendJson(res, 200, { profiles: config.executionProfiles, activeProfile: config.activeProfile ?? null });
+}
+
+// ── Corporate Group handlers ──────────────────────────────────────────────────
+
+async function handleGroupCreate(req: http.IncomingMessage, res: http.ServerResponse, principal: Principal): Promise<void> {
+  if (!hasRole(principal, 'admin')) {
+    sendJson(res, 403, { error: 'Admin or owner role required' });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { name?: unknown };
+  if (typeof body.name !== 'string' || !body.name.trim()) {
+    sendJson(res, 400, { error: 'name is required' });
+    return;
+  }
+
+  try {
+    const group = await createGroup(body.name.trim(), principal.sub);
+    sendJson(res, 201, { group });
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleGroupList(res: http.ServerResponse): Promise<void> {
+  const store = await loadGroupStore();
+  sendJson(res, 200, { groups: store.groups, orgs: store.orgs, sharingPolicies: store.sharingPolicies });
+}
+
+async function handleGroupGet(res: http.ServerResponse, id: string): Promise<void> {
+  const store = await loadGroupStore();
+  const group = findGroup(store, id);
+  if (!group) {
+    sendJson(res, 404, { error: `No corporate group with id "${id}"` });
+    return;
+  }
+
+  const orgs = findOrgsByGroup(store, id);
+  const sharingPolicies = store.sharingPolicies.filter(
+    p => orgs.some(o => o.id === p.fromOrgId) || orgs.some(o => o.id === p.toOrgId)
+  );
+  sendJson(res, 200, { group, orgs, sharingPolicies });
+}
+
+async function handleGroupAddOrg(req: http.IncomingMessage, res: http.ServerResponse, groupId: string, principal: Principal): Promise<void> {
+  if (!hasRole(principal, 'admin')) {
+    sendJson(res, 403, { error: 'Admin or owner role required' });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    name?: unknown;
+    tenantId?: unknown;
+    groupFilter?: unknown;
+    trustTier?: unknown;
+    peerUrl?: unknown;
+  };
+
+  if (typeof body.name !== 'string' || !body.name.trim()) {
+    sendJson(res, 400, { error: 'name is required' });
+    return;
+  }
+  if (typeof body.tenantId !== 'string' || !body.tenantId.trim()) {
+    sendJson(res, 400, { error: 'tenantId is required' });
+    return;
+  }
+
+  const validTiers: TrustTier[] = ['observer', 'participant', 'trusted'];
+  const tier = typeof body.trustTier === 'string' ? body.trustTier as TrustTier : 'participant';
+  if (!validTiers.includes(tier)) {
+    sendJson(res, 400, { error: `trustTier must be one of: ${validTiers.join(', ')}` });
+    return;
+  }
+
+  try {
+    const org = await addOrg(
+      groupId,
+      {
+        name: body.name.trim(),
+        tenantId: body.tenantId.trim(),
+        groupFilter: typeof body.groupFilter === 'string' && body.groupFilter.trim() ? body.groupFilter.trim() : undefined,
+        trustTier: tier,
+        peerUrl: typeof body.peerUrl === 'string' && body.peerUrl.trim() ? body.peerUrl.trim() : undefined,
+      },
+      principal.sub,
+    );
+    sendJson(res, 201, { org });
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleGroupRemoveOrg(res: http.ServerResponse, groupId: string, orgId: string, principal: Principal): Promise<void> {
+  if (!hasRole(principal, 'admin')) {
+    sendJson(res, 403, { error: 'Admin or owner role required' });
+    return;
+  }
+
+  try {
+    await removeOrg(groupId, orgId, principal.sub);
+    sendJson(res, 200, { removed: true });
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleGroupSharing(req: http.IncomingMessage, res: http.ServerResponse, principal: Principal): Promise<void> {
+  if (!hasRole(principal, 'admin')) {
+    sendJson(res, 403, { error: 'Admin or owner role required' });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { fromOrgId?: unknown; toOrgId?: unknown; mode?: unknown };
+
+  if (typeof body.fromOrgId !== 'string' || !body.fromOrgId.trim()) {
+    sendJson(res, 400, { error: 'fromOrgId is required' });
+    return;
+  }
+  if (typeof body.toOrgId !== 'string' || !body.toOrgId.trim()) {
+    sendJson(res, 400, { error: 'toOrgId is required' });
+    return;
+  }
+
+  const validModes: SharingMode[] = ['none', 'read', 'bidirectional'];
+  if (typeof body.mode !== 'string' || !validModes.includes(body.mode as SharingMode)) {
+    sendJson(res, 400, { error: `mode must be one of: ${validModes.join(', ')}` });
+    return;
+  }
+
+  try {
+    const policy = await updateSharing(
+      body.fromOrgId.trim(),
+      body.toOrgId.trim(),
+      body.mode as SharingMode,
+      principal.sub,
+    );
+    sendJson(res, 200, { policy });
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+// ── Global multi-workspace search ─────────────────────────────────────────────
+// GET /search?q=<query>[&all-workspaces=true][&limit=10]
+// When all-workspaces=true, fans out to every registered workspace, annotates each
+// result with {workspace:<name>}, deduplicates by chunk id, and returns sorted by score.
+async function handleGlobalSearch(res: http.ServerResponse, url: URL): Promise<void> {
+  const q = url.searchParams.get('q') ?? '';
+  if (!q.trim()) {
+    sendJson(res, 400, { error: 'Missing or empty "q" query parameter' });
+    return;
+  }
+
+  const allWs = url.searchParams.get('all-workspaces') === 'true';
+  const limit = Math.min(Number(url.searchParams.get('limit') ?? 10), 50);
+
+  if (!allWs) {
+    // Single-workspace mode: require a workspace name (compatibility with existing pattern)
+    sendJson(res, 400, { error: 'Pass all-workspaces=true or use /workspaces/:name/search' });
+    return;
+  }
+
+  const workspaces = await listWorkspaces();
+  const active = workspaces.filter(ws => ws.exists);
+  if (!active.length) {
+    sendJson(res, 200, { results: [], count: 0, workspacesSearched: 0 });
+    return;
+  }
+
+  const { createIndexProvider } = await import('../indexing/providers.js');
+  const { meetsMinTrustTier } = await import('../indexing/chunk.js');
+  void meetsMinTrustTier; // used elsewhere
+
+  const allResults: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+
+  for (const ws of active) {
+    try {
+      const { config } = await loadWorkspaceConfig(ws.path);
+      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, ws.path);
+      const results = await index.search(q.trim(), limit);
+      for (const r of results) {
+        const id = (r as { id?: string }).id;
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          allResults.push({ ...(r as Record<string, unknown>), workspace: ws.name });
+        }
+      }
+    } catch {
+      // Workspace unreachable — skip silently
+    }
+  }
+
+  allResults.sort((a, b) => ((b.score as number) ?? 0) - ((a.score as number) ?? 0));
+  const topResults = allResults.slice(0, limit * active.length);
+
+  sendJson(res, 200, { results: topResults, count: topResults.length, workspacesSearched: active.length });
+}
+
+// ── Share handler ─────────────────────────────────────────────────────────────
+
+async function handleShareGet(res: http.ServerResponse, token: string): Promise<void> {
+  try {
+    const secret = await getShareSecret();
+    const payload = verifyShareToken(token, secret);
+
+    const packPath = `${getSharesDir()}/${payload.jti}.json`;
+    if (!(await pathExists(packPath))) {
+      sendJson(res, 404, { error: 'Share not found or already consumed' });
+      return;
+    }
+
+    const packJson = await readText(packPath);
+    const pack = JSON.parse(packJson) as unknown;
+
+    // One-time use: delete after serving
+    if (payload.oneTime) {
+      const { rm } = await import('node:fs/promises');
+      await rm(packPath, { force: true });
+      const metaPath = `${getSharesDir()}/${payload.jti}.meta.json`;
+      await rm(metaPath, { force: true }).catch(() => {/* best-effort */});
+    }
+
+    sendJson(res, 200, pack);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('expired') || msg.includes('Invalid') || msg.includes('Malformed')) {
+      sendJson(res, 401, { error: msg });
+    } else {
+      sendJson(res, 500, { error: msg });
+    }
+  }
+}
+
+// ── Peer heartbeat handlers ───────────────────────────────────────────────────
+
+async function handlePeerHeartbeat(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const body = (await readJsonBody(req)) as { orgId?: string; peerUrl?: string; groupId?: string };
+  if (!body.orgId || !body.peerUrl || !body.groupId) {
+    sendJson(res, 400, { error: 'orgId, peerUrl, and groupId are required' });
+    return;
+  }
+
+  const store = await loadGroupStore();
+  const org = store.orgs.find(o => o.id === body.orgId);
+  if (!org) {
+    sendJson(res, 404, { error: `No org with id "${body.orgId}"` });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  if (org.peerUrl !== body.peerUrl) {
+    if (!org.registeredAt) {
+      org.registeredAt = now;
+    }
+    org.peerUrl = body.peerUrl;
+  }
+  org.lastSeen = now;
+
+  const { saveGroupStore } = await import('../groups/store.js');
+  await saveGroupStore(store);
+
+  sendJson(res, 200, { ok: true, groupId: body.groupId, orgId: body.orgId });
+}
+
+async function handlePeerList(res: http.ServerResponse): Promise<void> {
+  const store = await loadGroupStore();
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+  const activePeers = store.orgs.filter(o => {
+    if (!o.peerUrl) return false;
+    if (!o.lastSeen) return false;
+    return o.lastSeen >= fiveMinutesAgo;
+  }).map(o => ({
+    orgId: o.id,
+    groupId: o.groupId,
+    name: o.name,
+    peerUrl: o.peerUrl,
+    trustTier: o.trustTier,
+    lastSeen: o.lastSeen,
+    registeredAt: o.registeredAt,
+  }));
+
+  sendJson(res, 200, { peers: activePeers, count: activePeers.length });
+}
+
+// ── Cloud sync handlers ───────────────────────────────────────────────────────
+
+async function handleCloudSync(res: http.ServerResponse): Promise<void> {
+  try {
+    const { loadCloudConfig } = await import('../commands/cloud.js');
+    const { getSyncConfig, syncToCloud } = await import('../cloud/sync.js');
+
+    const cloudConfig = await loadCloudConfig();
+    if (!cloudConfig) {
+      sendJson(res, 400, { error: 'Cloud sync not configured. Run: ctxhub cloud configure' });
+      return;
+    }
+
+    const syncConfig = await getSyncConfig();
+    if (!syncConfig) {
+      sendJson(res, 400, { error: 'Cloud sync not configured. Run: ctxhub cloud configure' });
+      return;
+    }
+
+    // Collect promoted chunks across all registered workspaces
+    const { listWorkspaces: listWs } = await import('../workspaces/registry.js');
+    const { createIndexProvider } = await import('../indexing/providers.js');
+    const workspaces = await listWs();
+    const allChunks: import('../config/types.js').IndexedDocument[] = [];
+
+    for (const ws of workspaces.filter(w => w.exists)) {
+      try {
+        const { config } = await loadWorkspaceConfig(ws.path);
+        const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, ws.path);
+        const results = await index.search('', 500);
+        for (const r of results) {
+          const tier = (r as { trustTier?: string }).trustTier;
+          if (tier === 'institutional' || tier === 'canonical') {
+            allChunks.push(r as import('../config/types.js').IndexedDocument);
+          }
+        }
+      } catch {
+        // Workspace unreachable — skip
+      }
+    }
+
+    const result = await syncToCloud(syncConfig, allChunks);
+
+    // Update lastSyncAt in the cloud config file
+    if (!result.skipped && (result.synced ?? 0) > 0) {
+      const { saveCloudConfig } = await import('../commands/cloud.js');
+      await saveCloudConfig({
+        ...cloudConfig,
+        lastSyncAt: new Date().toISOString(),
+        chunksSynced: (cloudConfig.chunksSynced ?? 0) + (result.synced ?? 0),
+      });
+    }
+
+    sendJson(res, 200, {
+      synced: result.synced ?? 0,
+      errors: result.errors ?? [],
+      skipped: result.skipped ?? false,
+    });
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleCloudStatus(res: http.ServerResponse): Promise<void> {
+  try {
+    const { loadCloudConfig } = await import('../commands/cloud.js');
+    const config = await loadCloudConfig();
+    if (!config) {
+      sendJson(res, 200, { configured: false });
+      return;
+    }
+
+    // Count available institutional/canonical chunks
+    const { listWorkspaces: listWs } = await import('../workspaces/registry.js');
+    const { createIndexProvider } = await import('../indexing/providers.js');
+    const workspaces = await listWs();
+    let chunksAvailable = 0;
+
+    for (const ws of workspaces.filter(w => w.exists)) {
+      try {
+        const { config: wsConfig } = await loadWorkspaceConfig(ws.path);
+        const index = createIndexProvider(wsConfig.index.provider, wsConfig.index.path, wsConfig.index.table, ws.path);
+        const results = await index.search('', 500);
+        for (const r of results) {
+          const tier = (r as { trustTier?: string }).trustTier;
+          if (tier === 'institutional' || tier === 'canonical') chunksAvailable++;
+        }
+      } catch {
+        // skip
+      }
+    }
+
+    const endpoint = config.endpoint;
+    const maskedEndpoint = endpoint.length > 20 ? `${endpoint.slice(0, 20)}…` : endpoint;
+
+    sendJson(res, 200, {
+      configured: true,
+      endpoint: maskedEndpoint,
+      lastSyncAt: config.lastSyncAt ?? null,
+      chunksSynced: config.chunksSynced ?? 0,
+      chunksAvailable,
+    });
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {

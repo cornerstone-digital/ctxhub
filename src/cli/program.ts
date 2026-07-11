@@ -20,7 +20,7 @@ import { replayCommand } from '../commands/replay.js';
 import { handoffCommand } from '../commands/handoff.js';
 import { reviewCommand } from '../commands/review.js';
 import { personasInitCommand, personasSyncCommand, SUPPORTED_PERSONA_SYNC_AGENTS } from '../commands/personas.js';
-import { workspaceListCommand, workspaceRegisterCommand, workspaceRemoveCommand } from '../commands/workspace.js';
+import { workspaceExportCommand, workspaceImportCommand, workspaceListCommand, workspaceRegisterCommand, workspaceRemoveCommand, workspaceSetRolesCommand } from '../commands/workspace.js';
 import { serviceStartCommand, serviceStopCommand, serviceStatusCommand, dashboardCommand } from '../commands/service.js';
 import {
   captainAddCommand,
@@ -42,11 +42,29 @@ import { watchCommand } from '../commands/watch.js';
 import { reportCommand } from '../commands/report.js';
 import { ciInitCommand } from '../commands/ci.js';
 import { resetCommand } from '../commands/reset.js';
+import {
+  authConfigureCommand,
+  authStatusCommand,
+  loginCommand,
+  logoutCommand,
+  roleMapListCommand,
+  roleMapAddOwnerCommand,
+  roleMapAddGroupCommand,
+  roleMapRemoveGroupCommand,
+  roleMapSetDefaultCommand,
+} from '../commands/auth.js';
+import { VALID_ROLES } from '../auth/roles.js';
 import { jobAddCommand, jobListCommand, jobRemoveCommand, jobRunCommand, jobRunsCommand } from '../commands/job.js';
-import { webhookGenerateTokenCommand, webhookSetTokenCommand, webhookShowCommand } from '../commands/webhook.js';
+import { webhookGenerateTokenCommand, webhookSetSecretCommand, webhookSetTokenCommand, webhookShowCommand } from '../commands/webhook.js';
+import { groupCreateCommand, groupListCommand, groupAddOrgCommand, groupRemoveOrgCommand, groupSharingCommand, groupStatusCommand, groupInviteCommand, groupJoinCommand, groupHeartbeatCommand } from '../commands/group.js';
+import { chunkPromoteCommand, chunkListCommand } from '../commands/chunk.js';
 import { runGuidedMode } from '../commands/guided.js';
 import { checkForDriftOnce } from '../utils/driftCheck.js';
-import { getPackageVersion } from '../utils/version.js';
+import { getPackageVersion, versionCheckCommand } from '../utils/version.js';
+import { shareCommand, shareListCommand, shareRevokeCommand } from '../commands/share.js';
+import { serviceSetPeerUrlCommand } from '../commands/service.js';
+import { cloudConfigureCommand, cloudStatusCommand, cloudSyncCommand } from '../commands/cloud.js';
+import { demoCommand } from '../commands/demo.js';
 
 // Pure construction only -- no parsing, no process.exit. Split out from index.ts so
 // guided mode (src/tui/guided/commandTree.ts) can introspect the full command tree
@@ -64,6 +82,13 @@ export function buildProgram(): Command {
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     await checkForDriftOnce(actionCommand.name());
   });
+
+  program
+    .command('demo')
+    .description('Scaffold a complete demo workspace with sample docs, indexed chunks, and institutional-tier promotions')
+    .option('--workspace <name>', 'Demo workspace name', 'ctxhub-demo')
+    .option('-f, --force', 'Overwrite an existing demo workspace')
+    .action((opts: { workspace?: string; force?: boolean }) => demoCommand(opts));
 
   program
     .command('init')
@@ -139,6 +164,7 @@ export function buildProgram(): Command {
     .option('--plain', 'Use plain progress output')
     .option('--no-interactive', 'Disable the live progress view')
     .option('--notify', 'Send a desktop notification when sync completes')
+    .option('--to-cloud', 'After local sync, push institutional/canonical chunks to ctxhub Cloud (requires cloud configuration or CTXHUB_CLOUD_ENDPOINT)')
     .action(syncCommand);
 
   program
@@ -154,6 +180,7 @@ export function buildProgram(): Command {
     .option('-i, --interactive', 'Launch a live, filterable terminal search UI')
     .option('--plain', 'Require a query and print one-shot search results')
     .option('--no-interactive', 'Disable live search when query is omitted')
+    .option('--all-workspaces', 'Search across all registered workspaces, annotating each result with its workspace name')
     .description('Search indexed workspace knowledge')
     .action(searchCommand);
 
@@ -325,6 +352,7 @@ export function buildProgram(): Command {
     .option('--fix-personas', 'With --fix, recompile stale persona files (overwrites installed persona files)')
     .option('--plain', 'Print plain health-check output')
     .option('--no-interactive', 'Disable the live checklist')
+    .option('--enterprise', 'Include enterprise checks (auth, session, role map, groups, index)')
     .addOption(
       new Option('--fix-agent <name>', "With --fix, refresh one agent's MCP config").choices(SUPPORTED_AGENTS)
     )
@@ -390,6 +418,27 @@ export function buildProgram(): Command {
     .argument('<name>', 'Registered workspace name')
     .description('Remove a workspace from the registry (does not touch the workspace itself)')
     .action(workspaceRemoveCommand);
+
+  workspace
+    .command('set-roles')
+    .description('Set the allowedRoles list for a workspace (restricts HTTP API access by role; use empty string to clear)')
+    .requiredOption('--name <workspace>', 'Registered workspace name')
+    .requiredOption('--roles <roles>', 'Comma-separated ctxhub roles that may access this workspace (e.g. "owner,admin,member"); pass empty string to clear')
+    .action((opts: { name: string; roles: string }) => workspaceSetRolesCommand(opts));
+
+  workspace
+    .command('export')
+    .description('Export workspace config, notes, and diagrams to a JSON file (index not included)')
+    .requiredOption('--name <workspace>', 'Registered workspace name to export')
+    .requiredOption('--out <path>', 'Output file path (e.g. my-workspace.json)')
+    .action((opts: { name: string; out: string }) => workspaceExportCommand(opts));
+
+  workspace
+    .command('import')
+    .description('Import a workspace from a previously exported JSON file (run ctxhub index afterwards)')
+    .requiredOption('--from <path>', 'Path to the export JSON file')
+    .option('--name <name>', 'Override the workspace name from the export')
+    .action((opts: { from: string; name?: string }) => workspaceImportCommand(opts));
 
   const service = program.command('service').description('Run the local control-plane service (docs/control-plane.md, Phase 2)');
 
@@ -531,6 +580,12 @@ export function buildProgram(): Command {
     .description('Set a specific webhook token')
     .action(webhookSetTokenCommand);
 
+  webhook
+    .command('set-secret')
+    .argument('<secret>', 'HMAC signing secret (min 8 characters)')
+    .description('Set the HMAC-SHA256 signing secret for inbound webhook signature verification (X-Hub-Signature-256)')
+    .action(webhookSetSecretCommand);
+
   const skills = program.command('skills').description('Install chat-native ctxhub usage guidance for coding agents');
 
   skills
@@ -639,6 +694,227 @@ export function buildProgram(): Command {
     .option('--no-interactive', 'Disable interactive terminal behavior')
     .description('Generate a browsable HTML workspace report')
     .action(reportCommand);
+
+  // ── Auth & login ──────────────────────────────────────────────────────────
+
+  program
+    .command('login')
+    .description('Sign in to ctxhub via Microsoft Entra ID (OIDC)')
+    .action(loginCommand);
+
+  program
+    .command('logout')
+    .description('Sign out and clear stored credentials')
+    .action(logoutCommand);
+
+  const auth = program.command('auth').description('Manage enterprise SSO authentication (Microsoft Entra ID)');
+
+  auth
+    .command('configure')
+    .description('Configure Entra ID SSO for this ctxhub installation')
+    .requiredOption('--tenant-id <id>', 'Azure AD / Entra ID tenant ID')
+    .requiredOption('--client-id <id>', 'App registration client (application) ID')
+    .requiredOption('--client-secret <secret>', 'App registration client secret')
+    .action((opts: { tenantId: string; clientId: string; clientSecret: string }) =>
+      authConfigureCommand(opts)
+    );
+
+  auth
+    .command('status')
+    .description('Show auth configuration and current session status')
+    .action(authStatusCommand);
+
+  const roleMap = auth.command('role-map').description('Manage Entra ID → ctxhub role mappings');
+
+  roleMap
+    .command('list')
+    .description('Show the current role map configuration')
+    .action(roleMapListCommand);
+
+  roleMap
+    .command('add-owner')
+    .description('Grant owner role to a user by their Entra object ID (sub)')
+    .requiredOption('--sub <id>', 'Entra object ID to grant owner role (shown in: ctxhub auth status)')
+    .action((opts: { sub: string }) => roleMapAddOwnerCommand(opts));
+
+  roleMap
+    .command('add-group')
+    .description('Map an Entra security group to a ctxhub role')
+    .requiredOption('--group <id>', 'Entra security group object ID')
+    .addOption(new Option('--role <role>', 'ctxhub role to assign').choices([...VALID_ROLES]).makeOptionMandatory())
+    .action((opts: { group: string; role: string }) => roleMapAddGroupCommand(opts));
+
+  roleMap
+    .command('remove-group')
+    .description('Remove a group → role mapping')
+    .requiredOption('--group <id>', 'Entra security group object ID to remove')
+    .action((opts: { group: string }) => roleMapRemoveGroupCommand(opts));
+
+  roleMap
+    .command('set-default')
+    .description('Set the default role for authenticated users with no matching group')
+    .addOption(new Option('--role <role>', 'Default ctxhub role').choices([...VALID_ROLES]).makeOptionMandatory())
+    .action((opts: { role: string }) => roleMapSetDefaultCommand(opts));
+
+  // ── Corporate Groups ──────────────────────────────────────────────────────
+
+  const group = program.command('group').description('Manage corporate groups for cross-org knowledge sharing (docs/architecture/corporate_groups.md)');
+
+  group
+    .command('create')
+    .description('Create a new corporate group')
+    .requiredOption('--name <name>', 'Group display name (e.g. "VodafoneThree UK")')
+    .action((opts: { name: string }) => groupCreateCommand(opts));
+
+  group
+    .command('list')
+    .description('List all corporate groups and their member orgs')
+    .action(() => groupListCommand());
+
+  group
+    .command('status')
+    .description('Show a group\'s full topology: orgs and sharing matrix')
+    .requiredOption('--group-id <id>', 'Corporate group id')
+    .action((opts: { groupId: string }) => groupStatusCommand(opts));
+
+  group
+    .command('add-org')
+    .description('Add an org (legal entity) to a corporate group')
+    .requiredOption('--group-id <id>', 'Corporate group id')
+    .requiredOption('--name <name>', 'Org display name')
+    .requiredOption('--tenant-id <id>', 'Entra tenant ID for this org')
+    .option('--group-filter <id>', 'Optional Entra group object ID to restrict membership')
+    .addOption(new Option('--trust-tier <tier>', 'Trust tier for this org').choices(['observer', 'participant', 'trusted']).default('participant'))
+    .option('--peer-url <url>', 'Base URL of this org\'s ctxhub service for cross-org search fan-out (e.g. https://ctxhub.example.com)')
+    .action((opts: { groupId: string; name: string; tenantId: string; groupFilter?: string; trustTier?: string; peerUrl?: string }) =>
+      groupAddOrgCommand(opts)
+    );
+
+  group
+    .command('remove-org')
+    .description('Remove an org from a corporate group (also removes all its sharing policies)')
+    .requiredOption('--group-id <id>', 'Corporate group id')
+    .requiredOption('--org-id <id>', 'Org id to remove')
+    .action((opts: { groupId: string; orgId: string }) => groupRemoveOrgCommand(opts));
+
+  group
+    .command('sharing')
+    .description('Set the sharing mode between two orgs')
+    .requiredOption('--from-org <id>', 'Source org id')
+    .requiredOption('--to-org <id>', 'Target org id')
+    .addOption(new Option('--mode <mode>', 'Sharing mode').choices(['none', 'read', 'bidirectional']).makeOptionMandatory())
+    .action((opts: { fromOrg: string; toOrg: string; mode: string }) => groupSharingCommand(opts));
+
+  group
+    .command('invite')
+    .description('Generate a short-lived invitation token (24h) for an org to join a corporate group')
+    .requiredOption('--group-id <id>', 'Corporate group id')
+    .requiredOption('--org-name <name>', 'Display name for the org being invited (e.g. "Vodafone UK Engineering")')
+    .action((opts: { groupId: string; orgName: string }) => groupInviteCommand(opts));
+
+  group
+    .command('join')
+    .argument('<token>', 'Invitation token (from: ctxhub group invite)')
+    .description('Join a corporate group using an invitation token; uses tenantId from the current auth session')
+    .action((token: string) => groupJoinCommand(token));
+
+  // ── Chunk trust tier management ────────────────────────────────────────────
+
+  const chunk = program.command('chunk').description('Inspect and manage indexed chunk trust tiers');
+
+  chunk
+    .command('promote')
+    .argument('<chunkId>', 'Indexed chunk id (full or prefix of at least 8 characters)')
+    .addOption(new Option('--tier <tier>', 'New trust tier to assign').choices(['institutional', 'canonical']).makeOptionMandatory())
+    .option('--reason <text>', 'Optional reason recorded with the promotion')
+    .option('--by <name>', 'Operator name recorded with the promotion (default: cli)')
+    .description('Manually elevate a chunk\'s trust tier to institutional or canonical')
+    .action((chunkId: string, opts: { tier: string; reason?: string; by?: string }) => chunkPromoteCommand(chunkId, opts));
+
+  chunk
+    .command('list')
+    .addOption(new Option('--min-tier <tier>', 'Minimum trust tier to show').choices(['unverified', 'reviewed', 'promoted', 'institutional', 'canonical']).default('unverified'))
+    .description('List indexed chunks at or above the specified trust tier, showing id, path/title, and current tier')
+    .action((opts: { minTier?: string }) => chunkListCommand(opts));
+
+  // ── Share ─────────────────────────────────────────────────────────────────
+
+  const share = program.command('share').description('Share a context pack via a signed, time-limited URL');
+
+  share
+    .command('create')
+    .argument('<query>', 'Question or topic to assemble context for')
+    .option('--ttl <seconds>', 'Token lifetime in seconds (default: 86400 = 24h)')
+    .option('-l, --limit <limit>', 'Max context results', '8')
+    .option('--port <port>', 'Service port for the share URL', String(DEFAULT_SERVICE_PORT))
+    .option('--one-time', 'Delete the pack after first access')
+    .description('Assemble a context pack and create a signed share URL (served by the local ctxhub service)')
+    .action((query: string, opts: { ttl?: string; limit?: string; port?: string; oneTime?: boolean }) =>
+      shareCommand(query, opts)
+    );
+
+  share
+    .command('list')
+    .description('List active (non-expired) shares with their queries and expiry times')
+    .action(() => shareListCommand());
+
+  share
+    .command('revoke')
+    .argument('<token-id>', 'Share token id to delete (the jti/UUID part)')
+    .description('Delete a share pack file, revoking access')
+    .action((tokenId: string) => shareRevokeCommand(tokenId));
+
+  // ── service set-peer-url ──────────────────────────────────────────────────
+
+  service
+    .command('set-peer-url')
+    .argument('<url>', 'The public base URL of this ctxhub instance (e.g. https://ctxhub.example.com)')
+    .description('Set the public URL of this ctxhub instance for peer discovery via heartbeat')
+    .action((url: string) => serviceSetPeerUrlCommand(url));
+
+  // ── group heartbeat ───────────────────────────────────────────────────────
+
+  group
+    .command('heartbeat')
+    .description('Send a heartbeat to the local service announcing this instance\'s peerUrl (requires CTXHUB_ORG_ID, CTXHUB_GROUP_ID env vars)')
+    .action(() => groupHeartbeatCommand());
+
+  // ── Cloud ─────────────────────────────────────────────────────────────────
+
+  const cloud = program.command('cloud').description('Manage ctxhub Cloud sync configuration');
+
+  cloud
+    .command('configure')
+    .description('Save ctxhub Cloud endpoint and API key to ~/.ctxhub/cloud.json')
+    .requiredOption('--endpoint <url>', 'ctxhub Cloud API base URL (e.g. https://cloud.ctxhub.io)')
+    .requiredOption('--api-key <key>', 'API key for authenticating Cloud sync requests')
+    .action((opts: { endpoint: string; apiKey: string }) => cloudConfigureCommand(opts));
+
+  cloud
+    .command('status')
+    .description('Show Cloud sync configuration and last sync statistics')
+    .action(() => cloudStatusCommand());
+
+  cloud
+    .command('sync')
+    .description('Push institutional/canonical chunks to ctxhub Cloud')
+    .option('--workspace <name>', 'Limit sync to a specific workspace (default: all registered workspaces)')
+    .option('--dry-run', 'Show how many chunks would be synced without actually syncing')
+    .action((opts: { workspace?: string; dryRun?: boolean }) => cloudSyncCommand(opts));
+
+  // ── Version ───────────────────────────────────────────────────────────────
+
+  program
+    .command('version')
+    .description('Print current ctxhub version, optionally checking for updates')
+    .option('--check', 'Check npm registry for the latest published version')
+    .action(async (opts: { check?: boolean }) => {
+      if (opts.check) {
+        await versionCheckCommand();
+      } else {
+        console.log(`ctxhub v${getPackageVersion()}`);
+      }
+    });
 
   return program;
 }

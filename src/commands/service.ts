@@ -78,8 +78,32 @@ export async function runForegroundService(
       });
   }, pollIntervalMs);
 
+  // Auto-heartbeat: if peerUrl is configured, send heartbeats every 60s
+  const serviceConfig = await loadServiceConfig();
+  let heartbeatHandle: ReturnType<typeof setInterval> | undefined;
+  if (serviceConfig.peerUrl) {
+    const orgId = process.env['CTXHUB_ORG_ID'];
+    const groupId = process.env['CTXHUB_GROUP_ID'];
+    if (orgId && groupId) {
+      const sendHeartbeat = async () => {
+        try {
+          await fetch(`http://127.0.0.1:${port}/peers/heartbeat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orgId, peerUrl: serviceConfig.peerUrl, groupId }),
+          });
+        } catch {
+          // Heartbeat is best-effort; failures don't stop the service
+        }
+      };
+      void sendHeartbeat();
+      heartbeatHandle = setInterval(() => { void sendHeartbeat(); }, 60_000);
+    }
+  }
+
   return {
     async stop() {
+      if (heartbeatHandle !== undefined) clearInterval(heartbeatHandle);
       clearInterval(intervalHandle);
       await pendingPoll;
       await new Promise<void>(resolve => server.close(() => resolve()));
@@ -206,4 +230,38 @@ export async function dashboardCommand(opts: DashboardOptions = {}): Promise<voi
   // openReport just shells out to the OS's "open this" command (open/xdg-open/start) -- works
   // identically for a URL as it does for the file paths it's named after.
   openReport(url);
+}
+
+// ── servicePeerUrlCommand ─────────────────────────────────────────────────────
+
+/**
+ * Saves the public peer URL for this ctxhub instance to ~/.ctxhub/service-config.json.
+ * This URL is sent in heartbeats so other instances can discover this one.
+ */
+export function getServiceConfigPath(): string {
+  return path.join(getCtxhubHome(), 'service-config.json');
+}
+
+export async function loadServiceConfig(): Promise<{ peerUrl?: string }> {
+  const configPath = getServiceConfigPath();
+  if (!(await pathExists(configPath))) return {};
+  try {
+    const raw = await readText(configPath);
+    return JSON.parse(raw) as { peerUrl?: string };
+  } catch {
+    return {};
+  }
+}
+
+export async function serviceSetPeerUrlCommand(peerUrl: string): Promise<void> {
+  if (!peerUrl?.trim()) {
+    console.error('Error: <url> argument is required');
+    process.exit(1);
+  }
+
+  const config = await loadServiceConfig();
+  config.peerUrl = peerUrl.trim();
+  await writeText(getServiceConfigPath(), `${JSON.stringify(config, null, 2)}\n`);
+  console.log(chalk.green(`Peer URL set: ${peerUrl.trim()}`));
+  console.log(chalk.gray('This URL will be announced via heartbeat when the service runs.'));
 }

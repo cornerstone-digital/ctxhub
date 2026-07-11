@@ -1,0 +1,25 @@
+services:
+  ctxhub:
+    build: .
+    ports:
+      - "7342:7342"
+    volumes:
+      - ctxhub-data:/home/ctxhub/.ctxhub
+      - ./workspace:/workspace
+    environment:
+      # Microsoft Entra ID app registration credentials.
+      # Copy ctxhub.example.yaml for full config reference.
+      - CTXHUB_TENANT_ID=        # Your Entra tenant ID (GUID)
+      - CTXHUB_CLIENT_ID=        # App registration client ID (GUID)
+      - CTXHUB_CLIENT_SECRET=    # App registration client secret
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7342/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ctxhub-data:

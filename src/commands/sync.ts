@@ -10,6 +10,7 @@ import type { RepoStatus } from '../tui/progress/RepoStatusList.js';
 import { updateSpinnerOnProgress } from '../tui/progress/spinnerProgress.js';
 import { shouldUseInteractive } from '../utils/interactive.js';
 import { notify } from '../utils/notify.js';
+import { syncToCloud, getSyncConfig } from '../cloud/sync.js';
 
 function printRepoStatuses(label: string, repos: RepoStatus[]) {
   console.log(chalk.bold(label));
@@ -19,7 +20,7 @@ function printRepoStatuses(label: string, repos: RepoStatus[]) {
   }
 }
 
-export async function syncCommand(opts: { pull?: boolean; interactive?: boolean; plain?: boolean; notify?: boolean }) {
+export async function syncCommand(opts: { pull?: boolean; interactive?: boolean; plain?: boolean; notify?: boolean; toCloud?: boolean }) {
   // Commander's `--no-pull` option surfaces as `opts.pull === false`, not `opts.noPull`
   // (there is no `noPull` property) -- `--no-pull` silently never worked before this fix.
   const noPull = opts.pull === false;
@@ -65,4 +66,43 @@ export async function syncCommand(opts: { pull?: boolean; interactive?: boolean;
   }
 
   await runConfiguredHook(config, 'postIndex');
+
+  // Cloud sync: push newly promoted chunks if --to-cloud is set
+  if (opts.toCloud) {
+    const cloudConfig = await getSyncConfig();
+    if (!cloudConfig) {
+      console.log(chalk.gray('Cloud sync: not configured (set CTXHUB_CLOUD_ENDPOINT to enable)'));
+    } else {
+      const spinner = ora('Syncing promoted chunks to ctxhub Cloud').start();
+      try {
+        // Load all indexed documents to find institutional/canonical chunks
+        const { createIndexProvider } = await import('../indexing/providers.js');
+        const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+        const allChunks = await index.search('', 10_000);
+        const result = await syncToCloud(cloudConfig, allChunks);
+        if (result.skipped) {
+          spinner.info(`Cloud sync: ${result.reason ?? 'skipped'}`);
+        } else {
+          spinner.succeed(`Synced ${result.synced ?? 0} chunk(s) to ctxhub Cloud`);
+          if (result.failed && result.failed > 0) {
+            console.log(chalk.yellow(`  ${result.failed} chunk(s) failed: ${(result.errors ?? []).join(', ')}`));
+          }
+          // Update last sync timestamp in cloud config
+          try {
+            const { loadCloudConfig, saveCloudConfig } = await import('./cloud.js');
+            const cloudCfg = await loadCloudConfig();
+            if (cloudCfg) {
+              cloudCfg.lastSyncAt = new Date().toISOString();
+              cloudCfg.chunksSynced = (cloudCfg.chunksSynced ?? 0) + (result.synced ?? 0);
+              await saveCloudConfig(cloudCfg);
+            }
+          } catch {
+            // best-effort
+          }
+        }
+      } catch (error) {
+        spinner.fail(`Cloud sync failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
 }

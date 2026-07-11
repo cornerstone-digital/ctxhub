@@ -1,0 +1,14 @@
+apiVersion: v2
+name: ctxhub
+description: >
+  Self-hosted ctxhub — multi-repo AI context hub with Microsoft Entra ID
+  authentication, RBAC, and an MCP-compatible gateway service.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ai
+  - developer-tools
+  - mcp
+  - context
+home: https://github.com/martinegan/ctxhub

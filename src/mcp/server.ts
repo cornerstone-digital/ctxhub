@@ -18,6 +18,12 @@ import { SEARCH_FACETS, classifyResult, filterResults, localRgHints, normalizeSe
 import { maybeRewriteSearchInput } from '../commands/search.js';
 import { runAgentPrompt } from '../llm/runAgent.js';
 import { compactEncode } from './compact.js';
+import { createGroup, addOrg, updateSharing } from '../groups/groups.js';
+import { loadGroupStore, findGroup, findOrgsByGroup, getEffectiveSharing } from '../groups/store.js';
+import type { SharingMode } from '../groups/types.js';
+import { meetsMinTrustTier, TRUST_TIER_ORDER } from '../indexing/chunk.js';
+import type { ChunkTrustTier } from '../indexing/chunk.js';
+import type { IndexedDocument } from '../config/types.js';
 
 // The one choke point every tool response passes through -- compaction (dropping redundant
 // full content, picking TOON vs. JSON per payload) happens here so individual tool handlers
@@ -497,6 +503,287 @@ export function createCtxhubMcpServer(
     async () => {
       const { config } = await workspace(cwd);
       return textResult(config.repositories);
+    }
+  );
+
+  // ── Corporate Group tools ─────────────────────────────────────────────────
+
+  server.registerTool(
+    'group_list',
+    {
+      title: 'List corporate groups',
+      description:
+        'List all corporate groups with their member organisations. Use this to understand the cross-org knowledge ' +
+        'topology — which organisations exist, which group they belong to, and their peer URLs.',
+      inputSchema: {}
+    },
+    async () => {
+      try {
+        const store = await loadGroupStore();
+        const result = store.groups.map(group => ({
+          ...group,
+          orgs: store.orgs.filter(o => o.groupId === group.id),
+        }));
+        return textResult(result);
+      } catch (error) {
+        return toolError(`group_list failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
+  server.registerTool(
+    'group_create',
+    {
+      title: 'Create a corporate group',
+      description: 'Create a new corporate group. Groups are the top-level container for multiple organisations that share knowledge under a common parent entity.',
+      inputSchema: {
+        name: z.string().describe('Human-readable name for the group (e.g. "VodafoneThree UK")'),
+        created_by: z.string().optional().describe('Identity of the creator (default: mcp-agent)')
+      }
+    },
+    async ({ name, created_by }) => {
+      try {
+        const group = await createGroup(name, created_by ?? 'mcp-agent');
+        return textResult(group);
+      } catch (error) {
+        return toolError(`group_create failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
+  server.registerTool(
+    'group_add_org',
+    {
+      title: 'Add an organisation to a group',
+      description: 'Add an organisation to an existing corporate group. Each org has a tenantId (Entra tenant) and an optional peer URL for cross-org search fan-out.',
+      inputSchema: {
+        groupId: z.string().describe('ID of the corporate group to add the org to'),
+        name: z.string().describe('Human-readable name for the organisation (e.g. "Vodafone UK Engineering")'),
+        tenantId: z.string().describe('Microsoft Entra tenant ID for this organisation'),
+        peerUrl: z.string().optional().describe('Optional base URL of this org\'s ctxhub service for cross-org search fan-out'),
+        added_by: z.string().optional().describe('Identity of the operator adding this org (default: mcp-agent)')
+      }
+    },
+    async ({ groupId, name, tenantId, peerUrl, added_by }) => {
+      try {
+        const org = await addOrg(groupId, { name, tenantId, peerUrl }, added_by ?? 'mcp-agent');
+        return textResult(org);
+      } catch (error) {
+        return toolError(`group_add_org failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
+  server.registerTool(
+    'group_sharing',
+    {
+      title: 'Update sharing between organisations',
+      description:
+        'Set the sharing mode between two organisations. ' +
+        '"read" means fromOrg can search toOrg\'s knowledge but not vice versa. ' +
+        '"bidirectional" means both can search each other. ' +
+        '"none" removes all sharing between the two orgs.',
+      inputSchema: {
+        fromOrgId: z.string().describe('ID of the organisation that will have read access'),
+        toOrgId: z.string().describe('ID of the organisation whose knowledge will be shared'),
+        mode: z.enum(['none', 'read', 'bidirectional']).describe('Sharing mode'),
+        updated_by: z.string().optional().describe('Identity of the operator making this change (default: mcp-agent)')
+      }
+    },
+    async ({ fromOrgId, toOrgId, mode, updated_by }) => {
+      try {
+        const policy = await updateSharing(fromOrgId, toOrgId, mode as SharingMode, updated_by ?? 'mcp-agent');
+        return textResult(policy);
+      } catch (error) {
+        return toolError(`group_sharing failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
+  server.registerTool(
+    'group_status',
+    {
+      title: 'Get full group topology',
+      description:
+        'Return the full topology for a specific group: the group metadata, all member organisations, ' +
+        'and the sharing matrix (who can read whose knowledge). Use this before answering questions about ' +
+        'cross-org knowledge access or group membership.',
+      inputSchema: {
+        groupId: z.string().describe('ID of the corporate group')
+      }
+    },
+    async ({ groupId }) => {
+      try {
+        const store = await loadGroupStore();
+        const group = findGroup(store, groupId);
+        if (!group) {
+          return toolError(`No group with id "${groupId}"`);
+        }
+        const orgs = findOrgsByGroup(store, groupId);
+        const sharingMatrix = orgs.flatMap(from =>
+          orgs
+            .filter(to => to.id !== from.id)
+            .map(to => ({
+              fromOrgId: from.id,
+              fromOrgName: from.name,
+              toOrgId: to.id,
+              toOrgName: to.name,
+              mode: getEffectiveSharing(store, from.id, to.id),
+            }))
+        );
+        return textResult({ group, orgs, sharingMatrix });
+      } catch (error) {
+        return toolError(`group_status failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
+  // ── Chunk trust tier tools ────────────────────────────────────────────────
+
+  server.registerTool(
+    'chunk_promote',
+    {
+      title: 'Promote a chunk to a higher trust tier',
+      description:
+        'Elevate a specific chunk to "institutional" or "canonical" trust tier so cross-org search and ' +
+        'trust-filtered queries prefer it. Pass the chunk id (full or prefix), the target tier, and an ' +
+        'optional reason and promotedBy attribution. Returns the updated chunk id and tier on success.',
+      inputSchema: {
+        chunkId: z.string().describe('Full chunk id or unambiguous prefix from a prior search result'),
+        tier: z.enum(['institutional', 'canonical']).describe('Target trust tier to promote to'),
+        reason: z.string().optional().describe('Optional human-readable reason for the promotion'),
+        promotedBy: z.string().optional().describe('Identity of the agent or user performing the promotion (default: mcp-agent)')
+      }
+    },
+    async ({ chunkId, tier, reason, promotedBy }) => {
+      try {
+        const { config, workspaceRoot } = await workspace(cwd);
+        const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+
+        // Resolve full id from prefix
+        const exact = await index.getDocument(chunkId);
+        let chunk: IndexedDocument | undefined = exact;
+        if (!chunk && chunkId.length >= 8) {
+          const all = await index.recent(10_000);
+          const matches = all.filter(c => c.id.startsWith(chunkId));
+          if (matches.length > 1) {
+            return toolError(`Chunk id prefix is ambiguous: "${chunkId}". Matches: ${matches.map(m => m.id.slice(0, 12)).join(', ')}`);
+          }
+          chunk = matches[0];
+        }
+
+        if (!chunk) return toolError(`Chunk not found: ${chunkId}`);
+
+        const updated: IndexedDocument = {
+          ...chunk,
+          trustTier: tier as ChunkTrustTier,
+          promotedAt: new Date().toISOString(),
+          promotedBy: promotedBy ?? 'mcp-agent',
+          ...(reason ? { promotionReason: reason } : {})
+        };
+
+        await index.indexDocuments([updated]);
+        return textResult({ success: true, chunkId: chunk.id, tier });
+      } catch (error) {
+        return toolError(`chunk_promote failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
+  server.registerTool(
+    'chunk_list_promoted',
+    {
+      title: 'List chunks at or above a trust tier',
+      description:
+        'Return chunks whose trust tier is at or above the specified minimum. Use this to discover what ' +
+        'knowledge has been promoted to institutional or canonical quality, or to audit the trust tier ' +
+        'distribution across the workspace index.',
+      inputSchema: {
+        minTier: z.enum(['reviewed', 'promoted', 'institutional', 'canonical']).describe('Minimum trust tier to include in results')
+      }
+    },
+    async ({ minTier }) => {
+      try {
+        const { config, workspaceRoot } = await workspace(cwd);
+        const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+        const all = await index.recent(10_000);
+        const minTierValue = minTier as ChunkTrustTier;
+        if (!TRUST_TIER_ORDER.includes(minTierValue)) {
+          return toolError(`Invalid minTier: "${minTier}". Must be one of: ${TRUST_TIER_ORDER.join(', ')}`);
+        }
+        const matching = all.filter(chunk => meetsMinTrustTier(chunk, minTierValue));
+        return textResult({
+          chunks: matching.map(chunk => ({
+            id: chunk.id,
+            trustTier: chunk.trustTier ?? 'unverified',
+            title: chunk.title ?? chunk.filePath,
+            repo: chunk.repo
+          }))
+        });
+      } catch (error) {
+        return toolError(`chunk_list_promoted failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
+  // ── Cloud sync tools ──────────────────────────────────────────────────────
+
+  server.tool(
+    'cloud_sync',
+    'Trigger a sync of promoted (institutional/canonical) chunks from the current workspace to ctxhub Cloud. ' +
+    'Returns how many chunks were synced and any errors encountered.',
+    {},
+    async () => {
+      try {
+        const { getSyncConfig, syncToCloud } = await import('../cloud/sync.js');
+        const syncConfig = await getSyncConfig();
+        if (!syncConfig) {
+          return textResult({ synced: 0, skipped: true, errors: ['Cloud sync not configured. Run: ctxhub cloud configure'] });
+        }
+        const { config, workspaceRoot } = await workspace(cwd);
+        const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+        const all = await index.recent(10_000);
+        const result = await syncToCloud(syncConfig, all);
+        return textResult({
+          synced: result.synced ?? 0,
+          skipped: result.skipped ?? false,
+          errors: result.errors ?? [],
+        });
+      } catch (error) {
+        return toolError(`cloud_sync failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+
+  server.tool(
+    'cloud_status',
+    'Return current cloud sync configuration and last sync info for this ctxhub instance.',
+    {},
+    async () => {
+      try {
+        const { loadCloudConfig } = await import('../commands/cloud.js');
+        const cloudConfig = await loadCloudConfig();
+        if (!cloudConfig) {
+          const { config, workspaceRoot } = await workspace(cwd);
+          const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+          const all = await index.recent(10_000);
+          const available = all.filter(c => c.trustTier === 'institutional' || c.trustTier === 'canonical').length;
+          return textResult({ configured: false, chunksAvailable: available });
+        }
+        const endpoint = cloudConfig.endpoint;
+        const { config, workspaceRoot } = await workspace(cwd);
+        const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+        const all = await index.recent(10_000);
+        const available = all.filter(c => c.trustTier === 'institutional' || c.trustTier === 'canonical').length;
+        return textResult({
+          configured: true,
+          endpoint: endpoint.length > 20 ? `${endpoint.slice(0, 20)}…` : endpoint,
+          lastSync: cloudConfig.lastSyncAt ?? null,
+          chunksAvailable: available,
+        });
+      } catch (error) {
+        return toolError(`cloud_status failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   );
 

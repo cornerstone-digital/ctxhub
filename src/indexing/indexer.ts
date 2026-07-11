@@ -8,9 +8,10 @@ import { createIndexProvider } from './providers.js';
 import { pathExists, readText } from '../utils/fs.js';
 import { sha256 } from '../utils/hash.js';
 import { getCurrentCommit } from '../git/git.js';
-import { buildFileSummaryChunkWithLlm, chunkDocument, extractTitle } from './chunk.js';
+import { buildFileSummaryChunkWithLlm, chunkDocument, extractTitle, type ChunkTrustTier } from './chunk.js';
 import { redactContent } from './redact.js';
 import { mapWithConcurrencyLimit } from '../utils/concurrency.js';
+import { loadCtxhubIgnorePatterns } from './ctxhubignore.js';
 
 export type IndexResult = {
   scanned: number;
@@ -73,6 +74,10 @@ export async function indexWorkspace(
   const result: IndexResult = { scanned: 0, indexed: 0, skipped: 0, deleted: 0 };
   const seenKeys = new Set<string>();
 
+  // Load .ctxhubignore patterns once for the whole workspace run. Merged into
+  // each repo's exclude list so they apply to every file fast-glob scans.
+  const ignorePatterns = await loadCtxhubIgnorePatterns(workspaceRoot);
+
   try {
   for (const repo of config.repositories) {
     const repoPath = path.resolve(workspaceRoot, repo.path);
@@ -86,7 +91,7 @@ export async function indexWorkspace(
 
     const files = await fg(repoInclude(repo, config.knowledge.include), {
       cwd: repoPath,
-      ignore: repoExclude(repo, config.knowledge.exclude),
+      ignore: [...repoExclude(repo, config.knowledge.exclude), ...ignorePatterns],
       onlyFiles: true,
       dot: false
     });
@@ -130,6 +135,21 @@ export async function indexWorkspace(
         // Appended, not prepended -- keeps every existing chunk's index (and therefore its
         // deterministic id) unchanged when this feature is added to an already-indexed file.
         const allParts = summaryChunk ? [...parts, summaryChunk] : parts;
+
+        // Detect trust tier from YAML frontmatter.
+        // Explicit `trust-tier: <tier>` wins if present (written by captainNoteTemplate for
+        // promoted captain runs, or set manually).
+        // Notes promoted from MemPalace carry `promoted-from: mempalace:...` and are given
+        // the 'promoted' tier as a fallback.
+        // All other documents default to 'unverified'.
+        const explicitTierMatch = raw.match(/^trust-tier\s*:\s*(\S+)/m);
+        const explicitTier = explicitTierMatch?.[1] as ChunkTrustTier | undefined;
+        const validTiers: ChunkTrustTier[] = ['unverified', 'reviewed', 'promoted', 'institutional', 'canonical'];
+        const trustTier: ChunkTrustTier =
+          explicitTier && validTiers.includes(explicitTier)
+            ? explicitTier
+            : /^promoted-from\s*:/m.test(raw) ? 'promoted' : 'unverified';
+
         const chunks: IndexedChunk[] = allParts.map((part, i) => ({
           id: sha256(`${repo.name}:${filePath}:${hash}:${i}`),
           workspace: config.workspace.name,
@@ -147,7 +167,8 @@ export async function indexWorkspace(
           redacted: redaction.redacted,
           hash,
           commit,
-          lastIndexed: new Date().toISOString()
+          lastIndexed: new Date().toISOString(),
+          trustTier,
         }));
 
         return { type: 'index', key, filePath, absolutePath, hash, chunks, existingChunkIds: existing?.chunkIds };

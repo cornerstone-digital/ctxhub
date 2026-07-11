@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFileSummaryChunk,
@@ -10,7 +10,10 @@ import {
   detectDiagramType,
   extractDiagramComponents,
   extractDiagramRelationships,
-  extractTitle
+  extractTitle,
+  meetsMinTrustTier,
+  TRUST_TIER_ORDER,
+  type ChunkTrustTier
 } from './chunk.js';
 import { defaultConfig } from '../config/defaultConfig.js';
 
@@ -218,4 +221,97 @@ test('diagram helpers detect type, components, and relationships', () => {
   assert.equal(detectDiagramType(content), 'flowchart');
   assert.deepEqual(extractDiagramComponents(content), ['Web', 'API', 'DB']);
   assert.deepEqual(extractDiagramRelationships(content), ['Web --> API', 'API --> DB']);
+});
+
+// ── TRUST_TIER_ORDER ──────────────────────────────────────────────────────────
+
+describe('TRUST_TIER_ORDER', () => {
+  test('contains all five tiers in the correct named order', () => {
+    const expected: ChunkTrustTier[] = ['unverified', 'reviewed', 'promoted', 'institutional', 'canonical'];
+    assert.deepEqual(TRUST_TIER_ORDER, expected);
+  });
+
+  test('is strictly ascending — each entry has a higher index than the one before it', () => {
+    for (let i = 0; i < TRUST_TIER_ORDER.length - 1; i++) {
+      const lower = TRUST_TIER_ORDER[i];
+      const higher = TRUST_TIER_ORDER[i + 1];
+      assert.ok(
+        TRUST_TIER_ORDER.indexOf(lower) < TRUST_TIER_ORDER.indexOf(higher),
+        `Expected ${lower} (index ${i}) < ${higher} (index ${i + 1})`
+      );
+    }
+  });
+
+  test('has no duplicate entries', () => {
+    const unique = new Set(TRUST_TIER_ORDER);
+    assert.equal(unique.size, TRUST_TIER_ORDER.length, 'TRUST_TIER_ORDER should have no duplicates');
+  });
+});
+
+// ── meetsMinTrustTier ─────────────────────────────────────────────────────────
+
+describe('meetsMinTrustTier', () => {
+  test('unverified meets min unverified', () => {
+    assert.equal(meetsMinTrustTier({ trustTier: 'unverified' }, 'unverified'), true);
+  });
+
+  test('unverified does not meet min reviewed', () => {
+    assert.equal(meetsMinTrustTier({ trustTier: 'unverified' }, 'reviewed'), false);
+  });
+
+  test('reviewed meets min reviewed', () => {
+    assert.equal(meetsMinTrustTier({ trustTier: 'reviewed' }, 'reviewed'), true);
+  });
+
+  test('reviewed meets min unverified (higher tier satisfies lower minimum)', () => {
+    assert.equal(meetsMinTrustTier({ trustTier: 'reviewed' }, 'unverified'), true);
+  });
+
+  test('promoted meets min promoted', () => {
+    assert.equal(meetsMinTrustTier({ trustTier: 'promoted' }, 'promoted'), true);
+  });
+
+  test('promoted does not meet min institutional', () => {
+    assert.equal(meetsMinTrustTier({ trustTier: 'promoted' }, 'institutional'), false);
+  });
+
+  test('institutional meets min institutional', () => {
+    assert.equal(meetsMinTrustTier({ trustTier: 'institutional' }, 'institutional'), true);
+  });
+
+  test('institutional does not meet min canonical', () => {
+    assert.equal(meetsMinTrustTier({ trustTier: 'institutional' }, 'canonical'), false);
+  });
+
+  test('canonical meets every tier (highest tier satisfies all minimums)', () => {
+    for (const tier of TRUST_TIER_ORDER) {
+      assert.equal(
+        meetsMinTrustTier({ trustTier: 'canonical' }, tier),
+        true,
+        `canonical should meet min ${tier}`
+      );
+    }
+  });
+
+  test('undefined trustTier treated as unverified — meets min unverified', () => {
+    assert.equal(meetsMinTrustTier({}, 'unverified'), true);
+  });
+
+  test('undefined trustTier treated as unverified — does not meet min reviewed', () => {
+    assert.equal(meetsMinTrustTier({}, 'reviewed'), false);
+  });
+
+  test('undefined trustTier treated as unverified — does not meet min institutional', () => {
+    assert.equal(meetsMinTrustTier({}, 'institutional'), false);
+  });
+
+  test('each tier meets its own minimum (identity)', () => {
+    for (const tier of TRUST_TIER_ORDER) {
+      assert.equal(
+        meetsMinTrustTier({ trustTier: tier }, tier),
+        true,
+        `${tier} should meet min ${tier}`
+      );
+    }
+  });
 });

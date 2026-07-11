@@ -10,6 +10,8 @@ export type CtxhubConfig = {
   version: number;
   workspace: {
     name: string;
+    /** Optional list of ctxhub roles that may access this workspace over HTTP. When absent, any authenticated user may access it. */
+    allowedRoles?: string[];
   };
   repositories: RepoConfig[];
   knowledge: {
@@ -54,8 +56,16 @@ export type CtxhubConfig = {
   activeProfile?: string;
   // Webhook configuration for external triggers. The token is a shared secret that must match
   // the URL path for POST /webhooks/:token/trigger/:name to fire a Captain or Job run.
+  // webhookSecret is an optional HMAC-SHA256 signing secret: when set, the caller must include
+  // X-Hub-Signature-256: sha256=<hex> computed over the raw request body using this secret.
   webhooks?: {
     token: string;
+    webhookSecret?: string;
+  };
+  // Service configuration for peer discovery. peerUrl is the public URL of this ctxhub
+  // instance, announced via heartbeat so other instances can discover it.
+  service?: {
+    peerUrl?: string;
   };
 };
 
@@ -101,6 +111,14 @@ export type IndexedDocument = {
   hash: string;
   commit?: string;
   lastIndexed: string;
+  /** Trust tier for cross-org search filtering. Defaults to 'unverified' when absent. */
+  trustTier?: import('../indexing/chunk.js').ChunkTrustTier;
+  /** Set when a chunk's trust tier was manually elevated via `ctxhub chunk promote`. */
+  promotedAt?: string;
+  /** Who performed the manual promotion (e.g. 'cli', or a named operator via --by). */
+  promotedBy?: string;
+  /** Optional human-readable reason recorded at promotion time. */
+  promotionReason?: string;
 };
 
 export type IndexedChunk = IndexedDocument;

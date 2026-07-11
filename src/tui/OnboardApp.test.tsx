@@ -47,7 +47,9 @@ function baseDeps(config: CtxhubConfig, calls: { skillsInstallCommand: unknown[]
     createContextPack: (async () => ({
       query: 'x', workspace: 'ws', generatedAt: '', repos: [], search: [], architecture: [], resultTypes: {}, suggestedReadingOrder: [], localFollowUpCommands: [], guidance: []
     })) as OnboardDeps['createContextPack'],
-    runAgentPrompt: (async () => ({ ok: false, reason: 'disabled' })) as OnboardDeps['runAgentPrompt']
+    runAgentPrompt: (async () => ({ ok: false, reason: 'disabled' })) as OnboardDeps['runAgentPrompt'],
+    // Skip enterprise auth step in UI tests: auth is treated as already configured
+    isAuthConfigured: async () => true
   };
 }
 
