@@ -14,7 +14,9 @@ The architecture for Cloud, the Org Graph, and the Identity model is designed an
 
 ## Current hypothesis
 
-We believe engineering teams want an operating model where AI work is observable, reviewable, and compounds into institutional knowledge. Milestones M4–M10 exist to validate or invalidate that hypothesis.
+We believe engineering teams want an operating model where AI work is observable, reviewable, and compounds into institutional knowledge. Milestones M4–M16 exist to validate or invalidate that hypothesis.
+
+Every milestone after M4 is optional. Reality decides the roadmap.
 
 ---
 
@@ -171,7 +173,9 @@ Five of the above items are completed without any direct involvement from the co
 
 **The promise:** "My whole engineering org shares one Mission Control."
 
-Architecture is fully designed — see `docs/ctxhub_cloud_architecture.docx` and `docs/ctxhub_identity_model.docx`. Build starts when the trigger fires.
+Architecture is fully designed — see `docs/cloud_architecture.md` and `docs/identity_model.md`. Build starts when the trigger fires.
+
+**Hypothesis:** Teams that coordinate multiple ctxhub instances want a shared Mission Control — not just better documentation or manual conventions.
 
 ### What's left
 
@@ -193,13 +197,19 @@ Two workspaces in one org sync independently. A member opens Cloud Mission Contr
 - Does historical-only Cloud Mission Control feel like a limitation, or is it fine?
 - What do teams try to do with Cloud that we haven't built yet?
 
+### Review gate
+
+M7 does not automatically begin. When this milestone completes: **Proceed / Pause / Pivot** — based on whether the hypothesis above is validated by observed behaviour. If teams use Cloud primarily as a backup rather than a coordination layer, the Org Graph may not be the right next step.
+
 ---
 
 ## Milestone 7 — Org Graph Phase 1 *(trigger: first org has 50+ promoted findings across workspaces)*
 
 **The promise:** "Ask a question. Get every answer your org has ever captured — regardless of which repo or team it came from."
 
-Architecture is fully designed — see `docs/ctxhub_org_graph_architecture.docx`. Build starts when the trigger fires.
+Architecture is fully designed — see `docs/org_graph_architecture.md`. Build starts when the trigger fires.
+
+**Hypothesis:** Cross-workspace knowledge discovery is more valuable than per-workspace search once an org accumulates enough promoted findings to make search meaningful.
 
 ### What's left
 
@@ -221,6 +231,10 @@ An org with 3+ workspaces queries "what do we know about X?" and gets findings f
 - Do cascade rules (automatic cross-workspace captain triggers) deliver on their promise, or are they too aggressive?
 - What query patterns emerge that we haven't anticipated?
 
+### Review gate
+
+M8 does not automatically begin. When this milestone completes: **Proceed / Pause / Pivot** — based on whether orgs are using cross-workspace knowledge discovery as a daily tool, or treating the Org Graph as infrastructure they rarely touch.
+
 ---
 
 ## Milestone 8 — Blueprint Hub *(trigger: organic sharing of personas and captain tasks without infrastructure for it)*
@@ -228,6 +242,8 @@ An org with 3+ workspaces queries "what do we know about X?" and gets findings f
 **The promise:** "Install one blueprint. Your agents immediately understand your stack, your conventions, and your review standards."
 
 Scope is known; architecture doc not yet written. Build starts when the trigger fires.
+
+**Hypothesis:** Engineering teams prefer installing curated context configurations over building them from scratch — the same way they prefer npm packages over writing utilities themselves.
 
 ### What's left
 
@@ -251,13 +267,19 @@ An engineer joins a new company, runs `ctxhub blueprint install acme-corp/standa
 - Does blueprint composition create dependency resolution problems, or does the resolver handle it cleanly?
 - Is topology-awareness used in practice, or do engineers prefer explicit installs?
 
+### Review gate
+
+M9 does not automatically begin. When this milestone completes: **Proceed / Pause / Pivot** — based on whether Blueprint Hub is generating organic publishing behaviour, or whether it functions only as a private org config store without the ecosystem dynamics that make it valuable.
+
 ---
 
 ## Milestone 9 — Enterprise *(trigger: a real deal that can't close without it)*
 
 **The promise:** "ctxhub meets your security team's requirements without an exceptions process."
 
-Identity model and auth design are fully specified — see `docs/ctxhub_identity_model.docx`. Build starts when the trigger fires.
+Identity model and auth design are fully specified — see `docs/identity_model.md`. Build starts when the trigger fires.
+
+**Hypothesis:** The primary blocker to enterprise adoption is security and compliance requirements — not feature gaps. Meeting those requirements unlocks deals that are already commercially motivated.
 
 ### What's left
 
@@ -281,6 +303,10 @@ A 500-person engineering org procures ctxhub through their standard vendor proce
 - Does air-gapped deployment unlock deals that hosted Cloud cannot, or is it a compliance checkbox?
 - Which compliance framework is the actual deal blocker — SOC 2, ISO 27001, HIPAA, or PCI?
 
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether enterprise customers are using ctxhub as a strategic tool or as a compliance-approved utility they barely touch.
+
 ---
 
 ## Milestone 10 — Engineering Intelligence *(trigger: leaders opening Mission Control for trends, not individual reviews)*
@@ -288,6 +314,8 @@ A 500-person engineering org procures ctxhub through their standard vendor proce
 **The promise:** "Understand how your engineering organisation actually makes decisions — not how fast it closes tickets."
 
 Depends on M7 (Org Graph) being live and populated with real data. Scope is known; architecture doc not yet written. Build starts when the trigger fires.
+
+**Hypothesis:** Engineering leaders can make better decisions when they can see how their organisation's knowledge base is evolving over time — not just what individual captains found last night.
 
 ### What's left
 
@@ -311,14 +339,181 @@ An engineering leader opens the Intelligence dashboard and learns something true
 - Does recommendation generation produce recommendations people trust, or does it surface noise?
 - Is the Intelligence layer used by the same people who use Mission Control daily, or does it reach a new audience?
 
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether Engineering Intelligence produces decisions that leaders act on, or whether it becomes a dashboard people visit and leave unchanged.
+
 ---
 
-## Later
+## Future Horizons
 
-Full strategic detail in [docs/strategy/LATER_PHASES.md](./docs/strategy/LATER_PHASES.md).
+*Milestones M11–M16 are known destinations, not scheduled work. Architecture will be designed when the trigger fires. Until then, each milestone is defined only by its promise, trigger, hypothesis, expected learnings, and exit condition. No implementation detail until the trigger is observed.*
 
-The following phases are known to exist but not yet scoped. Each requires its own trigger condition to be observed before scoping begins.
+---
 
-- **Marketplace / Revenue sharing** — third-party blueprint authors earn revenue from paid blueprint installs. Requires Blueprint Hub (M8) to be live with meaningful install volume.
-- **Cloud-side LLM execution** — captain runs in CI/headless environments without a local `ctxhub service`. Requires an explicit opt-in mechanism and a secure context transfer design (per ADR-011). Trigger: teams needing captains in CI repeatedly asking for it.
-- **Federation** — multiple ctxhub Cloud orgs contributing to a shared knowledge layer across trust boundaries. The early surface is coordination: sharing blueprints, surfacing topology patterns between partner orgs. The deeper opportunity is collective institutional knowledge — anonymised security findings, framework migration patterns, architectural decisions — accumulated across organisations the way Stack Overflow accumulated individual knowledge. This is not a feature addition; it is a different product surface entirely, and probably the most strategically significant thing on this list. Trigger: two orgs wanting to share knowledge without merging their organisations.
+## Milestone 11 — Marketplace *(trigger: Blueprint Hub has hundreds of blueprints, active maintainers, and organisations requesting paid distribution)*
+
+**The promise:** "The best engineering practices become reusable products."
+
+This is not about selling blueprints. The value is expertise becoming portable — the same way npm made code reusable, Blueprint Hub makes engineering judgement reusable. The Marketplace is the economic layer that makes maintaining that expertise sustainable.
+
+**Hypothesis:** People are willing to pay for curated engineering expertise rather than building everything themselves — especially when the expertise covers a stack, framework, or compliance domain they don't have in-house.
+
+### We expect to learn
+
+- Do people buy expertise from individuals, or only from organisations they recognise?
+- Do companies publish internally before going public, or do most blueprints start as public?
+- Is revenue sufficient to motivate high-quality blueprint maintenance, or does quality decay after the initial publish?
+- What price point makes sense — per-install, per-seat, or per-org subscription?
+
+### Exit condition
+
+One third-party blueprint author earns meaningful recurring revenue from blueprints they published and maintain independently.
+
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether the Marketplace creates a genuine ecosystem or concentrates installs in a small number of high-quality blueprints that could be maintained without a marketplace model.
+
+---
+
+## Milestone 12 — Cloud Execution *(trigger: teams repeatedly asking whether Captains can run in CI)*
+
+**The promise:** "Captains run wherever your engineering happens."
+
+This milestone is architecturally significant. Running Captains in Cloud requires context to move — which conflicts with the local-first principle (ADR-002) and the source-code boundary (ADR-010). Any implementation must be explicitly opt-in, use a secure context transfer mechanism, and be described in a dedicated ADR before a line of code is written.
+
+**Hypothesis:** Cloud execution increases Captain coverage without reducing trust — because teams understand what context moves, have opted in explicitly, and see the same findings they'd get locally.
+
+### We expect to learn
+
+- Do people actually trust remote execution, or does "my code left my machine" create adoption resistance regardless of architecture?
+- What context has to move for a Captain run to be useful? Is it less than we fear, or more?
+- Is latency acceptable for overnight scheduled runs? What about on-demand runs?
+- What does Cloud execution cost at scale, and does that change the pricing model?
+
+### Exit condition
+
+One organisation runs nightly Captain tasks entirely in CI, with no local `ctxhub service` running, and considers the results trustworthy enough to act on.
+
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether Cloud execution expands the audience for ctxhub (teams without always-on machines) or simply duplicates what local execution already provides.
+
+---
+
+## Milestone 13 — Federation *(trigger: two organisations want to share knowledge without merging their organisations)*
+
+**The promise:** "Engineering organisations learn from each other without giving away their IP."
+
+Federation is the most strategically significant milestone on this roadmap. The early surface is coordination — sharing blueprints, surfacing topology patterns between partner orgs. The deeper opportunity is collective institutional knowledge: anonymised security findings, framework migration patterns, architectural decisions — accumulated across organisations the way Stack Overflow accumulated individual knowledge. This is not a feature addition; it is a fundamentally different product surface.
+
+**Hypothesis:** Collective engineering knowledge is more valuable than isolated organisational knowledge — and the privacy problem is solvable through anonymisation and selective disclosure, not avoidance.
+
+### We expect to learn
+
+- What are organisations willing to share, and what must remain private regardless of anonymisation?
+- Does anonymisation work in practice, or does enough context leak through that organisations can identify each other?
+- What categories of knowledge become universally useful when aggregated — security findings, dependency patterns, migration paths?
+- Does federated knowledge produce recommendations people act on, or does provenance uncertainty make it untrustworthy?
+
+### Exit condition
+
+A recommendation surfaced in Organisation A originated from evidence gathered anonymously across multiple organisations — and the engineer who acted on it had no reason to doubt it.
+
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether Federation creates genuine inter-organisational learning or becomes a blueprint-sharing mechanism that could have been built without the privacy complexity.
+
+---
+
+## Milestone 14 — Engineering Network *(trigger: Federation becomes routine across multiple org clusters)*
+
+**The promise:** "Engineering knowledge compounds across the industry."
+
+Think GitHub for engineering judgement. Not code. Not secrets. Institutional learning — how are fintechs solving PSD3 compliance? How did organisations migrate from React 17 to React 20? What architecture patterns are emerging for LLM integration? This knowledge exists today, scattered across blog posts, conference talks, and Slack conversations. The Engineering Network is where it accumulates, structured, searchable, and evidence-backed.
+
+**Hypothesis:** There is more value in aggregated, anonymised engineering decisions across an industry than in any individual organisation's internal knowledge base — and that value increases non-linearly with the number of contributing organisations.
+
+### We expect to learn
+
+- Does industry-level knowledge attract a meaningfully different audience than org-level knowledge?
+- What is the contribution model — opt-in per finding, opt-in per topic, or default-on with opt-out?
+- How do you prevent low-quality or intentionally misleading contributions from degrading the network?
+- Does citing external knowledge in local recommendations increase or decrease trust?
+
+### Exit condition
+
+Engineering Intelligence in a ctxhub org regularly cites external organisational knowledge alongside local evidence — and engineers treat the external citations as credible signal, not noise.
+
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether the Engineering Network produces genuine industry-level insights, or whether it becomes a large-scale blueprint repository without the emergent intelligence the hypothesis depends on.
+
+---
+
+## Milestone 15 — AI Workforce *(trigger: organisations running dozens of Captains and asking how to coordinate them)*
+
+**The promise:** "Humans coordinate an AI workforce with confidence."
+
+This is not autonomous software engineering. It is the opposite: Mission Control scaled to an organisation that runs hundreds of scheduled Captains, specialised review teams, budget constraints, approval chains, and organisational policies governing what AI is permitted to observe, recommend, and promote. Mission Control becomes mission control.
+
+**Hypothesis:** As AI capability grows, the bottleneck shifts from what AI can do to how humans coordinate, review, and take responsibility for what AI produces. The organisation that solves coordination wins — not the one with the best model.
+
+### We expect to learn
+
+- At what scale does informal Captain coordination break down — 10 tasks, 50, 200?
+- What organisational policies do engineering leaders want to enforce on AI behaviour, and can those policies be expressed in a structured way?
+- Does budget-constrained AI coordination produce meaningfully different outcomes than unconstrained, or does scarcity drive better prioritisation?
+- Who owns the AI workforce — individual engineers, team leads, a platform team?
+
+### Exit condition
+
+An organisation with 100+ active Captain tasks coordinates them through ctxhub policy and approval workflows, with no Captain running outside its defined scope and no finding promoted without appropriate human review.
+
+---
+
+## Milestone 16 — Operating System *(ten-year milestone)*
+
+**The promise:** "Every engineering decision leaves the organisation smarter than before."
+
+This is not a product milestone. It is the original mission, realised at full scale. The platform manages humans, AI, knowledge, policies, workflows, and judgement. It is not a tool that engineering organisations use — it is the model through which engineering organisations operate. Every decision made through ctxhub makes the next decision easier, cheaper, and more likely to be right.
+
+**Hypothesis:** The sustainable competitive advantage in software engineering is not tooling speed, model capability, or headcount — it is accumulated institutional judgement. The organisation that systematically captures, validates, and compounds its engineering knowledge will outperform one that doesn't, over any sufficiently long time horizon.
+
+### Exit condition
+
+An engineering organisation that has been running ctxhub for five years makes better architectural decisions, with more confidence and less waste, than it did on day one — and can demonstrate the improvement through its own knowledge graph.
+
+---
+
+## Engineering Flywheel
+
+Every milestone increases the scope over which the same asset — institutional engineering knowledge — creates value.
+
+```
+Developer
+    ↓
+Knowledge
+    ↓
+Team
+    ↓
+Organisation
+    ↓
+Industry
+    ↓
+Better Knowledge
+```
+
+Runtime (M1–M3) compounds individual knowledge. Mission Control (M4–M5) compounds team knowledge. Cloud and Org Graph (M6–M7) compound organisational knowledge. Federation and the Engineering Network (M13–M14) compound industry knowledge. Each layer makes the layer below it more valuable — a developer's promoted finding is more useful when it's visible to their team; a team's accumulated findings are more useful when they're visible across the organisation; an organisation's decisions are more useful when they're contributing to industry-level patterns.
+
+The flywheel is the product. The milestones are how we build it.
+
+---
+
+## Success looks like
+
+Five years from now, engineering teams don't think about "running ctxhub." They simply assume that every architectural decision their organisation has ever made is findable — that a new engineer on day one has access to a year of Captain findings, that promoted notes from last quarter are still visible and searchable, that knowledge doesn't leave when people do.
+
+That's when the mission has succeeded: not when ctxhub is celebrated, but when the absence of it is unimaginable.
+
+Like Git — not exciting. Load-bearing.
