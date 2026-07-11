@@ -1,5 +1,11 @@
 # Later Phases — Strategic Direction
 
+| | |
+|---|---|
+| **Status** | Accepted |
+| **Version** | 1.0 |
+| **Last reviewed** | 2026-07 |
+
 *Internal document. Not for public distribution.*
 
 *These phases have no committed ship dates. Each depends on evidence from the previous one — user behaviour, retention signals, and willingness to pay. The mission doesn't change. The scope expands.*
