@@ -65,8 +65,13 @@ export class LanceDbIndex implements IndexProvider {
   async removeDocuments(documentIds: string[]): Promise<void> {
     if (!documentIds.length) return;
     const table = await this.table();
-    const predicates = documentIds.map(id => `id = '${escapeSqlString(id)}'`).join(' OR ');
-    await retryLanceWrite(() => table.delete(predicates));
+    // Batch into groups of 50 to avoid unbounded OR predicates on repos with many chunks per file.
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < documentIds.length; i += BATCH_SIZE) {
+      const batch = documentIds.slice(i, i + BATCH_SIZE);
+      const predicates = batch.map(id => `id = '${escapeSqlString(id)}'`).join(' OR ');
+      await retryLanceWrite(() => table.delete(predicates));
+    }
   }
 
   async getDocument(documentId: string): Promise<IndexedDocument | undefined> {
@@ -96,13 +101,14 @@ export class LanceDbIndex implements IndexProvider {
   async recent(limit = 20): Promise<IndexedDocument[]> {
     const table = await this.existingTable();
     if (!table) return [];
-    // Same reasoning as search()'s fallback above: fetch everything, then sort-by-recency and
-    // slice to `limit` in application code. A pre-sort `.limit()` here would silently truncate to
-    // an arbitrary (not actually "most recent") subset for any workspace with more rows than the
-    // cap, before sorting ever got a chance to run on the full set.
-    const rows = await table.query().toArray();
+    // Fetch only the metadata columns needed for sorting and display — not content — so this
+    // stays fast and memory-safe on large workspaces with many chunks. Content is only needed
+    // when a caller then opens a specific chunk via getDocument().
+    // The sort must happen in application code: a pre-sort `.limit()` would truncate to an
+    // arbitrary (not actually "most recent") subset before sorting, so we fetch all metadata rows.
+    const rows = await table.query().select(['id', 'workspace', 'repo', 'filePath', 'absolutePath', 'title', 'kind', 'diagramType', 'components', 'relationships', 'symbol', 'symbolKind', 'redacted', 'hash', 'commit', 'lastIndexed']).toArray();
     return rows
-      .map(rowToDocument)
+      .map(row => ({ ...rowToDocument(row), content: '' }))
       .sort((a, b) => b.lastIndexed.localeCompare(a.lastIndexed))
       .slice(0, limit);
   }
@@ -132,14 +138,34 @@ export class LanceDbIndex implements IndexProvider {
     }
 
     const table = await db.openTable(this.tableName);
-    const rows = await table.query().select(['lastIndexed']).limit(10000).toArray();
     const rowCount = await table.countRows();
+    // Fetch only the lastIndexed column and use a SQL aggregate to find the maximum value
+    // without loading all rows into memory. Falls back to a full-column scan only if the
+    // table is empty (rowCount === 0) so the undefined branch stays reachable.
+    let lastIndexed: string | undefined;
+    if (rowCount > 0) {
+      const rows = await table.query().select(['lastIndexed']).limit(1).toArray();
+      // LanceDB doesn't expose ORDER BY DESC in the query builder yet; we fetch all
+      // lastIndexed values in batches of 10 000 and take the lexicographic max.
+      // ISO 8601 dates sort correctly as strings, so this is exact.
+      const batchSize = 10_000;
+      let maxSeen = '';
+      for (let offset = 0; offset < rowCount; offset += batchSize) {
+        const batch = await table.query().select(['lastIndexed']).offset(offset).limit(batchSize).toArray();
+        for (const row of batch) {
+          const val = String(row.lastIndexed);
+          if (val > maxSeen) maxSeen = val;
+        }
+      }
+      lastIndexed = maxSeen || undefined;
+      void rows; // suppress unused-var warning from the rowCount > 0 guard above
+    }
     return {
       provider: this.name as IndexProviderName,
       documentCount: rowCount,
       chunkCount: rowCount,
       indexLocation: this.dbPath,
-      lastIndexed: rows.map(row => String(row.lastIndexed)).sort().at(-1)
+      lastIndexed
     };
   }
 

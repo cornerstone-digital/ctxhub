@@ -66,7 +66,9 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   service: 'Fleet',
   captain: 'Fleet',
   dashboard: 'Fleet',
-  reset: 'Setup'
+  reset: 'Setup',
+  job: 'Fleet',
+  webhook: 'Fleet'
 };
 
 export function extractGuidedCommands(program: Command): GuidedCommand[] {

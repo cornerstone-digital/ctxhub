@@ -142,7 +142,20 @@ export async function buildFileSummaryChunkWithLlm(
   if (!fallback) return undefined;
   if (!config.llm.enabled || fullContent.length < LLM_FILE_SUMMARY_MIN_CHARS) return fallback;
 
-  const result = await runAgentPromptFn(config, buildFileSummaryPrompt(filePath, title, parts, fullContent));
+  // Hard timeout on the LLM call so a hung agent CLI (waiting for auth, network, etc.)
+  // never freezes the entire indexer. 30 s is generous for a summarisation prompt;
+  // if it times out we fall back to the structural summary cleanly.
+  // .unref() ensures this timer doesn't prevent the process from exiting if everything
+  // else completes (important for tests and short-lived CLI invocations).
+  const LLM_TIMEOUT_MS = 30_000;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    const timer = setTimeout(() => reject(new Error('LLM summary timed out')), LLM_TIMEOUT_MS);
+    timer.unref();
+  });
+  const result = await Promise.race([
+    runAgentPromptFn(config, buildFileSummaryPrompt(filePath, title, parts, fullContent)),
+    timeoutPromise
+  ]).catch(() => ({ ok: false as const, text: '' }));
   if (!result.ok) return fallback;
 
   const summary = result.text.trim();

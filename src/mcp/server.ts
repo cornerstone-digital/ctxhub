@@ -27,7 +27,21 @@ function textResult(value: unknown) {
 }
 
 async function workspace(cwd: string) {
-  return loadWorkspaceConfig(cwd);
+  try {
+    return await loadWorkspaceConfig(cwd);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const isNotFound = /ENOENT|no such file|not found|cannot find/i.test(message);
+    throw new Error(
+      isNotFound
+        ? `No ctxhub workspace found at ${cwd}. Run: ctxhub init`
+        : `Failed to load ctxhub config: ${message}`
+    );
+  }
+}
+
+function toolError(message: string): ReturnType<typeof textResult> {
+  return textResult({ error: message });
 }
 
 // Best-effort telemetry backing the `usage_stats` tool/`ctxhub stats` command: records how many
@@ -35,10 +49,13 @@ async function workspace(cwd: string) {
 // full, so agents/users can see roughly how much ctxhub's targeted retrieval is saving over time.
 // Measures the same compacted text textResult() actually sends, not the raw pre-compaction JSON,
 // so the savings number reflects what the agent really received.
-async function recordUsage(workspaceRoot: string, tool: string, payload: unknown, absolutePaths: Array<string | undefined>) {
+// Best-effort telemetry: awaited so stats are visible to the same session's `usage_stats` call,
+// but failures (disk full, missing dir, permissions) are swallowed so they NEVER propagate to
+// the tool caller. Telemetry is a bonus, not a requirement for the tool to return useful results.
+async function recordUsage(workspaceRoot: string, tool: string, payload: unknown, absolutePaths: Array<string | undefined>): Promise<void> {
   const tokensReturned = estimateTokens(compactEncode(payload));
   const tokensBaseline = estimateBaselineTokensFromFileSizes(absolutePaths);
-  await recordToolUsage(path.join(workspaceRoot, STATS_PATH), tool, tokensReturned, tokensBaseline);
+  await recordToolUsage(path.join(workspaceRoot, STATS_PATH), tool, tokensReturned, tokensBaseline).catch(() => undefined);
 }
 
 export function createCtxhubMcpServer(
@@ -102,40 +119,44 @@ export function createCtxhubMcpServer(
       }
     },
     async ({ query, limit, type, rewriteQuery, maxTokens, excludeSeen }) => {
-      const { config, workspaceRoot } = await workspace(cwd);
-      const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
-      const facet = normalizeSearchFacet(type);
-      const rewritten = rewriteQuery
-        ? await maybeRewriteSearchInput(query, facet, config, opts.runAgentPromptFn ?? runAgentPrompt)
-        : { query, facet };
-      const maxResults = limit ?? 5;
-      // Facet 'all' normally doesn't need a wider candidate pool since nothing gets filtered out
-      // afterward -- but excludeSeen filters the pool too, so it needs headroom beyond maxResults
-      // even here, or there's nothing left to backfill with once already-seen ids are skipped.
-      const candidatePoolSize = rewritten.facet === 'all' && !excludeSeen ? maxResults : Math.max(maxResults * 5, 25);
-      const candidates = await index.search(rewritten.query, candidatePoolSize);
-      const facetFiltered = filterResults(candidates, rewritten.facet);
-      const unseen = excludeSeen ? facetFiltered.filter(result => !seenChunkIds.has(result.id)) : facetFiltered;
-      const filtered = unseen.slice(0, maxResults);
-      const { kept: results, droppedIds } = maxTokens !== undefined ? trimToTokenBudget(filtered, maxTokens) : { kept: filtered, droppedIds: [] as string[] };
-      for (const result of results) seenChunkIds.add(result.id);
-      const payload = {
-        query: rewritten.query,
-        type: rewritten.facet,
-        resultTypes: countResultTypes(results),
-        results: results.map(result => ({ ...result, type: classifyResult(result) })),
-        localFollowUpCommands: localRgHints(rewritten.query, results),
-        guidance: [
-          'Use ctxhub to orient across repos and identify likely files.',
-          'For exact method bodies or edits, follow up with get_file_context or local rg in the target repo.',
-          'For architecture/topology questions, prefer type="architecture" or architecture_search.'
-        ],
-        ...(rewritten.rewritten ? { originalQuery: query, originalType: facet, rewrittenQuery: rewritten.query, rewrittenType: rewritten.facet } : {}),
-        ...(rewritten.notice ? { llmNotice: rewritten.notice } : {}),
-        ...(droppedIds.length ? { droppedIds } : {})
-      };
-      await recordUsage(workspaceRoot, 'search', payload, results.map(result => result.absolutePath));
-      return textResult(payload);
+      try {
+        const { config, workspaceRoot } = await workspace(cwd);
+        const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+        const facet = normalizeSearchFacet(type);
+        const rewritten = rewriteQuery
+          ? await maybeRewriteSearchInput(query, facet, config, opts.runAgentPromptFn ?? runAgentPrompt)
+          : { query, facet };
+        const maxResults = limit ?? 5;
+        // Facet 'all' normally doesn't need a wider candidate pool since nothing gets filtered out
+        // afterward -- but excludeSeen filters the pool too, so it needs headroom beyond maxResults
+        // even here, or there's nothing left to backfill with once already-seen ids are skipped.
+        const candidatePoolSize = rewritten.facet === 'all' && !excludeSeen ? maxResults : Math.max(maxResults * 5, 25);
+        const candidates = await index.search(rewritten.query, candidatePoolSize);
+        const facetFiltered = filterResults(candidates, rewritten.facet);
+        const unseen = excludeSeen ? facetFiltered.filter(result => !seenChunkIds.has(result.id)) : facetFiltered;
+        const filtered = unseen.slice(0, maxResults);
+        const { kept: results, droppedIds } = maxTokens !== undefined ? trimToTokenBudget(filtered, maxTokens) : { kept: filtered, droppedIds: [] as string[] };
+        for (const result of results) seenChunkIds.add(result.id);
+        const payload = {
+          query: rewritten.query,
+          type: rewritten.facet,
+          resultTypes: countResultTypes(results),
+          results: results.map(result => ({ ...result, type: classifyResult(result) })),
+          localFollowUpCommands: localRgHints(rewritten.query, results),
+          guidance: [
+            'Use ctxhub to orient across repos and identify likely files.',
+            'For exact method bodies or edits, follow up with get_file_context or local rg in the target repo.',
+            'For architecture/topology questions, prefer type="architecture" or architecture_search.'
+          ],
+          ...(rewritten.rewritten ? { originalQuery: query, originalType: facet, rewrittenQuery: rewritten.query, rewrittenType: rewritten.facet } : {}),
+          ...(rewritten.notice ? { llmNotice: rewritten.notice } : {}),
+          ...(droppedIds.length ? { droppedIds } : {})
+        };
+        await recordUsage(workspaceRoot, 'search', payload, results.map(result => result.absolutePath));
+        return textResult(payload);
+      } catch (error) {
+        return toolError(`search failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   );
 
@@ -153,10 +174,14 @@ export function createCtxhubMcpServer(
       }
     },
     async ({ query, limit, maxTokens }) => {
-      const pack = await createContextPack(query, limit ?? 8, cwd, { maxTokens });
-      const { workspaceRoot } = await workspace(cwd);
-      await recordUsage(workspaceRoot, 'context_pack', pack, [...pack.search, ...pack.architecture].map(result => result.absolutePath));
-      return textResult(pack);
+      try {
+        const pack = await createContextPack(query, limit ?? 8, cwd, { maxTokens });
+        const { workspaceRoot } = await workspace(cwd);
+        await recordUsage(workspaceRoot, 'context_pack', pack, [...pack.search, ...pack.architecture].map(result => result.absolutePath));
+        return textResult(pack);
+      } catch (error) {
+        return toolError(`context_pack failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   );
 
@@ -201,12 +226,20 @@ export function createCtxhubMcpServer(
       }
     },
     async ({ repo, path: filePath, line, before, after, mode }) => {
-      const { config, workspaceRoot } = await workspace(cwd);
-      const context = await getFileContext(config, repo, filePath, { line, before, after, mode }, workspaceRoot);
-      const repoConfig = config.repositories.find(candidate => candidate.name === repo);
-      const absolutePath = repoConfig ? path.resolve(workspaceRoot, repoConfig.path, filePath) : undefined;
-      await recordUsage(workspaceRoot, 'get_file_context', context, [absolutePath]);
-      return textResult(context);
+      try {
+        const { config, workspaceRoot } = await workspace(cwd);
+        const repoConfig = config.repositories.find(candidate => candidate.name === repo);
+        if (!repoConfig) {
+          const known = config.repositories.map(r => r.name).join(', ') || 'none configured';
+          return toolError(`Unknown repo: '${repo}'. Known repos: ${known}. Run: ctxhub repo list`);
+        }
+        const context = await getFileContext(config, repo, filePath, { line, before, after, mode }, workspaceRoot);
+        const absolutePath = path.resolve(workspaceRoot, repoConfig.path, filePath);
+        await recordUsage(workspaceRoot, 'get_file_context', context, [absolutePath]);
+        return textResult(context);
+      } catch (error) {
+        return toolError(`get_file_context failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   );
 
@@ -258,7 +291,7 @@ export function createCtxhubMcpServer(
         room,
         sourceFile: source_file
       });
-      await recordUsage(workspaceRoot, 'memory_search', result, result.results?.map(hit => hit.source_path) ?? []);
+      recordUsage(workspaceRoot, 'memory_search', result, result.results?.map(hit => hit.source_path) ?? []);
       return textResult(result);
     }
   );
@@ -411,7 +444,7 @@ export function createCtxhubMcpServer(
       const results = (await index.search(`architecture diagram mermaid ${query}`, limit ?? 10))
         .filter(result => result.kind === 'architecture-diagram')
         .slice(0, limit ?? 5);
-      await recordUsage(workspaceRoot, 'architecture_search', results, results.map(result => result.absolutePath));
+      recordUsage(workspaceRoot, 'architecture_search', results, results.map(result => result.absolutePath));
       return textResult(results);
     }
   );
@@ -446,7 +479,7 @@ export function createCtxhubMcpServer(
         components,
         relationships
       };
-      await recordUsage(workspaceRoot, 'architecture_map', payload, results.map(result => result.absolutePath));
+      recordUsage(workspaceRoot, 'architecture_map', payload, results.map(result => result.absolutePath));
       return textResult(payload);
     }
   );
