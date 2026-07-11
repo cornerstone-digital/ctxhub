@@ -405,6 +405,26 @@ These aren't alerts. They're observations — the kind an experienced engineerin
 - Captains with high promotion rates
 - Patterns worth propagating
 
+### The recommendation loop
+
+Engineering Intelligence doesn't just answer "what changed?" — it eventually closes the loop to "what should we do?"
+
+```
+Observation
+Three teams independently solved the same caching problem.
+      ↓
+Evidence
+payment-service, notifications, search — all built custom TTL logic.
+No shared library exists. No ADR addresses caching strategy.
+      ↓
+Recommendation
+"Create a shared caching library. Assign to platform-team."
+      ↓
+Approve?
+```
+
+This is the same approval model as every other ctxhub feature — AI proposes, humans decide. The difference is that the proposal comes from pattern recognition across months of organisational decisions rather than a single Captain run. The trust earned in earlier phases is what makes this proposal credible enough to act on.
+
 ### Why this matters
 
 Every other engineering intelligence tool works from metrics (deploys per day, PR cycle time, test coverage). Those are signals about the process. Engineering Intelligence works from *decisions* — what was built, why, who approved it, what the AI found. That's a fundamentally different signal.
