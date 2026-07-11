@@ -65,6 +65,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   workspace: 'Fleet',
   service: 'Fleet',
   captain: 'Fleet',
+  dashboard: 'Fleet',
   reset: 'Setup'
 };
 

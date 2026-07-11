@@ -21,7 +21,7 @@ import { handoffCommand } from '../commands/handoff.js';
 import { reviewCommand } from '../commands/review.js';
 import { personasInitCommand, personasSyncCommand, SUPPORTED_PERSONA_SYNC_AGENTS } from '../commands/personas.js';
 import { workspaceListCommand, workspaceRegisterCommand, workspaceRemoveCommand } from '../commands/workspace.js';
-import { serviceStartCommand, serviceStopCommand, serviceStatusCommand } from '../commands/service.js';
+import { serviceStartCommand, serviceStopCommand, serviceStatusCommand, dashboardCommand } from '../commands/service.js';
 import {
   captainAddCommand,
   captainApprovalsCommand,
@@ -405,6 +405,12 @@ export function buildProgram(): Command {
     .command('status')
     .description('Report whether the control-plane service is running')
     .action(serviceStatusCommand);
+
+  program
+    .command('dashboard')
+    .option('--port <port>', 'Port to listen on', String(DEFAULT_SERVICE_PORT))
+    .description('Start the control-plane service if it isn\'t already running, then open Mission Control in your browser')
+    .action(dashboardCommand);
 
   const captain = program.command('captain').description('Define and run Captain tasks against registered workspaces (docs/control-plane.md, Phase 6)');
 

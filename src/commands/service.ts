@@ -7,6 +7,7 @@ import { getCtxhubHome } from '../workspaces/registry.js';
 import { createServiceServer, DEFAULT_SERVICE_PORT } from '../service/server.js';
 import { runDueCaptainTasks } from '../captains/scheduler.js';
 import { ensureDir, pathExists, readText, writeText } from '../utils/fs.js';
+import { openReport } from './report.js';
 
 // docs/control-plane.md Phase 6 follow-up: how often the running service checks captain task
 // schedules. Schedules are expressed in whole minutes, so a 60s poll gives at most ~1 minute of
@@ -164,4 +165,45 @@ export async function isServiceRunning(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// Polls GET /health instead of a fixed sleep before opening the browser -- startBackgroundService
+// returns as soon as the detached child is spawned, not once its HTTP server is actually
+// listening, and a browser tab opened a beat too early just shows a connection-refused with
+// nothing to retry. Gives up and opens anyway after ~3s so a slow-but-working start still ends
+// with a browser tab pointed at the right place instead of silently doing nothing.
+async function waitForServiceReady(port: number, timeoutMs = 3000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(300) });
+      if (res.ok) return true;
+    } catch {
+      // Not up yet -- keep polling.
+    }
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  return false;
+}
+
+export type DashboardOptions = { port?: string };
+
+export async function dashboardCommand(opts: DashboardOptions = {}): Promise<void> {
+  const port = Number(opts.port ?? DEFAULT_SERVICE_PORT);
+
+  if (await isServiceRunning()) {
+    console.log(chalk.gray('ctxhub service is already running.'));
+  } else {
+    await startBackgroundService(opts);
+    const ready = await waitForServiceReady(port);
+    if (!ready) {
+      console.log(chalk.yellow(`Service hasn't confirmed it's ready yet -- opening anyway; refresh the page if it doesn't load immediately.`));
+    }
+  }
+
+  const url = `http://127.0.0.1:${port}`;
+  console.log(chalk.green(`Opening ${url}`));
+  // openReport just shells out to the OS's "open this" command (open/xdg-open/start) -- works
+  // identically for a URL as it does for the file paths it's named after.
+  openReport(url);
 }
