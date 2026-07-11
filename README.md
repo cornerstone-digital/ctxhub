@@ -40,6 +40,7 @@ Agents query the index through MCP tools (`search`, `context_pack`, `open_chunk`
   - [Agents & skills](#agents--skills)
   - [Notes & diagrams](#notes--diagrams)
   - [Control plane](#control-plane)
+  - [Mission Control](#mission-control)
   - [Utilities](#utilities)
 - [MCP server](#mcp-server)
 - [LLM-backed features](#llm-backed-features)
@@ -267,15 +268,51 @@ ctxhub service status
 | `ctxhub workspace register [path] [--name]` | Register a workspace in `~/.ctxhub/registry.json`. |
 | `ctxhub workspace list` | List registered workspaces and their health. |
 | `ctxhub workspace remove <name>` | Remove a workspace from the registry. |
-| `ctxhub service start [--foreground]` | Start the control-plane service. Exposes `GET /health`, `GET /workspaces`, `GET /workspaces/:name/status`, and a Fleet view at `GET /`. |
+| `ctxhub service start [--foreground]` | Start the control-plane service. Exposes `GET /health`, `GET /workspaces`, `GET /workspaces/:name/status`, `GET /events` (SSE), and Mission Control at `GET /`. |
 | `ctxhub service stop` | Stop the running service. |
 | `ctxhub service status` | Check whether the service is running. |
-| `ctxhub captain add <name> [--workspace] [--query] [--persona] [--profile] [--schedule-every-minutes]` | Define a Captain task that runs `ctxhub explain` unattended on a trigger. |
+| `ctxhub dashboard [--port <port>]` | Start the service if it isn't already running (polling `/health` rather than a fixed sleep), then open Mission Control in your browser. |
+| `ctxhub captain add <name> [--workspace] [--query] [--persona] [--profile] [--schedule-every-minutes] [--handoff-to]` | Define a Captain task that runs `ctxhub explain` unattended on a trigger, optionally handing its answer off as context to another task. |
 | `ctxhub captain list` | List defined Captain tasks. |
 | `ctxhub captain remove <name>` | Remove a Captain task. |
-| `ctxhub captain run <name>` | Run a Captain task immediately. Output goes to a pending-approval queue, never directly to a repo. |
+| `ctxhub captain run <name>` | Run a Captain task immediately. Output goes to a pending-approval queue, never directly to a repo. If the task has `handoffTo`, the target task runs next with the source answer folded in as context. |
 | `ctxhub captain approvals` | List pending Captain runs awaiting promotion. |
 | `ctxhub captain promote <runId> <repo>` | Promote a pending Captain run into a git-tracked note. |
+
+### Mission Control
+
+`ctxhub dashboard` opens a live web dashboard for every registered workspace — no separate build step, no CDN, served straight from the running service. Everything shown is real: an in-process event bus (`src/events/eventBus.ts`) pushes index progress, Captain runs, and skill/persona changes to the browser over SSE (`GET /events`) as they happen, animated as small bots traveling between nodes on the Fleet graph.
+
+**Fleet** — every registered workspace as a node, colored by `ctxhub doctor` health, with live agent activity animated on top:
+
+![Fleet view](./docs/images/dashboard-fleet.png)
+
+Click a node for its full doctor detail, or ask it a question directly from the chat panel — answers render real markdown (bold, lists, inline code) instead of raw text, and every citation that resolves to a real Knowledge graph node is clickable: it jumps to Knowledge, selects that file's node, and opens its real content preview. Citations that don't resolve (evidence outside the current graph) still show for transparency, just without the click affordance:
+
+![Fleet detail + chat](./docs/images/dashboard-fleet-detail.png)
+
+**Captains** — task list, run history, and handoff chains, with a form to define and run new tasks live:
+
+![Captains view](./docs/images/dashboard-captains.png)
+
+**Knowledge** — an Obsidian-style force-directed graph of the real indexed workspace: every indexed file gets a node (no display cap), plus components extracted from architecture diagrams. Filter by name to highlight matches, click a node to preview the real file content with matches highlighted inline — and to fetch that node's real similarity edges on demand, so clicking around organically expands the graph outward instead of being stuck with one fixed snapshot:
+
+![Knowledge graph](./docs/images/dashboard-knowledge.png)
+![Knowledge graph file preview](./docs/images/dashboard-knowledge-preview.png)
+
+**Config** — repos, execution profiles, and knowledge/privacy settings for the selected workspace, editable live:
+
+![Config view](./docs/images/dashboard-config.png)
+
+**Skills & Personas** — install skills and scaffold/sync personas per harness without leaving the browser:
+
+![Skills & Personas view](./docs/images/dashboard-skills.png)
+
+A full walkthrough (indexing, a live Captain handoff, the Knowledge graph, Config, Skills & Personas, and a real chat exchange against the indexed content):
+
+[docs/videos/dashboard-demo.mp4](./docs/videos/dashboard-demo.mp4)
+
+![Dashboard demo](./docs/videos/dashboard-demo.gif)
 
 ---
 

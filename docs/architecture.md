@@ -247,7 +247,7 @@ The control plane is a set of layered phases, each building on the last. See
 ```
 Phase 1  Workspace Registry   ~/.ctxhub/registry.json  — pointer list, no merged indexes
 Phase 2  Control-plane service  127.0.0.1:7342  — health, workspaces, status endpoints
-Phase 3  Fleet view            GET /  — live HTML page fetching from the service
+Phase 3  Mission Control        GET /  — Fleet, Captains, Knowledge, Config, Skills & Personas, Chat
 Phase 4  Execution Profiles    ctxhub.yaml  — persona + harness + model bindings
 Phase 5  Central MCP Gateway   ctxhub mcp --central  — routes across registered workspaces
 Phase 6  Captains              ~/.ctxhub/captains.json  — scheduled tasks, approval queue
@@ -274,21 +274,59 @@ point; `--foreground` is the escape hatch for debugging. The HTTP server itself 
 `http` (no new dependency): `GET /health`, `GET /workspaces` (from the Phase 1 registry), and
 `GET /workspaces/:name/status`, which calls `doctorChecks.ts`'s exact `buildDoctorChecks`/
 `runDoctorChecks` functions rather than inventing separate health logic, so a workspace's
-control-plane health can never drift from its `ctxhub doctor` health. The WebSocket event stream
-from the original plan is deliberately not built yet — nothing in the system produces an event
-worth pushing until a later phase (Captains) exists, so polling the HTTP API above is enough for
-now.
+control-plane health can never drift from its `ctxhub doctor` health. An in-process event bus
+(`src/events/eventBus.ts`, a plain typed pub/sub — no new dependency) now exists, fed by real
+producers (index jobs, Captain runs and handoffs, skill installs, persona syncs) and exposed to
+subscribers over Server-Sent Events at `GET /events`. Desktop notifications are one subscriber; the
+Mission Control UI's live agent-activity animation and Event Log are another. SSE was chosen over a
+real WebSocket because the traffic is one-directional (service → browser) and Node's `http` module
+already supports chunked streaming with no extra dependency.
 
-## Mission Control (Fleet view)
+## Mission Control
 
-`src/service/fleetView.ts` renders Phase 3's Fleet view — a self-contained HTML page served at
-`GET /` by the same service. It follows `ctxhub report`'s established visual conventions (system-
-ui sans-serif, light/dark via `prefers-color-scheme`, inline `<style>`/`<script>`, no CDN) but
-works differently under the hood: its inline JS calls the live service's own JSON endpoints
-client-side (`fetch('/workspaces')`, then per-workspace `fetch('/workspaces/:name/status')`) on
-every page load, rather than embedding a snapshot once at generation time the way `ctxhub report`
-does. That's deliberate — the Fleet view is meant to reflect the control plane's current state,
-not a point-in-time report.
+`src/service/fleetView.ts`'s self-contained HTML page is still served as a no-build fallback, but
+`GET /` normally serves a real React/Vite app (`ui/`, built to `ui/dist`) once one has been built —
+`src/commands/service.ts`'s `dashboardCommand` (`ctxhub dashboard`) starts the service if needed
+(polling `/health` rather than a fixed sleep) and opens it in the browser. The dashboard has six screens sharing one
+`GET /events` SSE connection (`ui/src/api/client.ts`'s `useEventStream()` hook) and a Zustand store
+(`ui/src/store/fleet.ts`):
+
+- **Fleet** — every registered workspace as a node on a force-directed graph, colored by
+  `ctxhub doctor` health, with live index/Captain activity animated as small bots traveling between
+  nodes as `index.*`/`captain.*` events arrive over SSE.
+- **Captains** — task list, run history, and handoff chains (see below), plus a form to define and
+  run new tasks against the live service.
+- **Knowledge** — an Obsidian-style force-directed graph built from the real index
+  (`src/indexing/knowledgeGraph.ts`): one node per indexed file, no display cap, plus one per
+  component extracted from architecture diagrams, similarity edges (via search) and
+  diagram-derived relationship edges. Computing similarity edges is the expensive part (one real
+  index search per file), so `buildKnowledgeGraph`'s bulk pass only runs it for the
+  `MAX_SIMILARITY_NODES` (120) most-recently-indexed files — every file still renders as a node,
+  just without similarity edges beyond that budget. Filtering by name highlights and auto-fits
+  matches; clicking a node opens a real file-content preview with matches highlighted inline —
+  never a synthetic summary — and separately fires `expandKnowledgeGraphNode` (one on-demand
+  search, `GET /workspaces/:name/knowledge-graph/expand`), splicing any new edges straight into the
+  running d3 simulation. That's what makes the graph genuinely navigable past the initial budget:
+  clicking around organically expands coverage outward instead of being stuck with one fixed
+  snapshot.
+- **Config** — the selected workspace's repos, execution profiles, and knowledge/privacy settings,
+  editable live against the same config file the CLI reads.
+- **Skills & Personas** — install skills and scaffold/sync personas per harness without leaving the
+  browser, reusing the exact `skills install`/`personas sync` logic the CLI commands call.
+- **Chat** — ask a selected workspace a question; backed by the same evidence-grounded `explain`
+  machinery every other persona-driven command uses, not a separate inference path. Answers render
+  through a small hand-rolled markdown renderer (`ChatPanel.tsx` — paragraphs, bullet/numbered
+  lists, `**bold**`, `` `code` ``, and `[E1]`-style citation markers; no new dependency for a chat
+  sidebar). Each citation resolves against the same `useKnowledgeGraph` data the Knowledge screen
+  uses (`repo:path` matching a real node id); a resolving citation is clickable and deep-links to
+  Knowledge — switching workspace if needed, selecting the matching node, and opening its real
+  content preview via `pendingKnowledgeFocus` in the Zustand store. A citation that doesn't resolve
+  (evidence outside the current graph, e.g. truncated out or from another indexed workspace) still
+  renders for evidence transparency, just without the click affordance, rather than looking
+  clickable and silently doing nothing.
+
+Unlike `ctxhub report`, none of this is a point-in-time snapshot: every screen's inline data comes
+from live `fetch` calls plus the shared SSE stream against the running service.
 
 ## Execution Profiles
 
@@ -346,6 +384,15 @@ non-git-tracked pending-runs queue (`~/.ctxhub/captains/<task>/<runId>.json`, li
 a real, team-visible artifact is `ctxhub captain promote <task> <runId> <repo>`, which reuses
 `note.ts`'s existing `draftedNoteTemplate` unmodified — the same "AI draft, review before merge"
 shape `note add --draft` already produces, not a second promoted-content format.
+
+A task can optionally chain to another via `handoffTo` (`--handoff-to` on `captain add`): once the
+source task's evidence-grounded answer is in hand, `runCaptainTask` looks up the named target task
+and re-invokes itself against it, folding the source answer in as extra context on the target's
+query (`opts.handoffContext` in `src/captains/runner.ts`) and publishing a `captain.handoff` event
+the Mission Control UI animates as a bot traveling between the two workspace nodes on the Fleet
+graph. Each call in a chain shares one `Set` of already-visited task names, passed down explicitly
+rather than tracked globally, so a misconfigured cycle (`A → B → A`) terminates instead of running
+forever.
 
 ## Gateway adapters
 

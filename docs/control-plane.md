@@ -154,6 +154,12 @@ prerequisite for every later phase without requiring any of them to exist.
       Phase 3's Fleet-view UI. Revisit WebSockets (which would need a real dependency, since
       hand-rolling the WS wire protocol isn't worth it) once Phase 6 (Captains) actually has
       real events to emit.
+- [x] **Revisited once Phase 6 landed, as flagged above -- shipped as Server-Sent Events, not a
+      WebSocket.** `src/events/eventBus.ts` is a plain typed pub/sub with no new dependency, fed by
+      real producers (index jobs, Captain runs/handoffs, skill installs, persona syncs) and exposed
+      at `GET /events` via Node's built-in chunked-response streaming. SSE was chosen over a real
+      WebSocket because the traffic is one-directional (service to browser) -- a WS dependency
+      would have bought nothing a plain streamed response doesn't already give here.
 - [x] No orchestration, no task coordination, no persona/policy logic in this phase — purely
       "is the registry queryable over a local API," as intended.
 - [x] Unit tests (`src/service/server.test.ts`, `src/commands/service.test.ts`): every HTTP route
@@ -165,7 +171,7 @@ prerequisite for every later phase without requiring any of them to exist.
       `/workspaces/<name>/status` against it, then stopped it and confirmed `service status`
       reported it gone.
 
-### Phase 3 — Mission Control UI (shipped: Fleet view only, not the full section list from the brief)
+### Phase 3 — Mission Control UI (shipped: Fleet view first, later grown into the full section list)
 
 - [x] A local web UI (`src/service/fleetView.ts`, served at `GET /` by the Phase 2 service) showing
       only the Fleet overview: registered workspaces and their `ctxhub doctor`-derived health — the
@@ -186,6 +192,47 @@ prerequisite for every later phase without requiring any of them to exist.
       reference.
 - [x] Live verification: started the real service, registered a workspace, confirmed
       `GET /workspaces` returns the exact data the page's `loadFleet()` fetches and renders.
+- [x] **Fast follow, once Captains/Execution Profiles/the event bus existed to back it: the brief's
+      full section list was built after all, as a real React/Vite app (`ui/`, built to `ui/dist`
+      and served by the same `GET /` route, falling back to the plain `fleetView.ts` HTML when
+      `ui/dist` hasn't been built).** Six screens share one `GET /events` SSE connection and a
+      Zustand store: **Fleet** (the graph above, now animated with live index/Captain-run bots
+      driven by real `eventBus` events), **Captains** (task list, run history, handoff chains, a
+      live "new task" form), **Knowledge** (an Obsidian-style force-directed graph of the real
+      index — file and diagram-component nodes, similarity and diagram edges — with search/filter/
+      highlight and a real file-content preview panel, not a synthetic summary), **Config** (repos,
+      execution profiles, knowledge/privacy settings, editable live), **Skills & Personas** (install/
+      scaffold/sync without leaving the browser, reusing the exact CLI command logic), and **Chat**
+      (ask a selected workspace a question, backed by the same `explain` machinery, not a second
+      inference path). `ctxhub dashboard` (`src/commands/dashboard.ts`) starts the service if
+      needed — polling `/health` rather than a fixed sleep — and opens the browser to it.
+- [x] Live verification: captured real screenshots and a full walkthrough video/GIF
+      (`docs/images/`, `docs/videos/`) of every screen against the real running service — real
+      registered workspaces, a real live index run, a real Captain handoff between two workspace
+      nodes, real Knowledge-graph search/filter/preview against real indexed file content, and a
+      real chat exchange with a fully rendered answer (not a mocked or cut-off response). Fed back
+      one real bug found in the process: `ChatPanel`'s citation-chip component destructured a prop
+      literally named `ref`, which React treats as a reserved special prop even on plain function
+      components — passing a string through it threw a "string ref" invariant and crashed the whole
+      chat panel's render tree on any answer with citations, with no error boundary to catch it.
+      Fixed by renaming the prop to `refLabel`.
+- [x] **Second fast follow, after live-using the recorded demo surfaced more rough edges:** Chat
+      answers now render through a small hand-rolled markdown renderer (paragraphs, bullet/numbered
+      lists, `**bold**`, `` `code` ``, `[E1]`-style citation markers) instead of one flat text node
+      — no new dependency, since the answer format is bounded and doesn't need full CommonMark.
+      Each citation now deep-links into Knowledge: clicking one switches workspace if needed,
+      selects the matching node (`repo:path` against the same graph data Knowledge itself renders),
+      and opens its real content preview — but only for citations that actually resolve to a graph
+      node; one that doesn't (e.g. evidence from outside the current graph) still renders for
+      transparency, just without looking clickable. Separately, the Knowledge graph's node display
+      cap was found to be the wrong fix for its own cost problem: `MAX_FILE_NODES` (120) was
+      limiting which files rendered as nodes at all, when the actual expensive part is computing
+      similarity edges (one real index search per file). Fixed Obsidian-style: every indexed file
+      is now a node with no display cap; only the similarity-edge computation stays budgeted
+      (renamed `MAX_SIMILARITY_NODES`, still 120, still the most-recently-indexed files first).
+      Nodes past that budget render with no similarity edges until clicked — clicking any file node
+      fires `expandKnowledgeGraphNode` (one on-demand search) and splices whatever comes back into
+      the live simulation, so the graph is genuinely navigable outward from any starting point.
 
 ### Phase 4 — Execution Profiles (shipped, wired into `explain` as the reference integration)
 
@@ -352,12 +399,11 @@ prerequisite for every later phase without requiring any of them to exist.
   `TaskClassifier`) rather than the container-heavy implementation.
 - **Merging workspace indexes** — never in scope, at any phase; this is a hard architectural
   boundary, not a sequencing choice.
-- **Full Mission Control section list** (workspace canvas, captain chat, activity feed, reviews,
-  knowledge graph, approvals queue) — each of these belongs to whichever phase supplies its real
-  backing data; building UI chrome ahead of that data existing was explicitly avoided in Phase 3's
-  scoping above. Phase 6 now has a real approvals queue (`ctxhub captain approvals`/`promote`),
-  but only as a CLI, not yet surfaced in the Fleet view UI — a natural, small follow-up once Phase
-  3's UI is revisited.
+- **Approvals queue in the UI** — `ctxhub captain approvals`/`promote` are real and shipped, but
+  still CLI-only; Mission Control's Captains screen shows run history and handoff chains, not yet a
+  promote-from-the-browser flow. A natural, small follow-up.
+- **Review personas surfaced in the UI** — `ctxhub review --as <persona>` is real and shipped as a
+  CLI command; Mission Control has no screen for it yet.
 - **AWS Bedrock and Anthropic-direct gateway adapters** — each needs its own request/auth shape
   (SigV4 signing for Bedrock, a different message format for Anthropic's native Messages API), not
   something to build speculatively ahead of a concrete need. The generic OpenAI-compatible adapter

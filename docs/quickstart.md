@@ -16,6 +16,8 @@ your-repo/
   .claude/skills/      ← installed skills
 ```
 
+![ctxhub --help](./images/cli-help.png)
+
 ## Fastest: the reference workspace (no setup)
 
 If you just want to see ctxhub working before setting up your own repo, use the small 3-repo
@@ -34,6 +36,8 @@ ctxhub report --open
 
 See [examples/reference-workspace/README.md](../examples/reference-workspace/README.md) for more
 things to try.
+
+![ctxhub search](./images/cli-search.png)
 
 ## Single repo (most common starting point)
 
@@ -106,12 +110,21 @@ ctxhub onboard
 
 ## Mission Control
 
-To open the dashboard showing all registered workspaces and their health:
+To open the live dashboard — every registered workspace's health, a real-time event feed, Captain
+runs, the Knowledge graph, and a chat panel to ask any workspace a question directly:
 
 ```bash
-ctxhub service start
-open http://localhost:7342
+ctxhub dashboard
 ```
+
+This starts the control-plane service if it isn't already running (polling `/health` rather than
+guessing with a fixed sleep) and opens your browser to it. `ctxhub service start` + visiting
+`http://localhost:7342` manually still works if you'd rather manage the service yourself.
+
+![Mission Control Fleet view](./images/dashboard-fleet.png)
+
+See [README.md#mission-control](../README.md#mission-control) for every screen (Captains,
+Knowledge, Config, Skills & Personas) and a full demo video.
 
 ## Day to day
 
