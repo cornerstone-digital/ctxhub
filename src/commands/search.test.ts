@@ -141,16 +141,19 @@ test('searchCommand --interactive throws a clear error outside a real terminal i
 });
 
 test('maybeRewriteSearchInput returns a disabled notice and leaves the query unchanged when llm.enabled is false', async () => {
-  const config = await loadConfig(process.cwd()).catch(() => undefined);
-  const result = await maybeRewriteSearchInput(
-    'auth flow',
-    'all',
-    { ...(config ?? { workspace: { name: 'ws' }, repositories: [], knowledge: { include: [], exclude: [] }, memory: { provider: 'mempalace', path: '' }, index: { provider: 'local-json', path: '', table: '', incremental: true, chunkSize: 1000 }, hooks: {}, privacy: { redactPatterns: [] }, llm: { enabled: false, timeoutMs: 1000 }, version: 1 }) },
-    async () => ({ ok: false, reason: 'disabled' })
-  );
-  assert.equal(result.query, 'auth flow');
-  assert.equal(result.facet, 'all');
-  assert.match(result.notice ?? '', /llm\.enabled: true/);
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    assert.equal(config.llm.enabled, false, 'a freshly initialized workspace defaults to llm.enabled: false');
+    const result = await maybeRewriteSearchInput(
+      'auth flow',
+      'all',
+      config,
+      async () => ({ ok: false, reason: 'disabled' })
+    );
+    assert.equal(result.query, 'auth flow');
+    assert.equal(result.facet, 'all');
+    assert.match(result.notice ?? '', /llm\.enabled: true/);
+  });
 });
 
 test('searchCommand surfaces both original and rewritten query when rewrite-query changes them', () => {
