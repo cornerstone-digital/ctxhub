@@ -8,6 +8,7 @@ import type {
   ExplainResult,
   IndexJobState,
   KnowledgeGraph,
+  KnowledgeNodeContent,
   Workspace,
   WorkspaceStatus,
 } from '../types'
@@ -153,6 +154,16 @@ export function useKnowledgeGraph(name: string | null) {
     queryFn: () => fetchJson<KnowledgeGraph>(`/workspaces/${encodeURIComponent(name!)}/knowledge-graph`),
     enabled: name !== null,
     staleTime: 60_000,
+  })
+}
+
+// Fetched on demand when a node is clicked, not prefetched for the whole graph -- content can be
+// large across 100+ nodes, and most of them never get clicked in a session.
+export function useKnowledgeGraphNode(workspace: string | null, nodeId: string | null) {
+  return useQuery({
+    queryKey: ['knowledge-graph-node', workspace, nodeId],
+    queryFn: () => fetchJson<KnowledgeNodeContent>(`/workspaces/${encodeURIComponent(workspace!)}/knowledge-graph/node?id=${encodeURIComponent(nodeId!)}`),
+    enabled: workspace !== null && nodeId !== null,
   })
 }
 

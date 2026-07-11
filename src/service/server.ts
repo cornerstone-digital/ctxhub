@@ -13,7 +13,7 @@ import { notify } from '../utils/notify.js';
 import { eventBus, type CtxhubEventEnvelope } from '../events/eventBus.js';
 import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
 import { listCaptainRuns, promoteCaptainRun, runCaptainTask } from '../captains/runner.js';
-import { buildKnowledgeGraph } from '../indexing/knowledgeGraph.js';
+import { buildKnowledgeGraph, findKnowledgeGraphNodeContent } from '../indexing/knowledgeGraph.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
@@ -222,6 +222,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  const knowledgeGraphNodeMatch = /^\/workspaces\/([^/]+)\/knowledge-graph\/node$/.exec(url.pathname);
+  if (req.method === 'GET' && knowledgeGraphNodeMatch) {
+    const nodeId = url.searchParams.get('id');
+    if (!nodeId) {
+      sendJson(res, 400, { error: 'Missing "id" query parameter' });
+      return;
+    }
+    await handleKnowledgeGraphNode(res, decodeURIComponent(knowledgeGraphNodeMatch[1]), nodeId);
+    return;
+  }
+
   const chatMatch = /^\/workspaces\/([^/]+)\/chat$/.exec(url.pathname);
   if (req.method === 'POST' && chatMatch) {
     await handleWorkspaceChat(req, res, decodeURIComponent(chatMatch[1]));
@@ -352,6 +363,27 @@ async function handleKnowledgeGraph(res: http.ServerResponse, name: string): Pro
   try {
     const graph = await buildKnowledgeGraph(config, workspaceRoot);
     sendJson(res, 200, graph);
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleKnowledgeGraphNode(res: http.ServerResponse, name: string, nodeId: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => entry.name === name);
+  if (!workspace || !workspace.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  try {
+    const content = await findKnowledgeGraphNodeContent(config, workspaceRoot, nodeId);
+    if (!content) {
+      sendJson(res, 404, { error: `No indexed content found for node "${nodeId}"` });
+      return;
+    }
+    sendJson(res, 200, content);
   } catch (error) {
     sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
   }

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { indexWorkspace } from './indexer.js';
-import { buildKnowledgeGraph } from './knowledgeGraph.js';
+import { buildKnowledgeGraph, findKnowledgeGraphNodeContent } from './knowledgeGraph.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
 
 async function withWorkspace(run: (cwd: string) => Promise<void>) {
@@ -99,5 +99,44 @@ test('buildKnowledgeGraph sets connections to each node\'s real edge count', () 
       const expected = graph.edges.filter(e => e.source === node.id || e.target === node.id).length;
       assert.equal(node.connections, expected, `connections mismatch for ${node.id}`);
     }
+  });
+});
+
+test('findKnowledgeGraphNodeContent returns the indexed content for a file node, keyed the same way buildKnowledgeGraph ids it', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    const graph = await buildKnowledgeGraph(config, cwd);
+    const billing = graph.nodes.find(n => n.id.endsWith('billing.md'));
+    assert.ok(billing);
+
+    const content = await findKnowledgeGraphNodeContent(config, cwd, billing!.id);
+    assert.ok(content);
+    assert.equal(content!.kind, 'file');
+    if (content!.kind === 'file') {
+      assert.equal(content!.repo, 'app');
+      assert.equal(content!.filePath, 'billing.md');
+      assert.match(content!.content, /payment processing/);
+    }
+  });
+});
+
+test('findKnowledgeGraphNodeContent returns the source diagram(s) for a component node', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    const content = await findKnowledgeGraphNodeContent(config, cwd, 'Worker');
+    assert.ok(content);
+    assert.equal(content!.kind, 'component');
+    if (content!.kind === 'component') {
+      assert.equal(content!.diagrams.length, 1);
+      assert.match(content!.diagrams[0].content, /Worker/);
+    }
+  });
+});
+
+test('findKnowledgeGraphNodeContent returns undefined for an id that matches nothing indexed', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    const content = await findKnowledgeGraphNodeContent(config, cwd, 'app:does-not-exist.md');
+    assert.equal(content, undefined);
   });
 });

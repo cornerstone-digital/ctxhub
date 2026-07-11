@@ -107,6 +107,10 @@ export interface KnowledgeGraph {
   truncated: boolean;
 }
 
+export type KnowledgeNodeContent =
+  | { kind: 'file'; id: string; repo: string; filePath: string; title?: string; content: string; lastIndexed: string }
+  | { kind: 'component'; id: string; diagrams: Array<{ repo: string; filePath: string; content: string }> };
+
 export interface ExplainResult {
   query: string;
   workspace: string;

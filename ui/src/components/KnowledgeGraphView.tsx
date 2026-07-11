@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as d3 from 'd3'
-import { BookOpen, ChevronDown } from 'lucide-react'
-import { useWorkspaces, useKnowledgeGraph } from '../api/client'
+import { BookOpen, ChevronDown, X } from 'lucide-react'
+import { useWorkspaces, useKnowledgeGraph, useKnowledgeGraphNode } from '../api/client'
+import { relTime } from '../lib/utils'
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '../types'
 
 interface NodeDatum extends d3.SimulationNodeDatum {
@@ -25,6 +26,87 @@ function repoColor(repo: string, repos: string[]): string {
   return REPO_PALETTE[i % REPO_PALETTE.length] ?? '#7c6ef5'
 }
 
+// Same right-hand slide-in pattern as DetailPanel/EventDetailPanel elsewhere in this app --
+// clicking a node previews what's actually indexed for it, not just the label/repo/connection
+// count the hover tooltip already shows.
+function NodePreviewPanel({ workspace, nodeId, onClose }: { workspace: string; nodeId: string; onClose: () => void }) {
+  const { data, isLoading, error } = useKnowledgeGraphNode(workspace, nodeId)
+
+  return (
+    <div
+      className="absolute right-0 top-0 h-full animate-slide-in-right flex flex-col"
+      style={{ width: 360, background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)', zIndex: 20 }}
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
+        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+          Indexed content
+        </span>
+        <button onClick={onClose} style={{ color: 'var(--text-muted)' }}>
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {isLoading && (
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Loading…
+          </p>
+        )}
+        {error && (
+          <p className="text-xs" style={{ color: 'var(--health-error)' }}>
+            {(error as Error).message}
+          </p>
+        )}
+
+        {data?.kind === 'file' && (
+          <>
+            <div>
+              <h2 className="text-sm font-semibold break-all" style={{ color: 'var(--text-primary)' }}>
+                {data.filePath}
+              </h2>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                {data.repo} {data.title ? `· ${data.title}` : ''} · indexed {relTime(data.lastIndexed)}
+              </p>
+            </div>
+            <pre
+              className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-md"
+              style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+            >
+              {data.content}
+            </pre>
+          </>
+        )}
+
+        {data?.kind === 'component' && (
+          <>
+            <div>
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                {data.id}
+              </h2>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                Logical component named in {data.diagrams.length} architecture diagram{data.diagrams.length === 1 ? '' : 's'} — not a file
+              </p>
+            </div>
+            {data.diagrams.map((diagram, i) => (
+              <div key={i}>
+                <p className="text-[11px] font-mono mb-1" style={{ color: 'var(--text-muted)' }}>
+                  {diagram.repo}:{diagram.filePath}
+                </p>
+                <pre
+                  className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-md"
+                  style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+                >
+                  {diagram.content}
+                </pre>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // A note graph, not a workspace graph -- one node per indexed file (plus diagram-derived
 // "component" nodes), edges are real relationships (search-similarity or parsed Mermaid
 // relationships) pulled from src/indexing/knowledgeGraph.ts, not a synthetic layout. Same
@@ -40,6 +122,7 @@ export function KnowledgeGraphView() {
   const rafRef = useRef<number>(0)
   const zoomBehaviorRef = useRef<d3.ZoomBehavior<HTMLCanvasElement, unknown> | null>(null)
   const hoveredRef = useRef<string | null>(null)
+  const selectedRef = useRef<string | null>(null)
 
   const { data: wsData } = useWorkspaces()
   const workspaces = wsData?.workspaces ?? []
@@ -50,6 +133,7 @@ export function KnowledgeGraphView() {
 
   const { data: graph, isLoading } = useKnowledgeGraph(workspace)
   const [hovered, setHovered] = useState<NodeDatum | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
 
   // Memoized so hovering (which sets `hovered` state and re-renders this component) doesn't
   // produce a new array reference on every render -- `repos` is a dependency of the simulation
@@ -133,6 +217,14 @@ export function KnowledgeGraphView() {
     }
     canvas.addEventListener('mousemove', handleMouseMove)
 
+    function handleClick(e: MouseEvent) {
+      const rect = canvas!.getBoundingClientRect()
+      const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top)
+      selectedRef.current = hit?.id ?? null
+      setSelectedNodeId(hit?.id ?? null)
+    }
+    canvas.addEventListener('click', handleClick)
+
     function drawFrame() {
       const ctx = canvas!.getContext('2d')
       if (!ctx) return
@@ -171,9 +263,11 @@ export function KnowledgeGraphView() {
       })
 
       // Nodes
+      const selectedId = selectedRef.current
       nodesRef.current.forEach(node => {
         if (node.x == null || node.y == null) return
         const isHovered = node.id === hoveredId
+        const isSelected = node.id === selectedId
         const isNeighbor = neighborIds.has(node.id)
         const dimmed = hoveredId !== null && !isHovered && !isNeighbor
         const r = 4 + Math.min(node.connections, 10)
@@ -189,10 +283,17 @@ export function KnowledgeGraphView() {
           ctx.lineWidth = 1
           ctx.stroke()
         }
+        if (isSelected) {
+          ctx.beginPath()
+          ctx.arc(node.x, node.y, r + 4, 0, Math.PI * 2)
+          ctx.strokeStyle = 'rgba(124,110,245,0.8)'
+          ctx.lineWidth = 1.5
+          ctx.stroke()
+        }
 
-        if (isHovered || isNeighbor || t.k > 1.6) {
+        if (isHovered || isSelected || isNeighbor || t.k > 1.6) {
           ctx.font = '500 10px Inter, sans-serif'
-          ctx.fillStyle = isHovered ? '#eeeeff' : '#9898c0'
+          ctx.fillStyle = isHovered || isSelected ? '#eeeeff' : '#9898c0'
           ctx.textAlign = 'center'
           ctx.textBaseline = 'top'
           ctx.fillText(node.label.length > 22 ? node.label.slice(0, 21) + '…' : node.label, node.x, node.y + r + 3)
@@ -215,9 +316,16 @@ export function KnowledgeGraphView() {
       cancelAnimationFrame(rafRef.current)
       sim.stop()
       canvas.removeEventListener('mousemove', handleMouseMove)
+      canvas.removeEventListener('click', handleClick)
       ro.disconnect()
     }
   }, [graph, repos])
+
+  // A node id is only meaningful for the graph it came from -- switching workspaces should never
+  // leave a stale selection pointing at a node that no longer exists in the new graph.
+  useEffect(() => {
+    setSelectedNodeId(null)
+  }, [workspace])
 
   const handleFit = useCallback(() => {
     const canvas = canvasRef.current
@@ -311,6 +419,17 @@ export function KnowledgeGraphView() {
             {hovered.repo} · {hovered.kind} · {hovered.connections} connection{hovered.connections === 1 ? '' : 's'}
           </div>
         </div>
+      )}
+
+      {selectedNodeId && workspace && (
+        <NodePreviewPanel
+          workspace={workspace}
+          nodeId={selectedNodeId}
+          onClose={() => {
+            selectedRef.current = null
+            setSelectedNodeId(null)
+          }}
+        />
       )}
     </div>
   )

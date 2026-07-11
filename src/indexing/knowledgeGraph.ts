@@ -1,6 +1,7 @@
 import type { CtxhubConfig, IndexedDocument } from '../config/types.js';
 import { createIndexProvider } from './providers.js';
 import { mapWithConcurrencyLimit } from '../utils/concurrency.js';
+import type { IndexProvider } from './IndexProvider.js';
 
 // An Obsidian-style graph, not a rigid hierarchy: one node per indexed file, edges are real
 // relationships pulled from what's already indexed -- not a synthetic layout. Two sources:
@@ -57,12 +58,11 @@ function fileNodeId(doc: IndexedDocument): string {
   return `${doc.repo}:${doc.filePath}`;
 }
 
-export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: string): Promise<KnowledgeGraph> {
-  const provider = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
-  const docs = await provider.recent(3000);
-
-  // One entry per file, preferring its curated file-summary doc over a raw content chunk when
-  // both exist for the same file.
+// One entry per file, preferring its curated file-summary doc over a raw content chunk when both
+// exist for the same file -- shared by buildKnowledgeGraph (deciding which files become nodes)
+// and findKnowledgeGraphNodeContent (looking up what to show when a node is clicked), so the two
+// never disagree about which document represents a given file.
+function indexFilesByNodeId(docs: IndexedDocument[]): Map<string, IndexedDocument> {
   const byFile = new Map<string, IndexedDocument>();
   for (const doc of docs) {
     if (doc.kind === 'architecture-diagram') continue;
@@ -72,6 +72,17 @@ export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: s
       byFile.set(key, doc);
     }
   }
+  return byFile;
+}
+
+function getProvider(config: CtxhubConfig, workspaceRoot: string): IndexProvider {
+  return createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
+}
+
+export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: string): Promise<KnowledgeGraph> {
+  const provider = getProvider(config, workspaceRoot);
+  const docs = await provider.recent(3000);
+  const byFile = indexFilesByNodeId(docs);
 
   const allFiles = [...byFile.entries()];
   const truncated = allFiles.length > MAX_FILE_NODES;
@@ -130,4 +141,34 @@ export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: s
   for (const node of nodes) node.connections = degree.get(node.id) ?? 0;
 
   return { nodes, edges, truncated };
+}
+
+export type KnowledgeNodeContent =
+  | { kind: 'file'; id: string; repo: string; filePath: string; title?: string; content: string; lastIndexed: string }
+  | { kind: 'component'; id: string; diagrams: Array<{ repo: string; filePath: string; content: string }> };
+
+// Backs the graph's click-to-preview: same node-id scheme as buildKnowledgeGraph (`repo:filePath`
+// for files, the bare component name for diagram-derived nodes), so a node id straight from a
+// GET .../knowledge-graph response resolves here without any translation.
+export async function findKnowledgeGraphNodeContent(
+  config: CtxhubConfig,
+  workspaceRoot: string,
+  nodeId: string
+): Promise<KnowledgeNodeContent | undefined> {
+  const provider = getProvider(config, workspaceRoot);
+  const docs = await provider.recent(3000);
+
+  const fileDoc = indexFilesByNodeId(docs).get(nodeId);
+  if (fileDoc) {
+    return { kind: 'file', id: nodeId, repo: fileDoc.repo, filePath: fileDoc.filePath, title: fileDoc.title, content: fileDoc.content, lastIndexed: fileDoc.lastIndexed };
+  }
+
+  const diagrams = docs
+    .filter(doc => doc.kind === 'architecture-diagram' && (doc.components ?? []).includes(nodeId))
+    .map(doc => ({ repo: doc.repo, filePath: doc.filePath, content: doc.content }));
+  if (diagrams.length > 0) {
+    return { kind: 'component', id: nodeId, diagrams };
+  }
+
+  return undefined;
 }
