@@ -349,6 +349,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (req.method === 'GET' && url.pathname === '/captains') {
     const { tasks } = await loadCaptainTasks();
     sendJson(res, 200, { tasks });
+    return;
   }
 
   if (req.method === 'GET' && url.pathname === '/captains/stats') {

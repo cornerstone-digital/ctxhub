@@ -9,18 +9,25 @@ import type { CtxhubEventEnvelope } from './eventBus.js';
 // Survives process restarts so the Mission Control timeline shows full history,
 // not just events since the last `ctxhub service` start.
 //
-// Growth: ~200-500 bytes per event. A busy workspace with hourly captain runs +
-// daily jobs produces ~10-20 events/day => ~10 KB/day => ~3.5 MB/year.
-// No rotation implemented here -- if that becomes a problem it's a simple
-// head/tail slice. Not a problem worth solving now.
+// Growth: ~200-500 bytes per event. High-frequency events (index.progress, job.queued)
+// are excluded (see SKIP_LOG_TYPES). A busy workspace with hourly captain runs +
+// daily jobs produces ~10-20 meaningful events/day => ~10 KB/day => ~3.5 MB/year.
+// No rotation implemented -- if that becomes a problem it's a simple head/tail slice.
 
 export function getEventLogPath(): string {
   return path.join(getCtxhubHome(), 'events.jsonl');
 }
 
+// High-frequency events excluded from the durable log. These fire on every file
+// scanned (index.progress) or every scheduler tick (job.queued) and would
+// flood the log with noise. The Timeline view already filters them client-side;
+// keeping them out of the file prevents unbounded disk growth.
+const SKIP_LOG_TYPES = new Set<CtxhubEventEnvelope['type']>(['index.progress', 'job.queued']);
+
 // Appends an event envelope to the durable log. Fire-and-forget: a write failure
 // must never kill the event publish flow. Errors are silently swallowed.
 export async function appendEventLog(envelope: CtxhubEventEnvelope): Promise<void> {
+  if (SKIP_LOG_TYPES.has(envelope.type)) return;
   try {
     await appendFile(getEventLogPath(), `${JSON.stringify(envelope)}\n`, 'utf8');
   } catch {
@@ -63,8 +70,12 @@ export async function readEventLog(query: EventLogQuery = {}): Promise<CtxhubEve
     filtered = filtered.filter(e => e.at < query.before!);
   }
   if (query.types?.length) {
-    const typeSet = new Set(query.types);
-    filtered = filtered.filter(e => typeSet.has(e.type));
+    // Support both exact matches ('captain.run.promoted') and prefix matches ('captain').
+    // Prefix match uses dot-boundary so 'captain' matches 'captain.run.started' but not
+    // a hypothetical 'captaineer' type.
+    filtered = filtered.filter(e =>
+      query.types!.some(t => e.type === t || e.type.startsWith(t + '.'))
+    );
   }
 
   return filtered.slice(0, query.limit ?? 100);
