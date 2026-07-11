@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { rm } from 'node:fs/promises';
-import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, saveCaptainTasks, type CaptainTask } from '../captains/tasks.js';
+import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
 import { getCaptainRunsDir, listCaptainRuns, promoteCaptainRun, runCaptainTask, type CaptainRunRecord } from '../captains/runner.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 import { DEFAULT_SERVICE_PORT } from '../service/server.js';

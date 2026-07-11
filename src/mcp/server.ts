@@ -35,7 +35,8 @@ async function workspace(cwd: string) {
     throw new Error(
       isNotFound
         ? `No ctxhub workspace found at ${cwd}. Run: ctxhub init`
-        : `Failed to load ctxhub config: ${message}`
+        : `Failed to load ctxhub config: ${message}`,
+      { cause: error }
     );
   }
 }
@@ -291,7 +292,7 @@ export function createCtxhubMcpServer(
         room,
         sourceFile: source_file
       });
-      recordUsage(workspaceRoot, 'memory_search', result, result.results?.map(hit => hit.source_path) ?? []);
+      await recordUsage(workspaceRoot, 'memory_search', result, result.results?.map(hit => hit.source_path) ?? []);
       return textResult(result);
     }
   );
@@ -444,7 +445,7 @@ export function createCtxhubMcpServer(
       const results = (await index.search(`architecture diagram mermaid ${query}`, limit ?? 10))
         .filter(result => result.kind === 'architecture-diagram')
         .slice(0, limit ?? 5);
-      recordUsage(workspaceRoot, 'architecture_search', results, results.map(result => result.absolutePath));
+      await recordUsage(workspaceRoot, 'architecture_search', results, results.map(result => result.absolutePath));
       return textResult(results);
     }
   );
@@ -479,7 +480,7 @@ export function createCtxhubMcpServer(
         components,
         relationships
       };
-      recordUsage(workspaceRoot, 'architecture_map', payload, results.map(result => result.absolutePath));
+      await recordUsage(workspaceRoot, 'architecture_map', payload, results.map(result => result.absolutePath));
       return textResult(payload);
     }
   );
