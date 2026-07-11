@@ -94,11 +94,22 @@ export async function runJob(def: JobDefinition, jobId = makeJobId()): Promise<J
     eventBus.publish({ type: 'job.step.started', jobId, job: def.name, step: def.steps[i].name, stepIndex: i });
     await saveJobRun(run);
 
+    // Hard timeout on each step's explain call. A hung step would leave the job in
+    // 'running' forever with no recovery. 3 minutes matches the Captain runner timeout.
+    const STEP_TIMEOUT_MS = 3 * 60 * 1000;
+    const stepTimeout = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Step "${def.steps[i].name}" timed out after ${STEP_TIMEOUT_MS / 1000}s`)), STEP_TIMEOUT_MS);
+      timer.unref();
+    });
+
     try {
-      const result = await createExplainResult(resolvedQuery, 8, workspace.path, {
-        persona: stepDef.persona,
-        profile: stepDef.profile,
-      });
+      const result = await Promise.race([
+        createExplainResult(resolvedQuery, 8, workspace.path, {
+          persona: stepDef.persona,
+          profile: stepDef.profile,
+        }),
+        stepTimeout,
+      ]);
 
       stepRun.status = 'completed';
       stepRun.completedAt = new Date().toISOString();

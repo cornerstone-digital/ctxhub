@@ -11,14 +11,14 @@ function fieldStyle() {
 // persona (built-in or team-defined in .ctxhub/cache/review-profiles.json), and the review is
 // synthesized against the real diff between the current branch and `base`.
 export function ReviewView() {
-  const { data: wsData } = useWorkspaces()
+  const { data: wsData, isLoading: wsLoading } = useWorkspaces()
   const workspaces = wsData?.workspaces ?? []
   const [workspace, setWorkspace] = useState<string | null>(null)
   useEffect(() => {
     if (!workspace && workspaces.length > 0) setWorkspace(workspaces[0].name)
   }, [workspace, workspaces])
 
-  const { data: profilesData } = useReviewProfiles(workspace)
+  const { data: profilesData, isLoading: profilesLoading } = useReviewProfiles(workspace)
   const profiles = profilesData?.profiles ?? []
   const [persona, setPersona] = useState('')
   useEffect(() => {
@@ -35,6 +35,32 @@ export function ReviewView() {
   }
 
   const result = review.data
+
+  // No workspaces registered yet — show a clear call to action
+  if (!wsLoading && workspaces.length === 0) {
+    return (
+      <div className="w-full h-full overflow-y-auto p-5" style={{ background: 'var(--bg-void)' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <CheckCircle size={16} style={{ color: 'var(--accent)' }} />
+          <h1 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Review</h1>
+        </div>
+        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+          <p className="text-2xl">📋</p>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No workspaces registered</p>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Run <code className="font-mono">ctxhub init</code> in a project directory, then <code className="font-mono">ctxhub index</code> to get started.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Persona select helper text — differentiate "still loading" from "loaded but empty"
+  const personaPlaceholder = profilesLoading
+    ? 'Loading personas…'
+    : profiles.length === 0
+      ? 'No review personas configured'
+      : null
 
   return (
     <div className="w-full h-full overflow-y-auto p-5" style={{ background: 'var(--bg-void)' }}>
@@ -67,15 +93,18 @@ export function ReviewView() {
             <select
               value={persona}
               onChange={e => setPersona(e.target.value)}
+              disabled={!!personaPlaceholder}
               className="flex-1 text-xs rounded-md px-2 py-1.5"
               style={fieldStyle()}
             >
-              {profiles.length === 0 && <option value="">Loading personas…</option>}
-              {profiles.map(p => (
-                <option key={p.name} value={p.name}>
-                  {p.name} ({p.kind})
-                </option>
-              ))}
+              {personaPlaceholder
+                ? <option value="">{personaPlaceholder}</option>
+                : profiles.map(p => (
+                    <option key={p.name} value={p.name}>
+                      {p.name} ({p.kind})
+                    </option>
+                  ))
+              }
             </select>
           </div>
         </div>

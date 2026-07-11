@@ -12,7 +12,7 @@ import {
   useWorkspaces,
 } from '../api/client'
 import { relTime } from '../lib/utils'
-import type { CaptainTask } from '../types'
+import type { CaptainRunRecord, CaptainTask } from '../types'
 
 function fieldStyle() {
   return {
@@ -185,66 +185,156 @@ function PromoteForm({ task, runId }: { task: string; runId: string }) {
   )
 }
 
-function TaskRuns({ task }: { task: CaptainTask }) {
-  const { data, isLoading } = useCaptainRuns(task.name)
-  const runs = data?.runs ?? []
-  const [promoting, setPromoting] = useState<string | null>(null)
-  const [flagged, setFlagged] = useState<Set<string>>(new Set())
+const RUNS_PAGE_SIZE = 20
+
+function RunDetail({ task, run }: { task: CaptainTask; run: CaptainRunRecord }) {
+  const [promoting, setPromoting] = useState(false)
+  const [flagged, setFlagged] = useState(false)
   const addEvalCase = useAddEvalCaseMutation()
 
-  const handleFlag = (runId: string, query: string) => {
-    if (flagged.has(runId)) return
+  const handleFlag = () => {
+    if (flagged) return
     addEvalCase.mutate(
-      { workspace: task.workspace, query, expected: [] },
-      { onSuccess: () => setFlagged(prev => new Set([...prev, runId])) }
+      { workspace: task.workspace, query: run.result.query, expected: [] },
+      { onSuccess: () => setFlagged(true) }
     )
   }
+
+  return (
+    <div className="px-3 pb-3 pt-2 space-y-3">
+      {/* Answer */}
+      <div>
+        <p className="text-[10px] uppercase tracking-widest font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+          Answer
+        </p>
+        <ul className="space-y-0.5">
+          {run.result.answer.map((line, i) => (
+            <li key={i} className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              {line}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Citations */}
+      {run.result.citations.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-widest font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+            Citations
+          </p>
+          <ul className="space-y-0.5">
+            {run.result.citations.map((c, i) => (
+              <li key={i} className="text-[11px] font-mono" style={{ color: 'var(--text-secondary)' }}>
+                [{c.ref}] {c.repo}:{c.path}{c.title ? ` — ${c.title}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* LLM notice */}
+      {run.result.llmNotice && (
+        <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+          {run.result.llmNotice}
+        </p>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 pt-1">
+        <button
+          onClick={handleFlag}
+          title={flagged ? 'Added to eval suite' : 'Flag as incorrect — adds to eval.json'}
+          className="text-[11px]"
+          style={{
+            color: flagged ? 'var(--health-ok)' : 'var(--text-muted)',
+            cursor: flagged ? 'default' : 'pointer',
+            background: 'none', border: 'none', padding: 0,
+          }}
+        >
+          {flagged ? '✓ flagged' : '👎 flag as incorrect'}
+        </button>
+        <button
+          onClick={() => setPromoting(v => !v)}
+          className="text-[11px]"
+          style={{ color: 'var(--accent)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          {promoting ? 'Cancel' : 'Promote…'}
+        </button>
+      </div>
+      {promoting && <PromoteForm task={task.name} runId={run.runId} />}
+    </div>
+  )
+}
+
+function TaskRuns({ task }: { task: CaptainTask }) {
+  const { data, isLoading } = useCaptainRuns(task.name)
+  const allRuns = data?.runs ?? []
+  // Most-recent first; backend already returns chronological, so reverse once here.
+  const runs = [...allRuns].reverse()
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [showAll, setShowAll] = useState(false)
+
+  const visible = showAll ? runs : runs.slice(0, RUNS_PAGE_SIZE)
+  const hiddenCount = runs.length - visible.length
 
   if (isLoading) return <p className="text-[11px] px-2 py-2" style={{ color: 'var(--text-muted)' }}>Loading runs…</p>
   if (runs.length === 0) return <p className="text-[11px] px-2 py-2" style={{ color: 'var(--text-muted)' }}>No runs yet. Click "Run now" above.</p>
 
   return (
-    <div className="space-y-2 px-2 pb-2">
-      {[...runs].reverse().map(run => (
-        <div key={run.runId} className="rounded-md p-2" style={{ background: 'var(--bg-elevated)' }}>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>
-              {relTime(run.startedAt)}
-              {run.handoffFrom && <span> · handed off from "{run.handoffFrom}"</span>}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleFlag(run.runId, run.result.query)}
-                title={flagged.has(run.runId) ? 'Added to eval suite' : 'Flag as incorrect — adds to eval.json'}
-                className="text-[10px]"
-                style={{
-                  color: flagged.has(run.runId) ? 'var(--health-ok)' : 'var(--text-muted)',
-                  opacity: flagged.has(run.runId) ? 1 : 0.6,
-                  cursor: flagged.has(run.runId) ? 'default' : 'pointer',
-                  background: 'none', border: 'none', padding: 0,
-                }}
-              >
-                {flagged.has(run.runId) ? '✓ flagged' : '👎'}
-              </button>
-              <button
-                onClick={() => setPromoting(promoting === run.runId ? null : run.runId)}
-                className="text-[10px]"
-                style={{ color: 'var(--accent)' }}
-              >
-                Promote…
-              </button>
-            </div>
+    <div className="pb-2">
+      {visible.map(run => {
+        const isSelected = selectedRunId === run.runId
+        return (
+          <div key={run.runId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+            {/* Run row — click to expand detail */}
+            <button
+              onClick={() => setSelectedRunId(isSelected ? null : run.runId)}
+              className="w-full flex items-center justify-between px-3 py-2 text-left"
+              style={{
+                background: isSelected ? 'var(--bg-surface)' : 'transparent',
+                cursor: 'pointer',
+                border: 'none',
+              }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <ChevronDown
+                  size={11}
+                  style={{
+                    color: 'var(--text-muted)',
+                    transform: isSelected ? 'rotate(0deg)' : 'rotate(-90deg)',
+                    transition: 'transform 0.15s',
+                    flexShrink: 0,
+                  }}
+                />
+                <span className="text-[11px] font-mono truncate" style={{ color: 'var(--text-muted)' }}>
+                  {relTime(run.startedAt)}
+                  {run.handoffFrom && <span className="ml-1 opacity-60">· from "{run.handoffFrom}"</span>}
+                </span>
+              </div>
+              <span className="text-[10px] truncate ml-2 flex-1 text-right" style={{ color: 'var(--text-secondary)', maxWidth: '55%' }}>
+                {run.result.answer[0] ?? ''}
+              </span>
+            </button>
+
+            {/* Expanded detail */}
+            {isSelected && (
+              <div style={{ background: 'var(--bg-elevated)' }}>
+                <RunDetail task={task} run={run} />
+              </div>
+            )}
           </div>
-          <ul className="mt-1 space-y-0.5">
-            {run.result.answer.map((line, i) => (
-              <li key={i} className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                {line}
-              </li>
-            ))}
-          </ul>
-          {promoting === run.runId && <PromoteForm task={task.name} runId={run.runId} />}
-        </div>
-      ))}
+        )
+      })}
+
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="w-full text-[11px] py-2 text-center"
+          style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+        >
+          Show {hiddenCount} older run{hiddenCount !== 1 ? 's' : ''}
+        </button>
+      )}
     </div>
   )
 }

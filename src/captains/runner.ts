@@ -66,12 +66,25 @@ export async function runCaptainTask(
     ? `${task.query}\n\n--- Context handed off from Captain "${opts.handoffFrom}" ---\n${opts.handoffContext}`
     : task.query;
 
+  // Hard timeout on the full explain flow (index read + LLM). The LLM call itself has a
+  // 120s deadline inside runAgent, but filesystem I/O can also hang. Without this outer
+  // guard, a single stalled task sets pollInFlight = true and freezes the entire scheduler
+  // for however long the hang lasts. 3 minutes is generous for any single explain run.
+  const CAPTAIN_TIMEOUT_MS = 3 * 60 * 1000;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Captain task "${task.name}" timed out after ${CAPTAIN_TIMEOUT_MS / 1000}s. Check your LLM config or workspace index.`)), CAPTAIN_TIMEOUT_MS);
+    timer.unref();
+  });
+
   let result;
   try {
-    result = await createExplainResult(query, 8, workspaceEntry.path, {
-      persona: task.persona,
-      profile: task.profile
-    });
+    result = await Promise.race([
+      createExplainResult(query, 8, workspaceEntry.path, {
+        persona: task.persona,
+        profile: task.profile
+      }),
+      timeoutPromise,
+    ]);
   } catch (error) {
     eventBus.publish({
       type: 'captain.run.failed',
@@ -121,16 +134,18 @@ export async function runCaptainTask(
   return record;
 }
 
-export async function listCaptainRuns(taskName: string): Promise<CaptainRunRecord[]> {
+export async function listCaptainRuns(taskName: string, limit = 50): Promise<CaptainRunRecord[]> {
   const runsDir = getCaptainRunsDir(taskName);
   if (!(await pathExists(runsDir))) return [];
 
-  const files = (await readdir(runsDir)).filter(file => file.endsWith('.json')).sort();
+  // Sort descending (most-recent first) so the slice keeps the newest runs, not the oldest.
+  const files = (await readdir(runsDir)).filter(file => file.endsWith('.json')).sort().reverse().slice(0, limit);
   const records: CaptainRunRecord[] = [];
   for (const file of files) {
     records.push(JSON.parse(await readText(path.join(runsDir, file))) as CaptainRunRecord);
   }
-  return records;
+  // Return chronological order so the UI's reverse() yields most-recent-first display.
+  return records.reverse();
 }
 
 export async function getCaptainRun(taskName: string, runId: string): Promise<CaptainRunRecord | undefined> {

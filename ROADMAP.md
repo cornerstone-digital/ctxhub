@@ -37,12 +37,12 @@ A developer with two repos and two AI tools installs ctxhub, runs `ctxhub index`
 
 ### What's left
 
-- [ ] Captain overnight reliability — runs complete without manual recovery
-- [ ] Mission end-to-end reliability — multi-step pipelines complete without failure
-- [ ] Dashboard performance — no jank on load, no layout shifts
-- [ ] Empty states — every empty state tells the user what to do next
+- [x] Captain overnight reliability — 3-minute outer timeout on explain calls, listCaptainRuns capped at 50 (most-recent), refetchInterval added to useCaptainRuns
+- [x] Mission end-to-end reliability — same 3-minute per-step timeout in job runner, steps can no longer hang indefinitely
+- [x] Dashboard performance — TaskRuns capped at 20 visible with "show N older" toggle, no unbounded DOM render
+- [x] Empty states — ReviewView: no-workspace state with ctxhub init instructions; persona dropdown shows "No review personas configured" instead of permanent "Loading…"
 - [ ] Screenshots and 90-second demo video
-- [ ] Mission replay (basic) — browse past Captain runs in Mission Control
+- [x] Mission replay (basic) — click any Captain run row to expand full detail (answer, citations, llmNotice, flag + promote actions); most-recent-first with collapsible rows
 
 ### Exit condition
 

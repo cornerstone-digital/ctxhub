@@ -121,6 +121,7 @@ export function useCaptainRuns(name: string | null) {
     queryKey: ['captain-runs', name],
     queryFn: () => fetchJson<{ runs: CaptainRunRecord[] }>(`/captains/${encodeURIComponent(name!)}/runs`),
     enabled: name !== null,
+    refetchInterval: 30_000,
   })
 }
 
