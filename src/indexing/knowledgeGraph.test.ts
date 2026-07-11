@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, unlink } from 'node:fs/promises';
 import { indexWorkspace } from './indexer.js';
 import { buildKnowledgeGraph, findKnowledgeGraphNodeContent } from './knowledgeGraph.js';
 import { initConfig, loadConfig, saveConfig } from '../config/config.js';
@@ -115,6 +115,36 @@ test('findKnowledgeGraphNodeContent returns the indexed content for a file node,
     if (content!.kind === 'file') {
       assert.equal(content!.repo, 'app');
       assert.equal(content!.filePath, 'billing.md');
+      assert.match(content!.content, /payment processing/);
+      // The real current file, not just whatever chunk the index happened to store.
+      assert.equal(content!.contentSource, 'disk');
+      assert.equal(content!.truncated, false);
+    }
+  });
+});
+
+test('findKnowledgeGraphNodeContent redacts file content the same way indexing would', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.privacy.redactPatterns.push('payment processing');
+    const content = await findKnowledgeGraphNodeContent(config, cwd, 'app:billing.md');
+    assert.ok(content);
+    if (content!.kind === 'file') {
+      assert.doesNotMatch(content!.content, /payment processing/);
+      assert.match(content!.content, /\[REDACTED\]/);
+    }
+  });
+});
+
+test('findKnowledgeGraphNodeContent falls back to the indexed content if the file was deleted since indexing', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    await unlink(path.join(cwd, 'app', 'billing.md'));
+
+    const content = await findKnowledgeGraphNodeContent(config, cwd, 'app:billing.md');
+    assert.ok(content);
+    if (content!.kind === 'file') {
+      assert.equal(content!.contentSource, 'index');
       assert.match(content!.content, /payment processing/);
     }
   });

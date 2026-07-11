@@ -39,7 +39,7 @@ function NodePreviewPanel({ workspace, nodeId, onClose }: { workspace: string; n
     >
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
         <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-          Indexed content
+          File content
         </span>
         <button onClick={onClose} style={{ color: 'var(--text-muted)' }}>
           <X size={14} />
@@ -65,15 +65,42 @@ function NodePreviewPanel({ workspace, nodeId, onClose }: { workspace: string; n
                 {data.filePath}
               </h2>
               <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                {data.repo} {data.title ? `· ${data.title}` : ''} · indexed {relTime(data.lastIndexed)}
+                {data.repo} · indexed {relTime(data.lastIndexed)}
               </p>
+              {data.contentSource === 'index' && (
+                <p className="text-[11px] mt-1 px-2 py-1 rounded" style={{ background: 'rgba(245,166,35,0.12)', color: 'var(--health-warn)' }}>
+                  File no longer found on disk at its indexed path — showing the last indexed snapshot instead.
+                </p>
+              )}
             </div>
-            <pre
-              className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-md"
-              style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
-            >
-              {data.content}
-            </pre>
+
+            {data.summary && (
+              <div>
+                <p className="text-[10px] uppercase tracking-widest font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Indexed summary
+                </p>
+                <p className="text-[11px] leading-relaxed p-2 rounded-md" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+                  {data.summary}
+                </p>
+              </div>
+            )}
+
+            <div>
+              <p className="text-[10px] uppercase tracking-widest font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                {data.contentSource === 'disk' ? 'File content' : 'Last indexed content'}
+              </p>
+              <pre
+                className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-md"
+                style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+              >
+                {data.content}
+              </pre>
+              {data.truncated && (
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                  Truncated — file is larger than the preview limit.
+                </p>
+              )}
+            </div>
           </>
         )}
 
@@ -123,6 +150,7 @@ export function KnowledgeGraphView() {
   const zoomBehaviorRef = useRef<d3.ZoomBehavior<HTMLCanvasElement, unknown> | null>(null)
   const hoveredRef = useRef<string | null>(null)
   const selectedRef = useRef<string | null>(null)
+  const visibleRef = useRef<Set<string> | null>(null)
 
   const { data: wsData } = useWorkspaces()
   const workspaces = wsData?.workspaces ?? []
@@ -140,6 +168,32 @@ export function KnowledgeGraphView() {
   // effect below, and a fresh reference each render would restart the whole force simulation on
   // every hover instead of only when the underlying graph actually changes.
   const repos = useMemo(() => (graph ? [...new Set(graph.nodes.map(n => n.repo))] : []), [graph])
+
+  // Filtering/search narrows down *which* nodes are highlighted rather than removing them from
+  // the simulation -- refiltering on every keystroke would otherwise reflow the whole layout and
+  // fight the user's own panning/zooming. `visible` is undefined (not an empty Set) when no
+  // filter is active, so the draw loop can tell "no filter" apart from "filter matches nothing."
+  const [searchText, setSearchText] = useState('')
+  const [repoFilter, setRepoFilter] = useState<string>('all')
+  const [kindFilter, setKindFilter] = useState<'all' | 'file' | 'component'>('all')
+  const hasActiveFilter = searchText.trim() !== '' || repoFilter !== 'all' || kindFilter !== 'all'
+
+  const visible = useMemo(() => {
+    if (!graph || !hasActiveFilter) return undefined
+    const q = searchText.trim().toLowerCase()
+    const ids = new Set<string>()
+    for (const node of graph.nodes) {
+      if (kindFilter !== 'all' && node.kind !== kindFilter) continue
+      if (repoFilter !== 'all' && node.repo !== repoFilter) continue
+      if (q && !node.label.toLowerCase().includes(q) && !node.id.toLowerCase().includes(q)) continue
+      ids.add(node.id)
+    }
+    return ids
+  }, [graph, hasActiveFilter, searchText, repoFilter, kindFilter])
+
+  useEffect(() => {
+    visibleRef.current = visible ?? null
+  }, [visible])
 
   // Rebuild the simulation whenever the graph data changes -- unlike GraphCanvas's mount-once
   // setup, this view is remounted per workspace switch anyway (state resets), so there's no
@@ -248,18 +302,24 @@ export function KnowledgeGraphView() {
         }
       }
 
-      // Edges
+      // Edges -- dimmed to near-invisible (not skipped) when a filter is active and either
+      // endpoint doesn't match, so the filtered subset's own shape stays legible without the
+      // rest of the graph fully vanishing and reflowing.
+      const activeFilter = visibleRef.current
       linksRef.current.forEach(link => {
         const s = link.source as NodeDatum
         const tg = link.target as NodeDatum
         if (s.x == null || s.y == null || tg.x == null || tg.y == null) return
         const isActive = hoveredId !== null && (s.id === hoveredId || tg.id === hoveredId)
+        const filteredOut = activeFilter !== null && (!activeFilter.has(s.id) || !activeFilter.has(tg.id))
         ctx.beginPath()
         ctx.moveTo(s.x, s.y)
         ctx.lineTo(tg.x, tg.y)
         ctx.strokeStyle = isActive ? 'rgba(124,110,245,0.7)' : link.kind === 'diagram' ? 'rgba(124,110,245,0.25)' : 'rgba(90,90,128,0.18)'
         ctx.lineWidth = isActive ? 1.4 : link.kind === 'diagram' ? 1 : 0.6
+        ctx.globalAlpha = filteredOut ? 0.06 : 1
         ctx.stroke()
+        ctx.globalAlpha = 1
       })
 
       // Nodes
@@ -269,11 +329,12 @@ export function KnowledgeGraphView() {
         const isHovered = node.id === hoveredId
         const isSelected = node.id === selectedId
         const isNeighbor = neighborIds.has(node.id)
-        const dimmed = hoveredId !== null && !isHovered && !isNeighbor
+        const filteredOut = activeFilter !== null && !activeFilter.has(node.id)
+        const dimmed = (hoveredId !== null && !isHovered && !isNeighbor) || filteredOut
         const r = 4 + Math.min(node.connections, 10)
         const color = repoColor(node.repo, repos)
 
-        ctx.globalAlpha = dimmed ? 0.25 : 1
+        ctx.globalAlpha = filteredOut ? 0.12 : dimmed ? 0.25 : 1
         ctx.beginPath()
         ctx.arc(node.x, node.y, node.kind === 'component' ? r * 0.8 : r, 0, Math.PI * 2)
         ctx.fillStyle = color
@@ -291,7 +352,7 @@ export function KnowledgeGraphView() {
           ctx.stroke()
         }
 
-        if (isHovered || isSelected || isNeighbor || t.k > 1.6) {
+        if (isHovered || isSelected || isNeighbor || t.k > 1.6 || (activeFilter !== null && activeFilter.has(node.id))) {
           ctx.font = '500 10px Inter, sans-serif'
           ctx.fillStyle = isHovered || isSelected ? '#eeeeff' : '#9898c0'
           ctx.textAlign = 'center'
@@ -327,10 +388,10 @@ export function KnowledgeGraphView() {
     setSelectedNodeId(null)
   }, [workspace])
 
-  const handleFit = useCallback(() => {
+  const fitToNodes = useCallback((predicate?: (n: NodeDatum) => boolean) => {
     const canvas = canvasRef.current
     if (!canvas || !zoomBehaviorRef.current) return
-    const nodes = nodesRef.current.filter(n => n.x != null && n.y != null)
+    const nodes = nodesRef.current.filter(n => n.x != null && n.y != null && (!predicate || predicate(n)))
     if (nodes.length === 0) return
     const W = canvas.width
     const H = canvas.height
@@ -352,39 +413,105 @@ export function KnowledgeGraphView() {
       )
   }, [])
 
+  const handleFit = useCallback(() => fitToNodes(), [fitToNodes])
+
   useEffect(() => {
     if (graph) setTimeout(handleFit, 400)
   }, [graph, handleFit])
 
+  // Narrowing down via search/filter also re-frames the view around what matched -- "focus in on
+  // certain files" means actually looking at them, not just dimming everything else in place.
+  // Debounced so it settles after typing pauses instead of fighting every keystroke.
+  useEffect(() => {
+    if (!visible || visible.size === 0) return
+    const t = setTimeout(() => fitToNodes(n => visible.has(n.id)), 450)
+    return () => clearTimeout(t)
+  }, [visible, fitToNodes])
+
   return (
     <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ background: 'var(--bg-void)' }}>
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 flex items-center gap-3 px-4 py-3 z-10" style={{ background: 'linear-gradient(to bottom, var(--bg-void) 60%, transparent)' }}>
-        <BookOpen size={15} style={{ color: 'var(--accent)' }} />
-        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-          Knowledge
-        </span>
-        <div className="flex items-center gap-1">
-          <ChevronDown size={11} style={{ color: 'var(--text-muted)' }} />
+      <div className="absolute top-0 left-0 right-0 z-10 px-4 py-3 space-y-2" style={{ background: 'linear-gradient(to bottom, var(--bg-void) 75%, transparent)' }}>
+        <div className="flex items-center gap-3">
+          <BookOpen size={15} style={{ color: 'var(--accent)' }} />
+          <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Knowledge
+          </span>
+          <div className="flex items-center gap-1">
+            <ChevronDown size={11} style={{ color: 'var(--text-muted)' }} />
+            <select
+              value={workspace ?? ''}
+              onChange={e => setWorkspace(e.target.value || null)}
+              className="text-xs"
+              style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)' }}
+            >
+              {workspaces.map(ws => (
+                <option key={ws.name} value={ws.name}>
+                  {ws.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {graph && (
+            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+              {visible ? `${visible.size} of ${graph.nodes.length} nodes` : `${graph.nodes.length} nodes · ${graph.edges.length} edges`}
+              {graph.truncated ? ' · showing top files' : ''}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            placeholder="Filter by file or component name…"
+            className="text-xs rounded-md px-2.5 py-1.5 w-64"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+          />
           <select
-            value={workspace ?? ''}
-            onChange={e => setWorkspace(e.target.value || null)}
-            className="text-xs"
-            style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)' }}
+            value={repoFilter}
+            onChange={e => setRepoFilter(e.target.value)}
+            className="text-xs rounded-md px-2 py-1.5"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
           >
-            {workspaces.map(ws => (
-              <option key={ws.name} value={ws.name}>
-                {ws.name}
+            <option value="all">All repos</option>
+            {repos.map(r => (
+              <option key={r} value={r}>
+                {r}
               </option>
             ))}
           </select>
+          <div className="flex rounded-md overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+            {(['all', 'file', 'component'] as const).map(k => (
+              <button
+                key={k}
+                onClick={() => setKindFilter(k)}
+                className="text-[11px] px-2 py-1.5"
+                style={{
+                  background: kindFilter === k ? 'var(--accent-dim)' : 'var(--bg-surface)',
+                  color: kindFilter === k ? 'var(--accent)' : 'var(--text-secondary)',
+                }}
+              >
+                {k === 'all' ? 'All' : k === 'file' ? 'Files' : 'Components'}
+              </button>
+            ))}
+          </div>
+          {hasActiveFilter && (
+            <button
+              onClick={() => {
+                setSearchText('')
+                setRepoFilter('all')
+                setKindFilter('all')
+                setTimeout(handleFit, 50)
+              }}
+              className="text-[11px] flex items-center gap-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <X size={11} />
+              Clear
+            </button>
+          )}
         </div>
-        {graph && (
-          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-            {graph.nodes.length} nodes · {graph.edges.length} edges
-            {graph.truncated ? ' · showing top files' : ''}
-          </span>
-        )}
       </div>
 
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ cursor: 'grab' }} />
@@ -405,6 +532,17 @@ export function KnowledgeGraphView() {
           </p>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             Run <code className="font-mono px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)' }}>ctxhub index</code> for this workspace
+          </p>
+        </div>
+      )}
+
+      {!isLoading && graph && graph.nodes.length > 0 && visible && visible.size === 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none">
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            No files match this filter
+          </p>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Try a different search term or repo
           </p>
         </div>
       )}

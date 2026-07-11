@@ -1,6 +1,8 @@
 import type { CtxhubConfig, IndexedDocument } from '../config/types.js';
 import { createIndexProvider } from './providers.js';
 import { mapWithConcurrencyLimit } from '../utils/concurrency.js';
+import { readText } from '../utils/fs.js';
+import { redactContent } from './redact.js';
 import type { IndexProvider } from './IndexProvider.js';
 
 // An Obsidian-style graph, not a rigid hierarchy: one node per indexed file, edges are real
@@ -144,8 +146,27 @@ export async function buildKnowledgeGraph(config: CtxhubConfig, workspaceRoot: s
 }
 
 export type KnowledgeNodeContent =
-  | { kind: 'file'; id: string; repo: string; filePath: string; title?: string; content: string; lastIndexed: string }
+  | {
+      kind: 'file';
+      id: string;
+      repo: string;
+      filePath: string;
+      title?: string;
+      // The curated file-summary text, when the index has one -- shown alongside the real
+      // content below, not instead of it.
+      summary?: string;
+      content: string;
+      // 'disk' is the common case: the real current file, redacted the same way indexing would
+      // redact it. Falls back to 'index' (whatever chunk the index has, possibly itself a
+      // summary rather than real content) only if the file is no longer readable at its indexed
+      // path -- moved or deleted since the last index run.
+      contentSource: 'disk' | 'index';
+      truncated: boolean;
+      lastIndexed: string;
+    }
   | { kind: 'component'; id: string; diagrams: Array<{ repo: string; filePath: string; content: string }> };
+
+const MAX_PREVIEW_CHARS = 200_000;
 
 // Backs the graph's click-to-preview: same node-id scheme as buildKnowledgeGraph (`repo:filePath`
 // for files, the bare component name for diagram-derived nodes), so a node id straight from a
@@ -160,7 +181,34 @@ export async function findKnowledgeGraphNodeContent(
 
   const fileDoc = indexFilesByNodeId(docs).get(nodeId);
   if (fileDoc) {
-    return { kind: 'file', id: nodeId, repo: fileDoc.repo, filePath: fileDoc.filePath, title: fileDoc.title, content: fileDoc.content, lastIndexed: fileDoc.lastIndexed };
+    const summary = fileDoc.kind === 'file-summary' ? fileDoc.content : undefined;
+
+    let content = fileDoc.content;
+    let contentSource: 'disk' | 'index' = 'index';
+    let truncated = false;
+    try {
+      const raw = await readText(fileDoc.absolutePath);
+      const redaction = redactContent(raw, config.privacy.redactPatterns);
+      truncated = redaction.content.length > MAX_PREVIEW_CHARS;
+      content = truncated ? redaction.content.slice(0, MAX_PREVIEW_CHARS) : redaction.content;
+      contentSource = 'disk';
+    } catch {
+      // File no longer readable at its indexed path (moved/deleted since indexing) -- fall back
+      // to whatever the index has rather than failing the whole preview.
+    }
+
+    return {
+      kind: 'file',
+      id: nodeId,
+      repo: fileDoc.repo,
+      filePath: fileDoc.filePath,
+      title: fileDoc.title,
+      summary,
+      content,
+      contentSource,
+      truncated,
+      lastIndexed: fileDoc.lastIndexed
+    };
   }
 
   const diagrams = docs
