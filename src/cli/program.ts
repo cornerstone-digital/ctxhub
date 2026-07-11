@@ -25,6 +25,8 @@ import { serviceStartCommand, serviceStopCommand, serviceStatusCommand, dashboar
 import {
   captainAddCommand,
   captainApprovalsCommand,
+  captainExportCommand,
+  captainImportCommand,
   captainListCommand,
   captainPromoteCommand,
   captainRemoveCommand,
@@ -461,6 +463,19 @@ export function buildProgram(): Command {
     .option('--agent <agent>', 'Attribution recorded in the note frontmatter')
     .description('The one human-invoked action that turns a pending run into a real, git-tracked AI-draft note')
     .action(captainPromoteCommand);
+
+  captain
+    .command('export')
+    .argument('<output>', 'Output path for the exported JSON file (e.g. captains.json)')
+    .description('Export captain task definitions to a portable JSON file (run history not included)')
+    .action(captainExportCommand);
+
+  captain
+    .command('import')
+    .argument('<input>', 'Path to a JSON file produced by `ctxhub captain export`')
+    .option('--overwrite', 'Replace existing tasks with the same name')
+    .description('Import captain task definitions from a previously exported file')
+    .action(captainImportCommand);
 
   // ── Jobs ─────────────────────────────────────────────────────────────────
 

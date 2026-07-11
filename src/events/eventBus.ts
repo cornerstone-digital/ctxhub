@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { IndexResult } from '../indexing/indexer.js';
+import { appendEventLog } from './eventLog.js';
 
 // A minimal, in-process pub/sub core. Producers (the indexer, captains, the service) publish
 // facts about what just happened; consumers (desktop notify, SSE clients, the dashboard's
@@ -17,6 +18,7 @@ export type CtxhubEvent =
   | { type: 'captain.run.started'; task: string; workspace: string }
   | { type: 'captain.run.completed'; task: string; workspace: string; runId: string }
   | { type: 'captain.run.failed'; task: string; workspace: string; error: string }
+  | { type: 'captain.run.promoted'; task: string; workspace: string; runId: string; notePath: string }
   | { type: 'captain.handoff'; from: string; to: string; fromWorkspace: string; toWorkspace: string }
   | { type: 'skills.installed'; workspace: string; agents: string[] }
   | { type: 'personas.synced'; workspace: string; agents: string[] }
@@ -47,6 +49,8 @@ export class EventBus {
   publish(event: CtxhubEvent): CtxhubEventEnvelope {
     const envelope: CtxhubEventEnvelope = { ...event, id: `evt-${++this.sequence}`, at: new Date().toISOString() };
     this.emitter.emit(CHANNEL, envelope);
+    // Persist to durable log. Best-effort: fire-and-forget, never throws.
+    void appendEventLog(envelope);
     return envelope;
   }
 

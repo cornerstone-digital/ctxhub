@@ -3,11 +3,12 @@ import { readdir } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { createExplainResult, type ExplainResult } from '../commands/explain.js';
 import { loadWorkspaceConfig } from '../config/config.js';
-import { draftedNoteTemplate, NOTES_DIR, slugify, todayIsoDate } from '../commands/note.js';
+import { captainNoteTemplate, NOTES_DIR, slugify, todayIsoDate } from '../commands/note.js';
 import { getCtxhubHome, listWorkspaces } from '../workspaces/registry.js';
 import { loadCaptainTasks, type CaptainTask } from './tasks.js';
 import { ensureDir, pathExists, readText, writeText } from '../utils/fs.js';
 import { eventBus } from '../events/eventBus.js';
+import { recordCaptainPromotion, recordCaptainRun } from './captainStats.js';
 
 // docs/control-plane.md Phase 6: a Captain never writes to a repo on its own. `runCaptainTask`
 // only ever writes to this user-level, non-git-tracked pending-runs queue -- the "Approvals
@@ -111,6 +112,8 @@ export async function runCaptainTask(
   await writeText(path.join(runsDir, `${runId}.json`), `${JSON.stringify(record, null, 2)}\n`);
 
   eventBus.publish({ type: 'captain.run.completed', task: task.name, workspace: task.workspace, runId });
+  // Best-effort: stat write failure must never kill the run result.
+  await recordCaptainRun(task.name).catch(() => undefined);
 
   if (task.handoffTo) {
     const { tasks } = await loadCaptainTasks();
@@ -134,18 +137,24 @@ export async function runCaptainTask(
   return record;
 }
 
-export async function listCaptainRuns(taskName: string, limit = 50): Promise<CaptainRunRecord[]> {
+export async function listCaptainRuns(taskName: string, opts: { limit?: number; offset?: number } = {}): Promise<{ records: CaptainRunRecord[]; total: number }> {
   const runsDir = getCaptainRunsDir(taskName);
-  if (!(await pathExists(runsDir))) return [];
+  if (!(await pathExists(runsDir))) return { records: [], total: 0 };
 
-  // Sort descending (most-recent first) so the slice keeps the newest runs, not the oldest.
-  const files = (await readdir(runsDir)).filter(file => file.endsWith('.json')).sort().reverse().slice(0, limit);
+  // All filenames sorted descending (most-recent first via ISO timestamp prefix).
+  const allFiles = (await readdir(runsDir)).filter(file => file.endsWith('.json')).sort().reverse();
+  const total = allFiles.length;
+
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  const page = allFiles.slice(offset, offset + limit);
+
   const records: CaptainRunRecord[] = [];
-  for (const file of files) {
+  for (const file of page) {
     records.push(JSON.parse(await readText(path.join(runsDir, file))) as CaptainRunRecord);
   }
-  // Return chronological order so the UI's reverse() yields most-recent-first display.
-  return records.reverse();
+  // Return chronological order so the UI can reverse for most-recent-first display.
+  return { records: records.reverse(), total };
 }
 
 export async function getCaptainRun(taskName: string, runId: string): Promise<CaptainRunRecord | undefined> {
@@ -191,7 +200,18 @@ export async function promoteCaptainRun(
   }
 
   const body = buildCaptainNoteBody(record.result);
-  await writeText(notePath, draftedNoteTemplate(title, opts.agent ?? `captain:${taskName}`, date, body));
+  await writeText(notePath, captainNoteTemplate(title, {
+    agent: opts.agent ?? `captain:${taskName}`,
+    date,
+    captainTask: taskName,
+    runId: record.runId,
+    workspace: record.workspace,
+    query: record.result.query,
+  }, body));
+
+  eventBus.publish({ type: 'captain.run.promoted', task: taskName, workspace: record.workspace, runId: record.runId, notePath });
+  await recordCaptainPromotion(taskName).catch(() => undefined);
+
   return notePath;
 }
 

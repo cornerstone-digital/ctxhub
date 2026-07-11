@@ -116,10 +116,34 @@ export function useCaptains() {
   })
 }
 
-export function useCaptainRuns(name: string | null) {
+export function useCaptainStats() {
   return useQuery({
-    queryKey: ['captain-runs', name],
-    queryFn: () => fetchJson<{ runs: CaptainRunRecord[] }>(`/captains/${encodeURIComponent(name!)}/runs`),
+    queryKey: ['captain-stats'],
+    queryFn: () => fetchJson<{ stats: Record<string, { runs: number; promoted: number }> }>('/captains/stats'),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useEventHistory(opts: { limit?: number; types?: string[] } = {}) {
+  const params = new URLSearchParams()
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.types?.length) params.set('types', opts.types.join(','))
+  const qs = params.toString()
+  return useQuery({
+    queryKey: ['event-history', qs],
+    queryFn: () => fetchJson<{ events: CtxhubEventEnvelope[]; count: number }>(`/events/history${qs ? `?${qs}` : ''}`),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useCaptainRuns(name: string | null, opts: { limit?: number; offset?: number } = {}) {
+  const limit = opts.limit ?? 50
+  const offset = opts.offset ?? 0
+  return useQuery({
+    queryKey: ['captain-runs', name, limit, offset],
+    queryFn: () => fetchJson<{ runs: CaptainRunRecord[]; total: number; limit: number; offset: number }>(
+      `/captains/${encodeURIComponent(name!)}/runs?limit=${limit}&offset=${offset}`
+    ),
     enabled: name !== null,
     refetchInterval: 30_000,
   })

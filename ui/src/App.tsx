@@ -14,6 +14,7 @@ import { SkillsPersonasView } from './components/SkillsPersonasView'
 import { ReviewView } from './components/ReviewView'
 import { JobsView } from './components/JobsView'
 import { EvalView } from './components/EvalView'
+import { TimelineView } from './components/TimelineView'
 
 function ResizeHandleH() {
   return (
@@ -65,6 +66,7 @@ export default function App() {
               {activeView === 'fleet' && <GraphCanvas />}
               {activeView === 'captains' && <CaptainsView />}
               {activeView === 'jobs' && <JobsView />}
+              {activeView === 'timeline' && <TimelineView />}
               {activeView === 'eval' && <EvalView />}
               {activeView === 'knowledge' && <KnowledgeGraphView />}
               {activeView === 'review' && <ReviewView />}

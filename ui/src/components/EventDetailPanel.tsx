@@ -43,6 +43,13 @@ function fieldsFor(event: CtxhubEventEnvelope): Array<{ label: string; value: st
         { label: 'Workspace', value: event.workspace },
         { label: 'Error', value: event.error },
       ]
+    case 'captain.run.promoted':
+      return [
+        { label: 'Task', value: event.task },
+        { label: 'Workspace', value: event.workspace },
+        { label: 'Run ID', value: event.runId },
+        { label: 'Note', value: event.notePath },
+      ]
     case 'captain.handoff':
       return [
         { label: 'From', value: event.from },
@@ -85,6 +92,7 @@ const KIND_BY_TYPE: Record<CtxhubEventEnvelope['type'], 'ok' | 'warn' | 'error'>
   'captain.run.started': 'warn',
   'captain.run.completed': 'ok',
   'captain.run.failed': 'error',
+  'captain.run.promoted': 'ok',
   'captain.handoff': 'warn',
   'skills.installed': 'ok',
   'personas.synced': 'ok',

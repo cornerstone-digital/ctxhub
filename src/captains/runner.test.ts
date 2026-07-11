@@ -78,12 +78,12 @@ test('runCaptainTask runs the evidence-grounded query against the registered wor
 test('listCaptainRuns is empty before any run and lists runs afterward', () => {
   return withIsolatedCtxhubHome(async () => {
     await withRegisteredWorkspace('list-ws', async () => {
-      assert.deepEqual(await listCaptainRuns('list-task'), []);
+      assert.deepEqual((await listCaptainRuns('list-task')).records, []);
 
       const task: CaptainTask = { name: 'list-task', workspace: 'list-ws', query: 'authentication flow' };
       const record = await runCaptainTask(task);
 
-      const runs = await listCaptainRuns('list-task');
+      const { records: runs } = await listCaptainRuns('list-task');
       assert.equal(runs.length, 1);
       assert.equal(runs[0].runId, record.runId);
     });
@@ -105,7 +105,7 @@ test('runCaptainTask with handoffTo also runs the target task, folding the sourc
         assert.equal(upstreamRecord.task, 'audit');
         assert.equal(upstreamRecord.handoffFrom, undefined);
 
-        const downstreamRuns = await listCaptainRuns('draft-notes');
+        const { records: downstreamRuns } = await listCaptainRuns('draft-notes');
         assert.equal(downstreamRuns.length, 1);
         assert.equal(downstreamRuns[0].handoffFrom, 'audit');
         assert.match(downstreamRuns[0].result.query, /Context handed off from Captain "audit"/);
@@ -139,8 +139,8 @@ test('runCaptainTask stops a handoff cycle instead of running forever, without l
       }
 
       assert.ok(events.some(e => e.type === 'captain.run.failed' && e.task === 'a' && /cycle/i.test(e.error)));
-      assert.equal((await listCaptainRuns('a')).length, 1);
-      assert.equal((await listCaptainRuns('b')).length, 1);
+      assert.equal((await listCaptainRuns('a')).records.length, 1);
+      assert.equal((await listCaptainRuns('b')).records.length, 1);
     });
   });
 });

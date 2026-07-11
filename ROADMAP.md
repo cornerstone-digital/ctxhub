@@ -6,13 +6,13 @@
 
 ## Where we are
 
-The runtime is substantially built. The indexing pipeline, MCP server, CLI, Captains, Missions, Execution Profiles, Personas, and Mission Control are all working. The foundation is solid.
+M1 (Runtime) and M2 (Mission Control reliability) are complete. The indexing pipeline, MCP server, CLI, Captains, Missions, Execution Profiles, Personas, and Mission Control are all working and reliable.
 
-The next phase is making it reliable and delightful enough that people can't imagine working without it.
+The current focus is M3 — making accumulated knowledge browsable, measurable, and portable so teams can rely on it.
 
 ---
 
-## Milestone 1 — Runtime *(current focus)*
+## Milestone 1 — Runtime *(done)*
 
 **The promise:** "Install ctxhub. Every AI tool immediately understands my project better than it did yesterday."
 
@@ -31,7 +31,7 @@ A developer with two repos and two AI tools installs ctxhub, runs `ctxhub index`
 
 ---
 
-## Milestone 2 — Mission Control *(next)*
+## Milestone 2 — Mission Control *(done)*
 
 **The promise:** "I enjoy opening Mission Control every morning."
 
@@ -50,17 +50,17 @@ A developer opens Mission Control, sees what their Captain did overnight, promot
 
 ---
 
-## Milestone 3 — Team *(after)*
+## Milestone 3 — Team *(current focus)*
 
 **The promise:** "Our engineering knowledge survives people leaving."
 
 ### What's left
 
-- [ ] Persistent Captain run history (browsable, not just latest)
-- [ ] Knowledge Capture Rate metric in Mission Control
-- [ ] Execution profile and persona sync across machines (Pro)
-- [ ] Structured promoted notes with searchable frontmatter
-- [ ] Mission replay — full timeline of all agent activity
+- [x] Persistent Captain run history — server-side pagination (?limit&offset), "load more" UI, total count returned from API
+- [x] Knowledge Capture Rate metric — captain.run.promoted event, captainStats.json counter, per-task % badge and aggregate header in CaptainsView
+- [x] Execution profile and persona sync — personas and execution profiles sync via git (already); ctxhub captain export/import CLI for task definitions across machines
+- [x] Structured promoted notes with searchable frontmatter — captainNoteTemplate adds captain-task, run-id, workspace, query fields to every promoted note
+- [x] Mission replay — durable events.jsonl log (appended on every publish), GET /events/history API with limit/type filtering, Timeline view in Mission Control with date grouping, colour-coded dots, and type filters
 
 ### Exit condition
 

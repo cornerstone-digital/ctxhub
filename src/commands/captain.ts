@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import { rm } from 'node:fs/promises';
-import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
+import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, saveCaptainTasks, type CaptainTask } from '../captains/tasks.js';
 import { getCaptainRunsDir, listCaptainRuns, promoteCaptainRun, runCaptainTask, type CaptainRunRecord } from '../captains/runner.js';
-import { pathExists } from '../utils/fs.js';
+import { pathExists, readText, writeText } from '../utils/fs.js';
 import { DEFAULT_SERVICE_PORT } from '../service/server.js';
 import { isServiceRunning } from './service.js';
 
@@ -121,7 +121,7 @@ export async function captainRunCommand(name: string) {
 }
 
 export async function captainApprovalsCommand(name: string) {
-  const runs = await listCaptainRuns(name);
+  const { records: runs } = await listCaptainRuns(name);
   if (!runs.length) {
     console.log(chalk.yellow(`No pending runs for captain task "${name}". Run: ctxhub captain run ${name}`));
     return;
@@ -142,4 +142,53 @@ export async function captainPromoteCommand(
   const notePath = await promoteCaptainRun(name, runId, repo, opts);
   console.log(chalk.green(`Promoted run ${runId} of "${name}" into ${notePath}`));
   console.log(chalk.gray('Review and edit before merging -- this is an AI draft, same as `note add --draft`.'));
+}
+
+// Exports captain task definitions (not run history) to a portable JSON file.
+// Run history is per-machine and too large for casual export; definitions are small and
+// are the thing you actually want to share or commit.
+export async function captainExportCommand(outputPath: string) {
+  const { tasks } = await loadCaptainTasks();
+  if (!tasks.length) {
+    console.log(chalk.yellow('No captain tasks to export.'));
+    return;
+  }
+  const payload = JSON.stringify({ version: 1, tasks }, null, 2);
+  await writeText(outputPath, `${payload}\n`);
+  console.log(chalk.green(`Exported ${tasks.length} captain task${tasks.length !== 1 ? 's' : ''} to ${outputPath}`));
+}
+
+// Imports captain task definitions from a file produced by `ctxhub captain export`.
+// Existing tasks with the same name are skipped (not overwritten) unless --overwrite is passed.
+export async function captainImportCommand(inputPath: string, opts: { overwrite?: boolean } = {}) {
+  if (!(await pathExists(inputPath))) throw new Error(`File not found: ${inputPath}`);
+
+  let parsed: { version?: number; tasks?: CaptainTask[] };
+  try {
+    parsed = JSON.parse(await readText(inputPath)) as typeof parsed;
+  } catch {
+    throw new Error(`Could not parse ${inputPath} — expected a JSON file produced by \`ctxhub captain export\`.`);
+  }
+
+  if (!Array.isArray(parsed.tasks)) {
+    throw new Error(`Invalid export file: expected a "tasks" array.`);
+  }
+
+  const { tasks: existing } = await loadCaptainTasks();
+  const existingNames = new Set(existing.map(t => t.name));
+
+  let added = 0;
+  let skipped = 0;
+  for (const task of parsed.tasks) {
+    if (existingNames.has(task.name) && !opts.overwrite) {
+      console.log(chalk.gray(`  Skipped "${task.name}" (already exists — use --overwrite to replace)`));
+      skipped++;
+    } else {
+      await addCaptainTask(task);
+      console.log(chalk.green(`  Imported "${task.name}"`));
+      added++;
+    }
+  }
+
+  console.log(chalk.green(`Done: ${added} imported, ${skipped} skipped.`));
 }

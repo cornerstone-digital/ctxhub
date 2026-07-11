@@ -3,6 +3,7 @@ import { Users, X, ChevronDown, RefreshCw, CheckCircle, AlertTriangle } from 'lu
 import {
   useCaptains,
   useCaptainRuns,
+  useCaptainStats,
   useCreateCaptainMutation,
   useDeleteCaptainMutation,
   useRunCaptainMutation,
@@ -186,6 +187,7 @@ function PromoteForm({ task, runId }: { task: string; runId: string }) {
 }
 
 const RUNS_PAGE_SIZE = 20
+const RUNS_LOAD_MORE_SIZE = 50
 
 function RunDetail({ task, run }: { task: CaptainTask; run: CaptainRunRecord }) {
   const [promoting, setPromoting] = useState(false)
@@ -267,22 +269,22 @@ function RunDetail({ task, run }: { task: CaptainTask; run: CaptainRunRecord }) 
 }
 
 function TaskRuns({ task }: { task: CaptainTask }) {
-  const { data, isLoading } = useCaptainRuns(task.name)
+  const [limit, setLimit] = useState(RUNS_PAGE_SIZE)
+  const { data, isLoading } = useCaptainRuns(task.name, { limit })
   const allRuns = data?.runs ?? []
-  // Most-recent first; backend already returns chronological, so reverse once here.
+  const total = data?.total ?? 0
+  // Most-recent first; backend returns chronological (oldest first), so reverse here.
   const runs = [...allRuns].reverse()
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
-  const [showAll, setShowAll] = useState(false)
 
-  const visible = showAll ? runs : runs.slice(0, RUNS_PAGE_SIZE)
-  const hiddenCount = runs.length - visible.length
+  const hiddenCount = total - runs.length
 
   if (isLoading) return <p className="text-[11px] px-2 py-2" style={{ color: 'var(--text-muted)' }}>Loading runs…</p>
   if (runs.length === 0) return <p className="text-[11px] px-2 py-2" style={{ color: 'var(--text-muted)' }}>No runs yet. Click "Run now" above.</p>
 
   return (
     <div className="pb-2">
-      {visible.map(run => {
+      {runs.map(run => {
         const isSelected = selectedRunId === run.runId
         return (
           <div key={run.runId} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
@@ -328,18 +330,33 @@ function TaskRuns({ task }: { task: CaptainTask }) {
 
       {hiddenCount > 0 && (
         <button
-          onClick={() => setShowAll(true)}
+          onClick={() => setLimit(l => l + RUNS_LOAD_MORE_SIZE)}
           className="w-full text-[11px] py-2 text-center"
           style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
         >
-          Show {hiddenCount} older run{hiddenCount !== 1 ? 's' : ''}
+          Load {Math.min(hiddenCount, RUNS_LOAD_MORE_SIZE)} older run{hiddenCount !== 1 ? 's' : ''} ({hiddenCount} remaining)
         </button>
       )}
     </div>
   )
 }
 
-function TaskCard({ task }: { task: CaptainTask }) {
+function CaptureRateBadge({ runs, promoted }: { runs: number; promoted: number }) {
+  if (runs === 0) return null
+  const pct = Math.round((promoted / runs) * 100)
+  const color = pct >= 50 ? 'var(--health-ok)' : pct >= 20 ? 'var(--health-warn)' : 'var(--text-muted)'
+  return (
+    <span
+      title={`${promoted} of ${runs} runs promoted`}
+      className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+      style={{ background: 'var(--bg-elevated)', color }}
+    >
+      {pct}% captured
+    </span>
+  )
+}
+
+function TaskCard({ task, statsForTask }: { task: CaptainTask; statsForTask?: { runs: number; promoted: number } }) {
   const [expanded, setExpanded] = useState(false)
   const [lastRunStatus, setLastRunStatus] = useState<'ok' | 'error' | null>(null)
   const run = useRunCaptainMutation()
@@ -373,6 +390,7 @@ function TaskCard({ task }: { task: CaptainTask }) {
                 → {task.handoffTo}
               </span>
             )}
+            {statsForTask && <CaptureRateBadge runs={statsForTask.runs} promoted={statsForTask.promoted} />}
           </div>
           <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
             {task.query}
@@ -415,8 +433,14 @@ function TaskCard({ task }: { task: CaptainTask }) {
 
 export function CaptainsView() {
   const { data, isLoading } = useCaptains()
+  const { data: statsData } = useCaptainStats()
   const tasks = data?.tasks ?? []
+  const stats = statsData?.stats ?? {}
   const [showForm, setShowForm] = useState(false)
+
+  // Aggregate capture rate across all tasks for the header summary
+  const totalRuns = Object.values(stats).reduce((s, t) => s + t.runs, 0)
+  const totalPromoted = Object.values(stats).reduce((s, t) => s + t.promoted, 0)
 
   return (
     <div className="w-full h-full overflow-y-auto p-5" style={{ background: 'var(--bg-void)' }}>
@@ -429,6 +453,11 @@ export function CaptainsView() {
           <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
             ({tasks.length})
           </span>
+          {totalRuns > 0 && (
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              · {totalPromoted}/{totalRuns} promoted
+            </span>
+          )}
         </div>
         <button
           onClick={() => setShowForm(v => !v)}
@@ -458,7 +487,7 @@ export function CaptainsView() {
         </div>
       )}
       {tasks.map(task => (
-        <TaskCard key={task.name} task={task} />
+        <TaskCard key={task.name} task={task} statsForTask={stats[task.name]} />
       ))}
     </div>
   )

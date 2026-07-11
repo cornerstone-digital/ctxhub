@@ -24,7 +24,7 @@ export async function runDueCaptainTasks(now = new Date()): Promise<CaptainRunRe
   const dueTasks: CaptainTask[] = [];
   for (const task of tasks) {
     if (!task.schedule) continue;
-    const runs = await listCaptainRuns(task.name);
+    const { records: runs } = await listCaptainRuns(task.name, { limit: 1 });
     if (!isCaptainTaskDue(task, runs, now)) continue;
     dueTasks.push(task);
   }

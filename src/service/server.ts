@@ -11,8 +11,10 @@ import { createExplainResult } from '../commands/explain.js';
 import { indexWorkspace, type IndexProgressEvent, type IndexResult } from '../indexing/indexer.js';
 import { notify } from '../utils/notify.js';
 import { eventBus, type CtxhubEventEnvelope } from '../events/eventBus.js';
+import { readEventLog } from '../events/eventLog.js';
 import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
 import { listCaptainRuns, promoteCaptainRun, runCaptainTask } from '../captains/runner.js';
+import { getCaptainStats } from '../captains/captainStats.js';
 import { buildKnowledgeGraph, findKnowledgeGraphNodeContent, expandKnowledgeGraphNode } from '../indexing/knowledgeGraph.js';
 import { isGitRepo } from '../git/git.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
@@ -197,6 +199,15 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/events/history') {
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? 100), 500);
+    const before = url.searchParams.get('before') ?? undefined;
+    const types = url.searchParams.get('types')?.split(',').filter(Boolean);
+    const events = await readEventLog({ limit, before, types });
+    sendJson(res, 200, { events, count: events.length });
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/workspaces') {
     const workspaces = await listWorkspaces();
     sendJson(res, 200, { workspaces });
@@ -338,6 +349,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (req.method === 'GET' && url.pathname === '/captains') {
     const { tasks } = await loadCaptainTasks();
     sendJson(res, 200, { tasks });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/captains/stats') {
+    const stats = await getCaptainStats();
+    sendJson(res, 200, { stats });
     return;
   }
 
@@ -361,8 +377,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const captainRunsMatch = /^\/captains\/([^/]+)\/runs$/.exec(url.pathname);
   if (req.method === 'GET' && captainRunsMatch) {
-    const runs = await listCaptainRuns(decodeURIComponent(captainRunsMatch[1]));
-    sendJson(res, 200, { runs });
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? 50), 200);
+    const offset = Math.max(Number(url.searchParams.get('offset') ?? 0), 0);
+    const { records, total } = await listCaptainRuns(decodeURIComponent(captainRunsMatch[1]), { limit, offset });
+    sendJson(res, 200, { runs: records, total, limit, offset });
     return;
   }
 

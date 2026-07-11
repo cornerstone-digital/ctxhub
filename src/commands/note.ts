@@ -57,6 +57,39 @@ ${draftBody.trim()}
 `;
 }
 
+// Captain-promoted note: richer frontmatter so the note is traceable back to the exact run that
+// produced it, and searchable by task/workspace without opening the file body. The run-id lets
+// `ctxhub captain runs <task>` cross-reference the original evidence + citations.
+export type CaptainNoteMeta = {
+  agent: string;
+  date: string;
+  captainTask: string;
+  runId: string;
+  workspace: string;
+  query: string;
+};
+
+export function captainNoteTemplate(title: string, meta: CaptainNoteMeta, body: string): string {
+  // Trim query to 80 chars so the frontmatter stays scannable in git diff.
+  const shortQuery = meta.query.length > 80 ? `${meta.query.slice(0, 77)}…` : meta.query;
+  return `---
+agent: ${meta.agent}
+date: ${meta.date}
+draft: ai-pending-review
+captain-task: ${meta.captainTask}
+run-id: ${meta.runId}
+workspace: ${meta.workspace}
+query: "${shortQuery.replace(/"/g, "'")}"
+---
+
+# ${title}
+
+<!-- AI draft: review every claim and edit before merge. -->
+
+${body.trim()}
+`;
+}
+
 // NEXT_FEATURES #26: promoting a MemPalace hit into a git-tracked note. `promoted-from` records
 // exactly where the content came from so a reviewer can trace it back, and the body is copied
 // verbatim rather than re-synthesized -- promotion should not silently change what memory said.
