@@ -40,6 +40,8 @@ import { watchCommand } from '../commands/watch.js';
 import { reportCommand } from '../commands/report.js';
 import { ciInitCommand } from '../commands/ci.js';
 import { resetCommand } from '../commands/reset.js';
+import { jobAddCommand, jobListCommand, jobRemoveCommand, jobRunCommand, jobRunsCommand } from '../commands/job.js';
+import { webhookGenerateTokenCommand, webhookSetTokenCommand, webhookShowCommand } from '../commands/webhook.js';
 import { runGuidedMode } from '../commands/guided.js';
 import { checkForDriftOnce } from '../utils/driftCheck.js';
 import { getPackageVersion } from '../utils/version.js';
@@ -435,6 +437,7 @@ export function buildProgram(): Command {
     .command('remove')
     .argument('<name>', 'Captain task name')
     .description('Remove a captain task definition')
+    .option('--purge-runs', 'Also delete all saved run history for this task')
     .action(captainRemoveCommand);
 
   captain
@@ -458,6 +461,60 @@ export function buildProgram(): Command {
     .option('--agent <agent>', 'Attribution recorded in the note frontmatter')
     .description('The one human-invoked action that turns a pending run into a real, git-tracked AI-draft note')
     .action(captainPromoteCommand);
+
+  // ── Jobs ─────────────────────────────────────────────────────────────────
+
+  const job = program.command('job').description('Multi-step, multi-agent job pipelines with live dashboard visibility');
+
+  job
+    .command('list')
+    .description('List defined jobs')
+    .action(jobListCommand);
+
+  job
+    .command('add')
+    .argument('<name>', 'Job name')
+    .description('Define a new multi-step job')
+    .option('--description <text>', 'Short description shown in Mission Control')
+    .option('--step <spec>', 'Add a step in "name:workspace:query" format (repeatable, order matters)', (v: string, prev: string[]) => [...prev, v], [] as string[])
+    .option('--schedule-every-minutes <n>', 'Run automatically on this interval while the service is running')
+    .action(jobAddCommand);
+
+  job
+    .command('remove')
+    .argument('<name>', 'Job name')
+    .description('Remove a job definition')
+    .action(jobRemoveCommand);
+
+  job
+    .command('run')
+    .argument('<name>', 'Job name')
+    .description('Run a job now (sequentially, blocking until all steps finish)')
+    .action(jobRunCommand);
+
+  job
+    .command('runs')
+    .argument('[name]', 'Filter by job name (default: all jobs)')
+    .description('Show recent job run history')
+    .action(jobRunsCommand);
+
+  const webhook = program.command('webhook').description('Manage webhook tokens for triggering Jobs and Captains from CI/external systems');
+
+  webhook
+    .command('show')
+    .description('Show the webhook token and example trigger URLs')
+    .action(webhookShowCommand);
+
+  webhook
+    .command('generate-token')
+    .description('Generate and save a new random webhook token')
+    .action(webhookGenerateTokenCommand);
+
+  webhook
+    .command('set-token')
+    .argument('<token>', 'Token string to use (min 8 characters)')
+    .description('Set a specific webhook token')
+    .action(webhookSetTokenCommand);
 
   const skills = program.command('skills').description('Install chat-native ctxhub usage guidance for coding agents');
 

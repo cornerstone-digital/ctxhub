@@ -1,6 +1,8 @@
 import chalk from 'chalk';
+import { rm } from 'node:fs/promises';
 import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
-import { listCaptainRuns, promoteCaptainRun, runCaptainTask, type CaptainRunRecord } from '../captains/runner.js';
+import { getCaptainRunsDir, listCaptainRuns, promoteCaptainRun, runCaptainTask, type CaptainRunRecord } from '../captains/runner.js';
+import { pathExists } from '../utils/fs.js';
 import { DEFAULT_SERVICE_PORT } from '../service/server.js';
 import { isServiceRunning } from './service.js';
 
@@ -54,13 +56,30 @@ export async function captainListCommand() {
   }
 }
 
-export async function captainRemoveCommand(name: string) {
+export async function captainRemoveCommand(name: string, opts: { purgeRuns?: boolean } = {}) {
   const removed = await removeCaptainTask(name);
   if (!removed) {
     console.log(chalk.yellow(`No captain task named "${name}".`));
     return;
   }
-  console.log(chalk.green(`Removed captain task "${name}".`));
+
+  const runsDir = getCaptainRunsDir(name);
+  const hasRuns = await pathExists(runsDir);
+
+  if (opts.purgeRuns) {
+    if (hasRuns) {
+      await rm(runsDir, { recursive: true, force: true });
+      console.log(chalk.green(`Removed captain task "${name}" and its run history.`));
+    } else {
+      console.log(chalk.green(`Removed captain task "${name}" (no run history found).`));
+    }
+  } else {
+    console.log(chalk.green(`Removed captain task "${name}".`));
+    if (hasRuns) {
+      console.log(chalk.gray(`  Run history preserved at ${runsDir}`));
+      console.log(chalk.gray(`  Use --purge-runs to delete it, or rm -rf it manually.`));
+    }
+  }
 }
 
 // If `ctxhub service` is running, routes the run through it instead of executing in this

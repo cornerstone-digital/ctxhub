@@ -48,6 +48,45 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
 
+  e2e:
+    runs-on: ubuntu-latest
+    # Heavier job (Chromium + real service); run on push to main and on PRs, but as a separate
+    # job so a Playwright failure doesn't block the fast unit-test matrix from being reported.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root deps & build
+        run: npm ci && npm run build
+
+      - name: Install UI deps
+        run: cd ui && npm ci
+
+      - name: Install Playwright browsers
+        run: cd ui && npx playwright install --with-deps chromium
+
+      - name: Build UI
+        run: cd ui && npm run build
+
+      - name: Run e2e tests
+        run: cd ui && npx playwright test
+        env:
+          # Keep e2e on its own port so it never conflicts with a real local service
+          E2E_PORT: 7343
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: ui/playwright-report/
+          retention-days: 7
+
   commitlint:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

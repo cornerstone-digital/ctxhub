@@ -161,15 +161,23 @@ async function reviewDocsPersona(
   workspaceRoot: string
 ): Promise<{ changed: Map<string, string[]>; findings: string[]; llmNotice?: string }> {
   const index = createIndexProvider(config.index.provider, config.index.path, config.index.table, workspaceRoot);
-  const diagrams = (await index.search('architecture diagram mermaid', 100)).filter(result => result.kind === 'architecture-diagram');
-  const packages: GraphPackage[] = [];
-  for (const repo of config.repositories) {
-    const packagePath = path.resolve(workspaceRoot, repo.path, 'package.json');
-    if (await pathExists(packagePath)) {
-      const parsed = JSON.parse(await readText(packagePath)) as { name?: string; dependencies?: Record<string, string> };
-      packages.push({ repo: repo.name, package: parsed.name, dependencies: Object.keys(parsed.dependencies ?? {}) });
-    }
-  }
+
+  // Run the LanceDB search and all package.json reads in parallel — the serial loop
+  // was the main cause of the "docs persona is slow on large workspaces" complaint.
+  const [allResults, packageResults] = await Promise.all([
+    index.search('architecture diagram mermaid', 100),
+    Promise.all(
+      config.repositories.map(async (repo): Promise<GraphPackage | null> => {
+        const packagePath = path.resolve(workspaceRoot, repo.path, 'package.json');
+        if (!(await pathExists(packagePath))) return null;
+        const parsed = JSON.parse(await readText(packagePath)) as { name?: string; dependencies?: Record<string, string> };
+        return { repo: repo.name, package: parsed.name, dependencies: Object.keys(parsed.dependencies ?? {}) };
+      })
+    )
+  ]);
+
+  const diagrams = allResults.filter(result => result.kind === 'architecture-diagram');
+  const packages: GraphPackage[] = packageResults.filter((p): p is GraphPackage => p !== null);
 
   const drift = analyzeArchitectureDrift({
     repos: config.repositories,

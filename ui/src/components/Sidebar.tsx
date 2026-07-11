@@ -77,8 +77,10 @@ export function Sidebar() {
   const navItems: Array<{ icon: typeof Network; label: string; view: FleetView }> = [
     { icon: Network, label: 'Fleet', view: 'fleet' },
     { icon: Users, label: 'Captains', view: 'captains' },
+    { icon: Network, label: 'Jobs', view: 'jobs' },
     { icon: BookOpen, label: 'Knowledge', view: 'knowledge' },
     { icon: CheckCircle, label: 'Review', view: 'review' },
+    { icon: RefreshCw, label: 'Eval', view: 'eval' },
     { icon: Hexagon, label: 'Config', view: 'config' },
     { icon: Folder, label: 'Skills & Personas', view: 'skills' },
   ]

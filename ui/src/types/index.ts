@@ -47,7 +47,14 @@ export type CtxhubEvent =
   | { type: 'captain.run.failed'; task: string; workspace: string; error: string }
   | { type: 'captain.handoff'; from: string; to: string; fromWorkspace: string; toWorkspace: string }
   | { type: 'skills.installed'; workspace: string; agents: string[] }
-  | { type: 'personas.synced'; workspace: string; agents: string[] };
+  | { type: 'personas.synced'; workspace: string; agents: string[] }
+  | { type: 'job.queued';         jobId: string; job: string }
+  | { type: 'job.started';        jobId: string; job: string }
+  | { type: 'job.step.started';   jobId: string; job: string; step: string; stepIndex: number }
+  | { type: 'job.step.completed'; jobId: string; job: string; step: string; stepIndex: number }
+  | { type: 'job.step.failed';    jobId: string; job: string; step: string; stepIndex: number; error: string }
+  | { type: 'job.completed';      jobId: string; job: string }
+  | { type: 'job.failed';         jobId: string; job: string; error: string };
 
 export type CtxhubEventEnvelope = CtxhubEvent & { id: string; at: string };
 
@@ -210,6 +217,80 @@ export interface ReviewResult {
   };
   findings: string[];
   llmNotice?: string;
+}
+
+// ── Jobs ─────────────────────────────────────────────────────────────────────
+
+export interface JobStep {
+  name: string;
+  workspace: string;
+  query: string;
+  persona?: string;
+  profile?: string;
+  captainTask?: string;
+}
+
+export interface JobDefinition {
+  name: string;
+  description?: string;
+  steps: JobStep[];
+  schedule?: { everyMinutes: number };
+}
+
+export type JobStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type JobStepStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface JobStepRun {
+  stepName: string;
+  status: JobStepStatus;
+  startedAt?: string;
+  completedAt?: string;
+  input?: string;
+  result?: {
+    answer: string[];
+    citations: Array<{ ref: string; repo: string; path: string; title?: string }>;
+    llmNotice?: string;
+  };
+  error?: string;
+}
+
+export interface JobRun {
+  jobId: string;
+  job: string;
+  status: JobStatus;
+  startedAt: string;
+  completedAt?: string;
+  steps: JobStepRun[];
+}
+
+// ── Eval types (mirrored from src/commands/eval.ts) ──────────────────────────
+
+export interface EvalExpected {
+  repo?: string;
+  path?: string;
+}
+
+export interface EvalExpectedResult extends EvalExpected {
+  rank?: number;
+  score?: number;
+  matchedPath?: string;
+  matchedRepo?: string;
+}
+
+export interface EvalCaseResult {
+  query: string;
+  rationale?: string;
+  passed: boolean;
+  expected: EvalExpectedResult[];
+  missing: EvalExpected[];
+  topResults: Array<{ repo: string; path: string; title?: string; score: number }>;
+}
+
+export interface EvalRunResult {
+  generatedAt: string;
+  suitePath: string;
+  summary: { total: number; passed: number; failed: number };
+  cases: EvalCaseResult[];
 }
 
 export interface ActivityEvent {

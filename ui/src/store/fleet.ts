@@ -1,7 +1,7 @@
 import { create } from 'zustand'
-import type { ActivityEvent, AgentToken, ChatMessage, CtxhubEventEnvelope } from '../types'
+import type { ActivityEvent, AgentToken, ChatMessage, CtxhubEventEnvelope, JobRun } from '../types'
 
-export type FleetView = 'fleet' | 'captains' | 'knowledge' | 'config' | 'skills' | 'review'
+export type FleetView = 'fleet' | 'captains' | 'knowledge' | 'config' | 'skills' | 'review' | 'jobs' | 'eval'
 
 interface FleetStore {
   activeView: FleetView
@@ -38,6 +38,16 @@ interface FleetStore {
   agents: AgentToken[]
   upsertAgent: (token: AgentToken) => void
   removeAgent: (id: string) => void
+
+  // Live job run cache — updated by SSE events so the Jobs screen reflects status
+  // without waiting for the next poll cycle. Keyed by jobId.
+  activeJobRuns: Record<string, JobRun>
+  upsertJobRun: (run: JobRun) => void
+
+  selectedJobRun: string | null          // jobId
+  setSelectedJobRun: (jobId: string | null) => void
+  selectedJobRunStep: number | null      // stepIndex
+  setSelectedJobRunStep: (idx: number | null) => void
 }
 
 let activityIdCounter = 0
@@ -98,6 +108,18 @@ export const useFleetStore = create<FleetStore>((set) => ({
     set((state) => ({
       agents: state.agents.filter((a) => a.id !== id),
     })),
+
+  activeJobRuns: {},
+  upsertJobRun: (run) =>
+    set((state) => ({
+      activeJobRuns: { ...state.activeJobRuns, [run.jobId]: run },
+    })),
+
+  selectedJobRun: null,
+  setSelectedJobRun: (jobId) => set({ selectedJobRun: jobId, selectedJobRunStep: null }),
+
+  selectedJobRunStep: null,
+  setSelectedJobRunStep: (idx) => set({ selectedJobRunStep: idx }),
 }))
 
 export function makeMsgId() {

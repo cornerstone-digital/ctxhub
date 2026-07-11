@@ -60,6 +60,20 @@ function fieldsFor(event: CtxhubEventEnvelope): Array<{ label: string; value: st
         { label: 'Workspace', value: event.workspace },
         { label: 'Agents', value: event.agents.join(', ') || 'all' },
       ]
+    case 'job.queued':
+      return [{ label: 'Job', value: event.job }, { label: 'Run ID', value: event.jobId }]
+    case 'job.started':
+      return [{ label: 'Job', value: event.job }, { label: 'Run ID', value: event.jobId }]
+    case 'job.step.started':
+      return [{ label: 'Job', value: event.job }, { label: 'Step', value: event.step }, { label: 'Run ID', value: event.jobId }]
+    case 'job.step.completed':
+      return [{ label: 'Job', value: event.job }, { label: 'Step', value: event.step }, { label: 'Run ID', value: event.jobId }]
+    case 'job.step.failed':
+      return [{ label: 'Job', value: event.job }, { label: 'Step', value: event.step }, { label: 'Error', value: event.error }]
+    case 'job.completed':
+      return [{ label: 'Job', value: event.job }, { label: 'Run ID', value: event.jobId }]
+    case 'job.failed':
+      return [{ label: 'Job', value: event.job }, { label: 'Error', value: event.error }]
   }
 }
 
@@ -74,6 +88,13 @@ const KIND_BY_TYPE: Record<CtxhubEventEnvelope['type'], 'ok' | 'warn' | 'error'>
   'captain.handoff': 'warn',
   'skills.installed': 'ok',
   'personas.synced': 'ok',
+  'job.queued': 'warn',
+  'job.started': 'warn',
+  'job.step.started': 'warn',
+  'job.step.completed': 'ok',
+  'job.step.failed': 'error',
+  'job.completed': 'ok',
+  'job.failed': 'error',
 }
 
 export function EventDetailPanel() {

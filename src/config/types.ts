@@ -48,6 +48,15 @@ export type CtxhubConfig = {
   // instead of always using the single `llm.agent`/auto-detected default. Additive: a profile is
   // only used when explicitly named (`--profile <name>`); nothing changes for callers that don't.
   executionProfiles: Record<string, ExecutionProfile>;
+  // Which executionProfile is currently selected in Mission Control for Captain/Job runs.
+  // Optional — undefined means "use llm defaults". The CLI ignores this; it's a Mission Control
+  // convenience so the chosen profile persists across dashboard reloads without requiring a flag.
+  activeProfile?: string;
+  // Webhook configuration for external triggers. The token is a shared secret that must match
+  // the URL path for POST /webhooks/:token/trigger/:name to fire a Captain or Job run.
+  webhooks?: {
+    token: string;
+  };
 };
 
 export type ExecutionProfile = {

@@ -7,6 +7,7 @@ import {
   useDeleteCaptainMutation,
   useRunCaptainMutation,
   usePromoteCaptainRunMutation,
+  useAddEvalCaseMutation,
   useWorkspaceRepos,
   useWorkspaces,
 } from '../api/client'
@@ -188,6 +189,16 @@ function TaskRuns({ task }: { task: CaptainTask }) {
   const { data, isLoading } = useCaptainRuns(task.name)
   const runs = data?.runs ?? []
   const [promoting, setPromoting] = useState<string | null>(null)
+  const [flagged, setFlagged] = useState<Set<string>>(new Set())
+  const addEvalCase = useAddEvalCaseMutation()
+
+  const handleFlag = (runId: string, query: string) => {
+    if (flagged.has(runId)) return
+    addEvalCase.mutate(
+      { workspace: task.workspace, query, expected: [] },
+      { onSuccess: () => setFlagged(prev => new Set([...prev, runId])) }
+    )
+  }
 
   if (isLoading) return <p className="text-[11px] px-2 py-2" style={{ color: 'var(--text-muted)' }}>Loading runs…</p>
   if (runs.length === 0) return <p className="text-[11px] px-2 py-2" style={{ color: 'var(--text-muted)' }}>No runs yet. Click "Run now" above.</p>
@@ -201,13 +212,28 @@ function TaskRuns({ task }: { task: CaptainTask }) {
               {relTime(run.startedAt)}
               {run.handoffFrom && <span> · handed off from "{run.handoffFrom}"</span>}
             </span>
-            <button
-              onClick={() => setPromoting(promoting === run.runId ? null : run.runId)}
-              className="text-[10px]"
-              style={{ color: 'var(--accent)' }}
-            >
-              Promote…
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleFlag(run.runId, run.result.query)}
+                title={flagged.has(run.runId) ? 'Added to eval suite' : 'Flag as incorrect — adds to eval.json'}
+                className="text-[10px]"
+                style={{
+                  color: flagged.has(run.runId) ? 'var(--health-ok)' : 'var(--text-muted)',
+                  opacity: flagged.has(run.runId) ? 1 : 0.6,
+                  cursor: flagged.has(run.runId) ? 'default' : 'pointer',
+                  background: 'none', border: 'none', padding: 0,
+                }}
+              >
+                {flagged.has(run.runId) ? '✓ flagged' : '👎'}
+              </button>
+              <button
+                onClick={() => setPromoting(promoting === run.runId ? null : run.runId)}
+                className="text-[10px]"
+                style={{ color: 'var(--accent)' }}
+              >
+                Promote…
+              </button>
+            </div>
           </div>
           <ul className="mt-1 space-y-0.5">
             {run.result.answer.map((line, i) => (

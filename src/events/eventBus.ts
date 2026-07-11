@@ -19,7 +19,15 @@ export type CtxhubEvent =
   | { type: 'captain.run.failed'; task: string; workspace: string; error: string }
   | { type: 'captain.handoff'; from: string; to: string; fromWorkspace: string; toWorkspace: string }
   | { type: 'skills.installed'; workspace: string; agents: string[] }
-  | { type: 'personas.synced'; workspace: string; agents: string[] };
+  | { type: 'personas.synced'; workspace: string; agents: string[] }
+  // ── Jobs ───────────────────────────────────────────────────────────────────
+  | { type: 'job.queued';         jobId: string; job: string }
+  | { type: 'job.started';        jobId: string; job: string }
+  | { type: 'job.step.started';   jobId: string; job: string; step: string; stepIndex: number }
+  | { type: 'job.step.completed'; jobId: string; job: string; step: string; stepIndex: number }
+  | { type: 'job.step.failed';    jobId: string; job: string; step: string; stepIndex: number; error: string }
+  | { type: 'job.completed';      jobId: string; job: string }
+  | { type: 'job.failed';         jobId: string; job: string; error: string };
 
 export type CtxhubEventEnvelope = CtxhubEvent & { id: string; at: string };
 

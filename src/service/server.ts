@@ -15,11 +15,16 @@ import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, ty
 import { listCaptainRuns, promoteCaptainRun, runCaptainTask } from '../captains/runner.js';
 import { buildKnowledgeGraph, findKnowledgeGraphNodeContent, expandKnowledgeGraphNode } from '../indexing/knowledgeGraph.js';
 import { isGitRepo } from '../git/git.js';
-import { pathExists } from '../utils/fs.js';
+import { pathExists, readText, writeText } from '../utils/fs.js';
 import type { CtxhubConfig, ExecutionProfile, RepoConfig } from '../config/types.js';
 import { getSkillsStatus, installSkills } from '../commands/skills.js';
 import { getPersonasStatus, initPersonas, syncPersonas } from '../commands/personas.js';
 import { createReviewResult, loadReviewerProfiles, DEFAULT_REVIEW_PROFILES_PATH } from '../commands/review.js';
+import { addJobDefinition, getJobDefinition, listJobRuns, loadJobDefinitions, loadJobRun, removeJobDefinition } from '../jobs/jobStore.js';
+import { startJobBackground } from '../jobs/runner.js';
+import type { JobDefinition } from '../jobs/types.js';
+import type { EvalCase, EvalSuite } from '../commands/eval.js';
+import { CACHE_DIR } from '../config/config.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
@@ -364,6 +369,117 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const promoteMatch = /^\/captains\/([^/]+)\/runs\/([^/]+)\/promote$/.exec(url.pathname);
   if (req.method === 'POST' && promoteMatch) {
     await handleCaptainPromote(req, res, decodeURIComponent(promoteMatch[1]), decodeURIComponent(promoteMatch[2]));
+    return;
+  }
+
+  // ── Jobs ─────────────────────────────────────────────────────────────────
+
+  if (req.method === 'GET' && url.pathname === '/jobs') {
+    const { jobs } = await loadJobDefinitions();
+    sendJson(res, 200, { jobs });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/jobs') {
+    const body = (await readJsonBody(req)) as Partial<JobDefinition>;
+    if (!body.name || !body.steps?.length) {
+      sendJson(res, 400, { error: 'name and at least one step are required' });
+      return;
+    }
+    try {
+      await addJobDefinition(body as JobDefinition);
+      sendJson(res, 201, body);
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+
+  const jobDeleteMatch = /^\/jobs\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && jobDeleteMatch) {
+    const removed = await removeJobDefinition(decodeURIComponent(jobDeleteMatch[1]));
+    sendJson(res, 200, { removed });
+    return;
+  }
+
+  const jobRunMatch = /^\/jobs\/([^/]+)\/run$/.exec(url.pathname);
+  if (req.method === 'POST' && jobRunMatch) {
+    const jobName = decodeURIComponent(jobRunMatch[1]);
+    const job = await getJobDefinition(jobName);
+    if (!job) {
+      sendJson(res, 404, { error: `No job named "${jobName}"` });
+      return;
+    }
+    // Fire-and-forget: returns the jobId immediately; progress arrives via SSE + GET /job-runs/:jobId
+    const jobId = startJobBackground(job);
+    sendJson(res, 202, { jobId });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/job-runs') {
+    const runs = await listJobRuns(50);
+    sendJson(res, 200, { runs });
+    return;
+  }
+
+  const jobRunGetMatch = /^\/job-runs\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'GET' && jobRunGetMatch) {
+    const run = await loadJobRun(decodeURIComponent(jobRunGetMatch[1]));
+    if (!run) {
+      sendJson(res, 404, { error: 'Job run not found' });
+      return;
+    }
+    sendJson(res, 200, run);
+    return;
+  }
+
+  // ── Webhook trigger — POST /webhooks/:token/trigger/:name ────────────────
+  // External systems (CI, GitHub Actions, scripts) can fire a Captain or Job run
+  // without accessing the dashboard. The token must match config.webhooks.token.
+
+  const webhookMatch = /^\/webhooks\/([^/]+)\/trigger\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'POST' && webhookMatch) {
+    await handleWebhookTrigger(req, res, decodeURIComponent(webhookMatch[1]), decodeURIComponent(webhookMatch[2]));
+    return;
+  }
+
+  // ── Eval routes ───────────────────────────────────────────────────────────
+
+  const evalsMatch = /^\/workspaces\/([^/]+)\/evals$/.exec(url.pathname);
+  if (req.method === 'GET' && evalsMatch) {
+    await handleListEvals(res, decodeURIComponent(evalsMatch[1]));
+    return;
+  }
+
+  const evalGetMatch = /^\/workspaces\/([^/]+)\/evals\/latest$/.exec(url.pathname);
+  if (req.method === 'GET' && evalGetMatch) {
+    await handleGetLatestEval(res, decodeURIComponent(evalGetMatch[1]));
+    return;
+  }
+
+  const evalCasesMatch = /^\/workspaces\/([^/]+)\/evals\/cases$/.exec(url.pathname);
+  if (req.method === 'POST' && evalCasesMatch) {
+    await handleAddEvalCase(req, res, decodeURIComponent(evalCasesMatch[1]));
+    return;
+  }
+
+  // ── Execution profile active selection ────────────────────────────────────
+
+  const activeProfileMatch = /^\/workspaces\/([^/]+)\/active-profile$/.exec(url.pathname);
+  if (req.method === 'GET' && activeProfileMatch) {
+    await handleGetActiveProfile(res, decodeURIComponent(activeProfileMatch[1]));
+    return;
+  }
+  if (req.method === 'PUT' && activeProfileMatch) {
+    await handleSetActiveProfile(req, res, decodeURIComponent(activeProfileMatch[1]));
+    return;
+  }
+
+  // ── List execution profiles ────────────────────────────────────────────────
+
+  const listProfilesMatch = /^\/workspaces\/([^/]+)\/execution-profiles$/.exec(url.pathname);
+  if (req.method === 'GET' && listProfilesMatch) {
+    await handleListExecutionProfiles(res, decodeURIComponent(listProfilesMatch[1]));
     return;
   }
 
@@ -797,6 +913,193 @@ async function handleWorkspaceReview(req: http.IncomingMessage, res: http.Server
   } catch (error) {
     sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
   }
+}
+
+// ── Webhook trigger ────────────────────────────────────────────────────────
+
+async function handleWebhookTrigger(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  token: string,
+  name: string,
+): Promise<void> {
+  // Find a workspace to load config from (use the first registered one).
+  const workspaces = await listWorkspaces();
+  const anyWs = workspaces.find(ws => ws.exists);
+  if (!anyWs) {
+    sendJson(res, 503, { error: 'No registered workspaces' });
+    return;
+  }
+
+  const { config } = await loadWorkspaceConfig(anyWs.path);
+  if (!config.webhooks?.token || config.webhooks.token !== token) {
+    sendJson(res, 401, { error: 'Invalid or missing webhook token' });
+    return;
+  }
+
+  // Try job first, then captain.
+  const job = await getJobDefinition(name);
+  if (job) {
+    const jobId = startJobBackground(job);
+    sendJson(res, 202, { triggered: 'job', name, jobId });
+    return;
+  }
+
+  const captain = await getCaptainTask(name);
+  if (captain) {
+    // Captain runs are non-blocking for webhooks — fire and forget like jobs.
+    void runCaptainTask(captain).catch(err => {
+      console.error(`[webhook] Captain run failed for "${name}":`, err);
+    });
+    sendJson(res, 202, { triggered: 'captain', name });
+    return;
+  }
+
+  sendJson(res, 404, { error: `No job or captain task named "${name}"` });
+}
+
+// ── Eval list / latest ─────────────────────────────────────────────────────
+
+async function handleListEvals(res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(ws => ws.name === name);
+  if (!workspace?.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  const evalsDir = resolve(workspaceRoot, CACHE_DIR, 'evals');
+
+  try {
+    const files = await fsPromises.readdir(evalsDir);
+    const runs = files
+      .filter(f => f.endsWith('.json') && f !== 'latest.json')
+      .sort()
+      .reverse()
+      .slice(0, 20)
+      .map(f => ({ id: f.replace('.json', ''), file: f }));
+    sendJson(res, 200, { runs });
+  } catch {
+    sendJson(res, 200, { runs: [] });
+  }
+}
+
+async function handleGetLatestEval(res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(ws => ws.name === name);
+  if (!workspace?.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  const latestPath = resolve(workspaceRoot, CACHE_DIR, 'evals', 'latest.json');
+
+  if (!(await pathExists(latestPath))) {
+    sendJson(res, 404, { error: 'No eval runs found. Run: ctxhub eval' });
+    return;
+  }
+
+  try {
+    const content = await readText(latestPath);
+    sendJson(res, 200, JSON.parse(content));
+  } catch {
+    sendJson(res, 500, { error: 'Failed to parse latest eval run' });
+  }
+}
+
+// ── Eval case append ───────────────────────────────────────────────────────
+
+async function handleAddEvalCase(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(ws => ws.name === name);
+  if (!workspace?.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { query?: unknown; expected?: unknown };
+  if (typeof body.query !== 'string' || !body.query.trim()) {
+    sendJson(res, 400, { error: 'Missing or empty "query" field' });
+    return;
+  }
+
+  const { workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  const evalPath = resolve(workspaceRoot, CACHE_DIR, 'eval.json');
+
+  let suite: EvalSuite = { cases: [] };
+  if (await pathExists(evalPath)) {
+    try {
+      suite = JSON.parse(await readText(evalPath)) as EvalSuite;
+    } catch {
+      // corrupted — start fresh
+    }
+  }
+
+  const newCase: EvalCase = {
+    query: body.query.trim(),
+    expected: Array.isArray(body.expected) ? (body.expected as EvalCase['expected']) : [],
+    rationale: 'Flagged as incorrect from Mission Control',
+  };
+
+  suite.cases.push(newCase);
+  await writeText(evalPath, `${JSON.stringify(suite, null, 2)}\n`);
+  sendJson(res, 201, { added: newCase, total: suite.cases.length });
+}
+
+// ── Active execution profile ───────────────────────────────────────────────
+
+async function handleGetActiveProfile(res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(ws => ws.name === name);
+  if (!workspace?.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { config } = await loadWorkspaceConfig(workspace.path);
+  sendJson(res, 200, {
+    activeProfile: config.activeProfile ?? null,
+    profiles: Object.keys(config.executionProfiles),
+  });
+}
+
+async function handleSetActiveProfile(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(ws => ws.name === name);
+  if (!workspace?.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as { profile?: unknown };
+  // null or empty string means "clear" (revert to llm defaults)
+  const profile = typeof body.profile === 'string' && body.profile.trim() ? body.profile.trim() : null;
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  if (profile && !config.executionProfiles[profile]) {
+    sendJson(res, 400, { error: `No execution profile named "${profile}"` });
+    return;
+  }
+
+  const updated = { ...config, activeProfile: profile ?? undefined };
+  await saveConfig(updated, workspaceRoot);
+  sendJson(res, 200, { activeProfile: profile });
+}
+
+// ── List execution profiles ────────────────────────────────────────────────
+
+async function handleListExecutionProfiles(res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(ws => ws.name === name);
+  if (!workspace?.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { config } = await loadWorkspaceConfig(workspace.path);
+  sendJson(res, 200, { profiles: config.executionProfiles, activeProfile: config.activeProfile ?? null });
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {

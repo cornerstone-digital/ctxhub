@@ -12,6 +12,8 @@ import { KnowledgeGraphView } from './components/KnowledgeGraphView'
 import { ConfigView } from './components/ConfigView'
 import { SkillsPersonasView } from './components/SkillsPersonasView'
 import { ReviewView } from './components/ReviewView'
+import { JobsView } from './components/JobsView'
+import { EvalView } from './components/EvalView'
 
 function ResizeHandleH() {
   return (
@@ -62,6 +64,8 @@ export default function App() {
             <Panel minSize={35} style={{ display: 'flex', flexDirection: 'column', position: 'relative' }}>
               {activeView === 'fleet' && <GraphCanvas />}
               {activeView === 'captains' && <CaptainsView />}
+              {activeView === 'jobs' && <JobsView />}
+              {activeView === 'eval' && <EvalView />}
               {activeView === 'knowledge' && <KnowledgeGraphView />}
               {activeView === 'review' && <ReviewView />}
               {activeView === 'config' && <ConfigView />}

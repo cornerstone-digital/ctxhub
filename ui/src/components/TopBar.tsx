@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { RefreshCw, Hexagon } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useWorkspaces } from '../api/client'
+import { useWorkspaces, useActiveProfile, useSetActiveProfileMutation } from '../api/client'
 import { useFleetStore } from '../store/fleet'
 import { healthColor } from '../lib/utils'
 
@@ -54,6 +54,44 @@ function Pill({ color, label }: { color: string; label: string }) {
   )
 }
 
+function ProfilePicker() {
+  const selectedWorkspace = useFleetStore(s => s.selectedWorkspace)
+  const { data } = useActiveProfile(selectedWorkspace)
+  const setProfile = useSetActiveProfileMutation()
+
+  if (!selectedWorkspace || !data || data.profiles.length === 0) return null
+
+  const active = data.activeProfile ?? ''
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+        Profile
+      </span>
+      <select
+        value={active}
+        onChange={e => setProfile.mutate({ workspace: selectedWorkspace, profile: e.target.value || null })}
+        style={{
+          fontSize: 11,
+          padding: '2px 6px',
+          borderRadius: 4,
+          border: '1px solid var(--border)',
+          background: 'var(--bg-surface)',
+          color: active ? 'var(--accent)' : 'var(--text-muted)',
+          cursor: 'pointer',
+          outline: 'none',
+          maxWidth: 140,
+        }}
+      >
+        <option value="">default</option>
+        {data.profiles.map(p => (
+          <option key={p} value={p}>{p}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 export function TopBar() {
   const qc = useQueryClient()
   const { addActivity } = useFleetStore()
@@ -99,8 +137,11 @@ export function TopBar() {
         </div>
       </div>
 
-      {/* Center: fleet health pills */}
-      <FleetPills />
+      {/* Center: fleet health pills + profile picker */}
+      <div className="flex items-center gap-4">
+        <FleetPills />
+        <ProfilePicker />
+      </div>
 
       {/* Right: clock + refresh */}
       <div className="flex items-center gap-3">

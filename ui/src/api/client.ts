@@ -6,9 +6,12 @@ import type {
   CaptainTask,
   CtxhubConfig,
   CtxhubEventEnvelope,
+  EvalRunResult,
   ExecutionProfile,
   ExplainResult,
   IndexJobState,
+  JobDefinition,
+  JobRun,
   KnowledgeGraph,
   KnowledgeGraphEdge,
   KnowledgeNodeContent,
@@ -331,8 +334,22 @@ function summarize(event: CtxhubEventEnvelope): { text: string; kind: 'ok' | 'wa
       return { text: `Installed skills for ${event.agents.join(', ') || 'all agents'} on "${event.workspace}"`, kind: 'ok' }
     case 'personas.synced':
       return { text: `Synced personas for ${event.agents.join(', ') || 'all agents'} on "${event.workspace}"`, kind: 'ok' }
+    case 'job.queued':
+      return { text: `Job "${event.job}" queued (${event.jobId.slice(-8)})`, kind: 'info' }
+    case 'job.started':
+      return { text: `Job "${event.job}" started`, kind: 'info' }
+    case 'job.step.started':
+      return { text: `Job "${event.job}" — step ${event.stepIndex + 1} "${event.step}" running`, kind: 'info' }
+    case 'job.step.completed':
+      return { text: `Job "${event.job}" — step "${event.step}" done`, kind: 'ok' }
+    case 'job.step.failed':
+      return { text: `Job "${event.job}" — step "${event.step}" failed: ${event.error}`, kind: 'error' }
+    case 'job.completed':
+      return { text: `Job "${event.job}" completed`, kind: 'ok' }
+    case 'job.failed':
+      return { text: `Job "${event.job}" failed: ${event.error}`, kind: 'error' }
     default:
-      return { text: event.type, kind: 'info' }
+      return { text: (event as { type: string }).type, kind: 'info' }
   }
 }
 
@@ -426,6 +443,7 @@ export function useEventStream() {
   const addActivity = useFleetStore(s => s.addActivity)
   const upsertAgent = useFleetStore(s => s.upsertAgent)
   const removeAgent = useFleetStore(s => s.removeAgent)
+  const upsertJobRun = useFleetStore(s => s.upsertJobRun)
 
   useEffect(() => {
     const source = new EventSource('/events')
@@ -460,15 +478,98 @@ export function useEventStream() {
 
       if (event.type === 'index.progress') return
 
+      // Job events: invalidate queries and eagerly fetch run to update the pipeline view
+      if (
+        event.type === 'job.queued' ||
+        event.type === 'job.started' ||
+        event.type === 'job.step.started' ||
+        event.type === 'job.step.completed' ||
+        event.type === 'job.step.failed' ||
+        event.type === 'job.completed' ||
+        event.type === 'job.failed'
+      ) {
+        void qc.invalidateQueries({ queryKey: ['job-runs'] })
+        void qc.invalidateQueries({ queryKey: ['job-run', event.jobId] })
+        void fetch(`/job-runs/${encodeURIComponent(event.jobId)}`)
+          .then(r => r.ok ? r.json() as Promise<JobRun> : null)
+          .then(run => { if (run) upsertJobRun(run) })
+          .catch(() => {/* best-effort */})
+      }
+
       const { text, kind } = summarize(event)
       addActivity(text, kind, event)
-      if (event.type === 'index.completed' || event.type === 'captain.run.completed') {
+      if (
+        event.type === 'index.completed' ||
+        event.type === 'captain.run.completed' ||
+        event.type === 'job.completed' ||
+        event.type === 'job.failed'
+      ) {
         notifyBrowser('ctxhub', text)
       }
     }
 
     return () => source.close()
-  }, [qc, addActivity, upsertAgent, removeAgent])
+  }, [qc, addActivity, upsertAgent, removeAgent, upsertJobRun])
+}
+
+// ── Jobs ─────────────────────────────────────────────────────────────────────
+
+export function useJobs() {
+  return useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => fetchJson<{ jobs: JobDefinition[] }>('/jobs'),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useJobRuns() {
+  return useQuery({
+    queryKey: ['job-runs'],
+    queryFn: () => fetchJson<{ runs: JobRun[] }>('/job-runs'),
+    // Poll quickly if any run is in progress, otherwise every 30s
+    refetchInterval: (query) => {
+      const runs = (query.state.data as { runs: JobRun[] } | undefined)?.runs ?? []
+      return runs.some(r => r.status === 'running' || r.status === 'queued') ? 2_000 : 30_000
+    },
+  })
+}
+
+export function useJobRun(jobId: string | null) {
+  return useQuery({
+    queryKey: ['job-run', jobId],
+    queryFn: () => fetchJson<JobRun>(`/job-runs/${encodeURIComponent(jobId!)}`),
+    enabled: jobId !== null,
+    refetchInterval: (query) => {
+      const run = query.state.data as JobRun | undefined
+      return run?.status === 'running' || run?.status === 'queued' ? 2_000 : false
+    },
+  })
+}
+
+export function useCreateJobMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (job: JobDefinition) => postJson<JobDefinition>('/jobs', job),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useDeleteJobMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => deleteJson<{ removed: boolean }>(`/jobs/${encodeURIComponent(name)}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useRunJobMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => postJson<{ jobId: string }>(`/jobs/${encodeURIComponent(name)}/run`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['job-runs'] })
+    },
+  })
 }
 
 export function useChatMutation() {
@@ -481,6 +582,65 @@ export function useChatMutation() {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
       return res.json() as Promise<ExplainResult>
+    },
+  })
+}
+
+// ── Eval hooks ─────────────────────────────────────────────────────────────
+
+export function useLatestEval(workspace: string | null) {
+  return useQuery({
+    queryKey: ['eval-latest', workspace],
+    queryFn: () => fetchJson<EvalRunResult>(`/workspaces/${encodeURIComponent(workspace!)}/evals/latest`),
+    enabled: workspace !== null,
+    retry: false,
+  })
+}
+
+export function useAddEvalCaseMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ workspace, query, expected }: { workspace: string; query: string; expected: Array<{ repo?: string; path?: string }> }) => {
+      const res = await fetch(`/workspaces/${encodeURIComponent(workspace)}/evals/cases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, expected }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
+      return res.json() as Promise<{ added: unknown; total: number }>
+    },
+    onSuccess: (_data, { workspace }) => {
+      void qc.invalidateQueries({ queryKey: ['eval-latest', workspace] })
+    },
+  })
+}
+
+// ── Active profile hooks ───────────────────────────────────────────────────
+
+export function useActiveProfile(workspace: string | null) {
+  return useQuery({
+    queryKey: ['active-profile', workspace],
+    queryFn: () => fetchJson<{ activeProfile: string | null; profiles: string[] }>(
+      `/workspaces/${encodeURIComponent(workspace!)}/active-profile`
+    ),
+    enabled: workspace !== null,
+  })
+}
+
+export function useSetActiveProfileMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ workspace, profile }: { workspace: string; profile: string | null }) => {
+      const res = await fetch(`/workspaces/${encodeURIComponent(workspace)}/active-profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
+      return res.json() as Promise<{ activeProfile: string | null }>
+    },
+    onSuccess: (_data, { workspace }) => {
+      void qc.invalidateQueries({ queryKey: ['active-profile', workspace] })
     },
   })
 }
