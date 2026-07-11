@@ -326,7 +326,7 @@ A full walkthrough (indexing, a live Captain handoff, the Knowledge graph, Confi
 | Command | What it does |
 |---|---|
 | `ctxhub report [-o path] [--open] [--memory-query] [--memory-wing] [--memory-room] [--timeline-entity]` | Generate a self-contained HTML workspace report: filterable list view, interactive knowledge graph, MemPalace timeline. No server, no CDN assets. `--open` launches in browser. |
-| `ctxhub personas init` | Scaffold a `.ctxhub/agents/` directory with starter persona and policy files. |
+| `ctxhub personas init` | Scaffold an `agents/` directory at the workspace root with starter persona and policy files. |
 | `ctxhub personas sync` | Compile persona files into per-harness agent config (`.claude/agents/`, `.codex/agents/`, `.github/agents/`, `.cursor/agents/`). |
 
 ---
@@ -428,10 +428,10 @@ The crossing point is always explicit: `ctxhub note promote <repo> <query>` copi
 
 ## Personas
 
-Personas define agent identity and decision-making as Markdown files in `.ctxhub/agents/`:
+Personas define agent identity and decision-making as Markdown files in a git-tracked `agents/` directory at the workspace root (not under `.ctxhub/`, which is gitignored — personas are team assets meant to be version-controlled and reviewed):
 
 ```
-.ctxhub/agents/
+agents/
   manifest.yaml
   personas/       → architect.md, implementer.md, reviewer.md…
   skills/         → review.md, debug.md, research.md…
