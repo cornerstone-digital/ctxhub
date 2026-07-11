@@ -291,7 +291,7 @@ Click a node for its full doctor detail, or ask it a question directly from the 
 
 ![Fleet detail + chat](./docs/images/dashboard-fleet-detail.png)
 
-**Captains** — task list, run history, and handoff chains, with a form to define and run new tasks live:
+**Captains** — task list, run history, and handoff chains, with a form to define and run new tasks live. Promote any run straight into a git-tracked note without leaving the browser:
 
 ![Captains view](./docs/images/dashboard-captains.png)
 
@@ -299,6 +299,8 @@ Click a node for its full doctor detail, or ask it a question directly from the 
 
 ![Knowledge graph](./docs/images/dashboard-knowledge.png)
 ![Knowledge graph file preview](./docs/images/dashboard-knowledge-preview.png)
+
+**Review** — run `ctxhub review --as <persona>` against a real base-branch diff without leaving the browser: pick a workspace, a built-in or team-defined reviewer persona, and a topic, and get back the same evidence-grounded findings/changed-files/suggested-context payload the CLI produces.
 
 **Config** — repos, execution profiles, and knowledge/privacy settings for the selected workspace, editable live:
 

@@ -309,6 +309,11 @@ already supports chunked streaming with no extra dependency.
   running d3 simulation. That's what makes the graph genuinely navigable past the initial budget:
   clicking around organically expands coverage outward instead of being stuck with one fixed
   snapshot.
+- **Review** (`ReviewView.tsx`) — pick a workspace, a reviewer persona (built-in or team-defined in
+  `.ctxhub/cache/review-profiles.json`), and a topic; runs against a real base-branch diff via
+  `POST /workspaces/:name/review`, which calls `createReviewResult` (`src/commands/review.ts`) --
+  the exact function `ctxhub review` itself calls, extracted so the CLI and the UI can never
+  disagree about what a review produces.
 - **Config** — the selected workspace's repos, execution profiles, and knowledge/privacy settings,
   editable live against the same config file the CLI reads.
 - **Skills & Personas** — install skills and scaffold/sync personas per harness without leaving the

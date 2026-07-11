@@ -195,17 +195,30 @@ prerequisite for every later phase without requiring any of them to exist.
 - [x] **Fast follow, once Captains/Execution Profiles/the event bus existed to back it: the brief's
       full section list was built after all, as a real React/Vite app (`ui/`, built to `ui/dist`
       and served by the same `GET /` route, falling back to the plain `fleetView.ts` HTML when
-      `ui/dist` hasn't been built).** Six screens share one `GET /events` SSE connection and a
+      `ui/dist` hasn't been built).** Seven screens share one `GET /events` SSE connection and a
       Zustand store: **Fleet** (the graph above, now animated with live index/Captain-run bots
-      driven by real `eventBus` events), **Captains** (task list, run history, handoff chains, a
+      driven by real `eventBus` events), **Captains** (task list, run history, handoff chains,
+      promote a run straight into a git-tracked note without leaving the browser, a
       live "new task" form), **Knowledge** (an Obsidian-style force-directed graph of the real
       index — file and diagram-component nodes, similarity and diagram edges — with search/filter/
-      highlight and a real file-content preview panel, not a synthetic summary), **Config** (repos,
+      highlight and a real file-content preview panel, not a synthetic summary), **Review** (run
+      `ctxhub review --as <persona>` against a real base-branch diff, reusing `createReviewResult`
+      -- the same function the CLI calls -- rather than a second implementation), **Config** (repos,
       execution profiles, knowledge/privacy settings, editable live), **Skills & Personas** (install/
       scaffold/sync without leaving the browser, reusing the exact CLI command logic), and **Chat**
       (ask a selected workspace a question, backed by the same `explain` machinery, not a second
       inference path). `ctxhub dashboard` (`src/commands/dashboard.ts`) starts the service if
       needed — polling `/health` rather than a fixed sleep — and opens the browser to it.
+- [x] **Real, committed e2e test coverage** (`ui/e2e/`, Playwright Test): global setup registers
+      and indexes a disposable *copy* of `examples/reference-workspace` (never the git-tracked
+      original) under an isolated `CTXHUB_HOME` and a dedicated port (7343, separate from the real
+      service's 7342), so every mutation the UI tests exercise -- config edits, skill installs,
+      Captain task creation/promotion -- is fully disposable and never touches real state. Run with
+      `npm run test:e2e` (root) or `npm run test:e2e` (`ui/`, once root's `dist/` is built). Caught
+      a real bug while being written: `PromoteForm`'s success handler called `onDone()` in the same
+      tick as `setResult()`, collapsing the form before its own success message (the note's path)
+      ever painted -- a real user clicking Promote would see the form vanish with no confirmation.
+      Fixed by not auto-collapsing on success.
 - [x] Live verification: captured real screenshots and a full walkthrough video/GIF
       (`docs/images/`, `docs/videos/`) of every screen against the real running service — real
       registered workspaces, a real live index run, a real Captain handoff between two workspace
@@ -399,11 +412,6 @@ prerequisite for every later phase without requiring any of them to exist.
   `TaskClassifier`) rather than the container-heavy implementation.
 - **Merging workspace indexes** — never in scope, at any phase; this is a hard architectural
   boundary, not a sequencing choice.
-- **Approvals queue in the UI** — `ctxhub captain approvals`/`promote` are real and shipped, but
-  still CLI-only; Mission Control's Captains screen shows run history and handoff chains, not yet a
-  promote-from-the-browser flow. A natural, small follow-up.
-- **Review personas surfaced in the UI** — `ctxhub review --as <persona>` is real and shipped as a
-  CLI command; Mission Control has no screen for it yet.
 - **AWS Bedrock and Anthropic-direct gateway adapters** — each needs its own request/auth shape
   (SigV4 signing for Bedrock, a different message format for Anthropic's native Messages API), not
   something to build speculatively ahead of a concrete need. The generic OpenAI-compatible adapter
