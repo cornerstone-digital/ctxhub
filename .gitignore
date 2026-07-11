@@ -3,3 +3,5 @@ dist/
 .ctxhub/
 *.log
 .DS_Store
+ui/test-results/
+ui/playwright-report/

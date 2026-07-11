@@ -21,6 +21,7 @@
     "dev": "tsx src/index.ts",
     "ctxhub": "tsx src/index.ts",
     "test": "node --import tsx --test 'src/**/*.test.ts' 'src/**/*.test.tsx'",
+    "test:e2e": "npm run build && npm --prefix ui run test:e2e",
     "lint": "eslint .",
     "prepack": "npm run build",
     "prepare": "husky"
