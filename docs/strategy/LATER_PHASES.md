@@ -22,6 +22,28 @@ The mission — *turn every engineering decision into institutional knowledge* �
 
 ---
 
+## The underlying pattern
+
+Every phase, at every scale, is the same loop:
+
+```
+Observe
+  ↓
+Understand
+  ↓
+Recommend
+  ↓
+Approve
+  ↓
+Remember
+```
+
+A Captain finding is this loop. An architecture review is this loop. A security scan is this loop. An organisation-level recommendation from Engineering Intelligence is this loop. The platform isn't a collection of features — it's one loop running at increasing scales.
+
+This is what keeps the product coherent as it grows. New features that fit the loop belong. Features that skip a step (especially Approve) don't.
+
+---
+
 ## Phase 4 — ctxhub Cloud
 
 **Framing: Shared engineering consciousness.**
@@ -420,10 +442,18 @@ No shared library exists. No ADR addresses caching strategy.
 Recommendation
 "Create a shared caching library. Assign to platform-team."
       ↓
-Approve?
+Approved
+      ↓
+Mission created — "Consolidate caching implementations"
+      ↓
+Captain assigned — Architecture Captain, platform-team workspace
+      ↓
+Knowledge captured — ADR generated, findings promoted
 ```
 
-This is the same approval model as every other ctxhub feature — AI proposes, humans decide. The difference is that the proposal comes from pattern recognition across months of organisational decisions rather than a single Captain run. The trust earned in earlier phases is what makes this proposal credible enough to act on.
+This is still the same loop as every other ctxhub feature — Observe, Understand, Recommend, Approve, Remember. The difference is that the observation comes from pattern recognition across months of organisational decisions rather than a single Captain run. And crucially: the approved recommendation doesn't just sit in a queue — it becomes work, assigned to a Captain, tracked as a Mission, and its output feeds back into the knowledge base.
+
+The loop closes. Not autonomously — humans approved it at every stage — but completely.
 
 ### Why this matters
 
@@ -476,3 +506,19 @@ Each layer increases the value of the layers beneath it:
 The flywheel in M1 is knowledge compounding for one developer. Engineering Intelligence is knowledge compounding for an entire industry.
 
 Each approved review, each promoted ADR, each Blueprint installed, each organisation-level query answered — all of it makes the next one more valuable. Not just for the team that created it, but increasingly for every team that shares the same ecosystem.
+
+---
+
+## Why this roadmap works
+
+Four properties that every phase in this document has, and that every future phase must also have:
+
+**Every phase is built on evidence from the previous one.** No phase starts because it's on the plan. It starts because users are already pulling toward it — sharing personas manually, asking for cross-repo queries, opening Mission Control for trends instead of individual reviews. The trigger is always observable user behaviour, not a calendar date.
+
+**Every phase increases the value of the previous phases.** Cloud makes the runtime worth keeping updated. Blueprint Hub makes Cloud more valuable. The Organisation Graph makes Cloud's shared knowledge queryable across boundaries. Engineering Intelligence makes the Organisation Graph's accumulated decisions legible as insight. Nothing here is a pivot — it's all compounding.
+
+**Every phase reinforces the same mission.** "Turn every engineering decision into institutional knowledge" passes the test at every scale. Runtime decisions, team decisions, organisational decisions, industry-wide decisions — same mission, larger scope.
+
+**Every phase follows the same loop.** Observe, Understand, Recommend, Approve, Remember. Features that skip Approve don't belong. Features that skip Remember don't compound. The loop is the discipline.
+
+If the next proposed phase can't answer these four questions clearly, it probably doesn't belong in the roadmap.
