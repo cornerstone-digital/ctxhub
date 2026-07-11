@@ -35,3 +35,7 @@ None of them are trying to be the coordination layer for an AI engineering workf
 Turn every engineering decision into institutional knowledge.
 
 Not stored in someone's head. Not buried in Slack. Not forgotten when an engineer leaves. Searchable, attributable, and compounding — for humans and AI agents alike.
+
+Over time, accumulated engineering knowledge becomes something harder to replicate than any index or search tool: institutional judgement. Not just what decisions were made, but how this specific organisation consistently makes good engineering decisions. That's the long-term asset.
+
+The goal isn't to replace engineers. It's to ensure every interaction between engineers and AI leaves the organisation smarter than it was before.
