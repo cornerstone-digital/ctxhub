@@ -1,7 +1,12 @@
 import { create } from 'zustand'
 import type { ActivityEvent, AgentToken, ChatMessage, CtxhubEventEnvelope } from '../types'
 
+export type FleetView = 'fleet' | 'captains' | 'knowledge'
+
 interface FleetStore {
+  activeView: FleetView
+  setActiveView: (view: FleetView) => void
+
   selectedWorkspace: string | null
   setSelectedWorkspace: (name: string | null) => void
 
@@ -30,6 +35,9 @@ let activityIdCounter = 0
 let chatIdCounter = 0
 
 export const useFleetStore = create<FleetStore>((set) => ({
+  activeView: 'fleet',
+  setActiveView: (view) => set({ activeView: view }),
+
   selectedWorkspace: null,
   // Mutually exclusive with selectedEvent -- both render as the same right-hand slide-in over
   // the graph, and showing two stacked would just fight over the same space.

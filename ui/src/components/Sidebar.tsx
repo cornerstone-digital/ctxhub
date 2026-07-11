@@ -1,6 +1,6 @@
 import { Network, Users, BookOpen, RefreshCw } from 'lucide-react'
 import { useWorkspaces, useHealth, useWorkspaceStatus, useIndexStatus } from '../api/client'
-import { useFleetStore } from '../store/fleet'
+import { useFleetStore, type FleetView } from '../store/fleet'
 import { healthColor } from '../lib/utils'
 import type { Workspace } from '../types'
 
@@ -72,11 +72,12 @@ export function Sidebar() {
   const { data: wsData } = useWorkspaces()
   const { data: health } = useHealth()
   const workspaces = wsData?.workspaces ?? []
+  const { activeView, setActiveView } = useFleetStore()
 
-  const navItems = [
-    { icon: Network, label: 'Fleet', active: true, disabled: false },
-    { icon: Users, label: 'Captains', active: false, disabled: true, soon: 'Phase 4' },
-    { icon: BookOpen, label: 'Knowledge', active: false, disabled: true },
+  const navItems: Array<{ icon: typeof Network; label: string; view: FleetView }> = [
+    { icon: Network, label: 'Fleet', view: 'fleet' },
+    { icon: Users, label: 'Captains', view: 'captains' },
+    { icon: BookOpen, label: 'Knowledge', view: 'knowledge' },
   ]
 
   return (
@@ -94,37 +95,31 @@ export function Sidebar() {
         <p className="text-[10px] uppercase tracking-widest font-semibold px-2 pb-2" style={{ color: 'var(--text-muted)' }}>
           Navigation
         </p>
-        {navItems.map(item => (
-          <div
-            key={item.label}
-            className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md mb-0.5 ${
-              item.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-            }`}
-            style={{
-              background: item.active ? 'var(--accent-dim)' : 'transparent',
-              border: `1px solid ${item.active ? 'var(--accent)' : 'transparent'}`,
-            }}
-          >
-            <item.icon
-              size={14}
-              style={{ color: item.active ? 'var(--accent)' : 'var(--text-secondary)' }}
-            />
-            <span
-              className="text-xs font-medium"
-              style={{ color: item.active ? 'var(--accent)' : 'var(--text-secondary)' }}
+        {navItems.map(item => {
+          const active = activeView === item.view
+          return (
+            <button
+              key={item.label}
+              onClick={() => setActiveView(item.view)}
+              className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md mb-0.5 cursor-pointer text-left"
+              style={{
+                background: active ? 'var(--accent-dim)' : 'transparent',
+                border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`,
+              }}
+              onMouseEnter={e => {
+                if (!active) e.currentTarget.style.background = 'var(--bg-elevated)'
+              }}
+              onMouseLeave={e => {
+                if (!active) e.currentTarget.style.background = 'transparent'
+              }}
             >
-              {item.label}
-            </span>
-            {item.soon && (
-              <span
-                className="ml-auto text-[9px] px-1.5 py-0.5 rounded"
-                style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}
-              >
-                {item.soon}
+              <item.icon size={14} style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }} />
+              <span className="text-xs font-medium" style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                {item.label}
               </span>
-            )}
-          </div>
-        ))}
+            </button>
+          )
+        })}
       </div>
 
       {/* Divider */}

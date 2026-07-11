@@ -65,6 +65,48 @@ export interface AgentToken {
   spawnedAt: number;
 }
 
+export interface CaptainTask {
+  name: string;
+  workspace: string;
+  query: string;
+  persona?: string;
+  profile?: string;
+  schedule?: { everyMinutes: number };
+  handoffTo?: string;
+}
+
+export interface CaptainRunRecord {
+  runId: string;
+  task: string;
+  workspace: string;
+  startedAt: string;
+  // ExplainResult is declared further down in this file -- fine for TS type references
+  // regardless of declaration order within a module.
+  result: ExplainResult;
+  handoffFrom?: string;
+}
+
+export interface KnowledgeGraphNode {
+  id: string;
+  label: string;
+  repo: string;
+  kind: 'file' | 'component';
+  connections: number;
+}
+
+export interface KnowledgeGraphEdge {
+  source: string;
+  target: string;
+  weight: number;
+  kind: 'diagram' | 'similarity';
+}
+
+export interface KnowledgeGraph {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  truncated: boolean;
+}
+
 export interface ExplainResult {
   query: string;
   workspace: string;

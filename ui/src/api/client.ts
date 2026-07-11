@@ -1,10 +1,36 @@
 import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { AgentToken, CtxhubEventEnvelope, ExplainResult, IndexJobState, Workspace, WorkspaceStatus } from '../types'
+import type {
+  AgentToken,
+  CaptainRunRecord,
+  CaptainTask,
+  CtxhubEventEnvelope,
+  ExplainResult,
+  IndexJobState,
+  KnowledgeGraph,
+  Workspace,
+  WorkspaceStatus,
+} from '../types'
 import { useFleetStore } from '../store/fleet'
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url)
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
+  return res.json() as Promise<T>
+}
+
+async function postJson<T>(url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
+  return res.json() as Promise<T>
+}
+
+async function deleteJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: 'DELETE' })
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
   return res.json() as Promise<T>
 }
@@ -57,6 +83,76 @@ export function useStartIndexMutation() {
     onSuccess: (_data, name) => {
       void qc.invalidateQueries({ queryKey: ['index-status', name] })
     },
+  })
+}
+
+export function useCaptains() {
+  return useQuery({
+    queryKey: ['captains'],
+    queryFn: () => fetchJson<{ tasks: CaptainTask[] }>('/captains'),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useCaptainRuns(name: string | null) {
+  return useQuery({
+    queryKey: ['captain-runs', name],
+    queryFn: () => fetchJson<{ runs: CaptainRunRecord[] }>(`/captains/${encodeURIComponent(name!)}/runs`),
+    enabled: name !== null,
+  })
+}
+
+export function useWorkspaceRepos(name: string | null) {
+  return useQuery({
+    queryKey: ['workspace-repos', name],
+    queryFn: () => fetchJson<{ repos: string[] }>(`/workspaces/${encodeURIComponent(name!)}/repos`),
+    enabled: name !== null,
+  })
+}
+
+export function useCreateCaptainMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (task: Partial<CaptainTask>) => postJson<CaptainTask>('/captains', task),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['captains'] }),
+  })
+}
+
+export function useDeleteCaptainMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => deleteJson<{ removed: boolean }>(`/captains/${encodeURIComponent(name)}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['captains'] }),
+  })
+}
+
+export function useRunCaptainMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => postJson<CaptainRunRecord>(`/captains/${encodeURIComponent(name)}/run`),
+    onSuccess: record => {
+      void qc.invalidateQueries({ queryKey: ['captain-runs', record.task] })
+    },
+  })
+}
+
+export function usePromoteCaptainRunMutation() {
+  return useMutation({
+    mutationFn: ({ name, runId, repo, title }: { name: string; runId: string; repo: string; title?: string }) =>
+      postJson<{ notePath: string }>(`/captains/${encodeURIComponent(name)}/runs/${encodeURIComponent(runId)}/promote`, { repo, title }),
+  })
+}
+
+// staleTime, not refetchInterval: this is an expensive-ish computed view (a search call per
+// indexed file), not a cheap status poll -- recomputing on every focus/mount would be wasteful
+// when the underlying index rarely changes within a session. Re-indexing invalidates it instead
+// (see useEventStream's index.completed handling).
+export function useKnowledgeGraph(name: string | null) {
+  return useQuery({
+    queryKey: ['knowledge-graph', name],
+    queryFn: () => fetchJson<KnowledgeGraph>(`/workspaces/${encodeURIComponent(name!)}/knowledge-graph`),
+    enabled: name !== null,
+    staleTime: 60_000,
   })
 }
 
@@ -195,6 +291,13 @@ export function useEventStream() {
       }
 
       applyAgentToken(event, upsertAgent, removeAgent)
+
+      if (event.type === 'index.completed') {
+        void qc.invalidateQueries({ queryKey: ['knowledge-graph', event.workspace] })
+      }
+      if (event.type === 'captain.run.completed' || event.type === 'captain.run.failed') {
+        void qc.invalidateQueries({ queryKey: ['captain-runs', event.task] })
+      }
 
       if (event.type === 'index.progress') return
 

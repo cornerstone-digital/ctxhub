@@ -11,8 +11,9 @@ import { createExplainResult } from '../commands/explain.js';
 import { indexWorkspace, type IndexProgressEvent, type IndexResult } from '../indexing/indexer.js';
 import { notify } from '../utils/notify.js';
 import { eventBus, type CtxhubEventEnvelope } from '../events/eventBus.js';
-import { getCaptainTask } from '../captains/tasks.js';
-import { runCaptainTask } from '../captains/runner.js';
+import { addCaptainTask, getCaptainTask, loadCaptainTasks, removeCaptainTask, type CaptainTask } from '../captains/tasks.js';
+import { listCaptainRuns, promoteCaptainRun, runCaptainTask } from '../captains/runner.js';
+import { buildKnowledgeGraph } from '../indexing/knowledgeGraph.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
@@ -209,15 +210,58 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  const reposMatch = /^\/workspaces\/([^/]+)\/repos$/.exec(url.pathname);
+  if (req.method === 'GET' && reposMatch) {
+    await handleWorkspaceRepos(res, decodeURIComponent(reposMatch[1]));
+    return;
+  }
+
+  const knowledgeGraphMatch = /^\/workspaces\/([^/]+)\/knowledge-graph$/.exec(url.pathname);
+  if (req.method === 'GET' && knowledgeGraphMatch) {
+    await handleKnowledgeGraph(res, decodeURIComponent(knowledgeGraphMatch[1]));
+    return;
+  }
+
   const chatMatch = /^\/workspaces\/([^/]+)\/chat$/.exec(url.pathname);
   if (req.method === 'POST' && chatMatch) {
     await handleWorkspaceChat(req, res, decodeURIComponent(chatMatch[1]));
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/captains') {
+    const { tasks } = await loadCaptainTasks();
+    sendJson(res, 200, { tasks });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/captains') {
+    await handleCaptainCreate(req, res);
+    return;
+  }
+
+  const captainDeleteMatch = /^\/captains\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && captainDeleteMatch) {
+    const removed = await removeCaptainTask(decodeURIComponent(captainDeleteMatch[1]));
+    sendJson(res, 200, { removed });
+    return;
+  }
+
   const captainRunMatch = /^\/captains\/([^/]+)\/run$/.exec(url.pathname);
   if (req.method === 'POST' && captainRunMatch) {
     await handleCaptainRun(res, decodeURIComponent(captainRunMatch[1]));
+    return;
+  }
+
+  const captainRunsMatch = /^\/captains\/([^/]+)\/runs$/.exec(url.pathname);
+  if (req.method === 'GET' && captainRunsMatch) {
+    const runs = await listCaptainRuns(decodeURIComponent(captainRunsMatch[1]));
+    sendJson(res, 200, { runs });
+    return;
+  }
+
+  const promoteMatch = /^\/captains\/([^/]+)\/runs\/([^/]+)\/promote$/.exec(url.pathname);
+  if (req.method === 'POST' && promoteMatch) {
+    await handleCaptainPromote(req, res, decodeURIComponent(promoteMatch[1]), decodeURIComponent(promoteMatch[2]));
     return;
   }
 
@@ -239,6 +283,75 @@ async function handleCaptainRun(res: http.ServerResponse, name: string): Promise
   try {
     const record = await runCaptainTask(task);
     sendJson(res, 200, record);
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleCaptainCreate(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const body = (await readJsonBody(req)) as Partial<CaptainTask>;
+  if (!body.name || !body.workspace || !body.query) {
+    sendJson(res, 400, { error: 'name, workspace, and query are required' });
+    return;
+  }
+
+  const task: CaptainTask = {
+    name: body.name,
+    workspace: body.workspace,
+    query: body.query,
+    persona: body.persona || undefined,
+    profile: body.profile || undefined,
+    schedule: body.schedule?.everyMinutes ? { everyMinutes: body.schedule.everyMinutes } : undefined,
+    handoffTo: body.handoffTo || undefined
+  };
+
+  try {
+    await addCaptainTask(task);
+    sendJson(res, 201, task);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleCaptainPromote(req: http.IncomingMessage, res: http.ServerResponse, name: string, runId: string): Promise<void> {
+  const body = (await readJsonBody(req)) as { repo?: string; title?: string; agent?: string };
+  if (!body.repo) {
+    sendJson(res, 400, { error: 'repo is required' });
+    return;
+  }
+
+  try {
+    const notePath = await promoteCaptainRun(name, runId, body.repo, { title: body.title, agent: body.agent });
+    sendJson(res, 200, { notePath });
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleWorkspaceRepos(res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => entry.name === name);
+  if (!workspace || !workspace.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { config } = await loadWorkspaceConfig(workspace.path);
+  sendJson(res, 200, { repos: config.repositories.map(repo => repo.name) });
+}
+
+async function handleKnowledgeGraph(res: http.ServerResponse, name: string): Promise<void> {
+  const workspaces = await listWorkspaces();
+  const workspace = workspaces.find(entry => entry.name === name);
+  if (!workspace || !workspace.exists) {
+    sendJson(res, 404, { error: `No registered, existing workspace named "${name}"` });
+    return;
+  }
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  try {
+    const graph = await buildKnowledgeGraph(config, workspaceRoot);
+    sendJson(res, 200, graph);
   } catch (error) {
     sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
   }

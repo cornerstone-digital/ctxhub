@@ -1,11 +1,14 @@
 import { useEffect } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { useEventStream } from './api/client'
+import { useFleetStore } from './store/fleet'
 import { TopBar } from './components/TopBar'
 import { Sidebar } from './components/Sidebar'
 import { GraphCanvas } from './components/GraphCanvas'
 import { ChatPanel } from './components/ChatPanel'
 import { EventLog } from './components/EventLog'
+import { CaptainsView } from './components/CaptainsView'
+import { KnowledgeGraphView } from './components/KnowledgeGraphView'
 
 function ResizeHandleH() {
   return (
@@ -36,6 +39,8 @@ export default function App() {
   // Captain runs) fans out from here into the Event Log and the Sidebar's live progress.
   useEventStream()
 
+  const activeView = useFleetStore(s => s.activeView)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', overflow: 'hidden', background: 'var(--bg-void)' }}>
       <TopBar />
@@ -48,11 +53,13 @@ export default function App() {
 
         <ResizeHandleH />
 
-        {/* Centre: Graph + Activity stacked vertically */}
+        {/* Centre: main view (Fleet graph / Captains / Knowledge) + Event Log stacked vertically */}
         <Panel minSize={28} style={{ display: 'flex', flexDirection: 'column' }}>
           <PanelGroup direction="vertical" autoSaveId="mc-vertical">
             <Panel minSize={35} style={{ display: 'flex', flexDirection: 'column', position: 'relative' }}>
-              <GraphCanvas />
+              {activeView === 'fleet' && <GraphCanvas />}
+              {activeView === 'captains' && <CaptainsView />}
+              {activeView === 'knowledge' && <KnowledgeGraphView />}
             </Panel>
             <ResizeHandleV />
             <Panel defaultSize={22} minSize={10} maxSize={45} style={{ display: 'flex', flexDirection: 'column' }}>
