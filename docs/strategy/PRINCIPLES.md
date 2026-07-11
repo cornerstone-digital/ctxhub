@@ -22,9 +22,19 @@ The approval queue isn't bureaucracy — it's how trust gets built. Each approva
 
 AI should feel like another engineer on the team — capable, helpful, and operating within boundaries the team has agreed on.
 
-The loop every feature must follow is: Observe → Understand → Recommend → Approve → Remember. Features that skip Approve don't belong. Features that skip Remember don't compound.
-
 **Test:** Does this feature increase human visibility and control over AI decisions? If it reduces oversight without a trust foundation, don't build it.
+
+---
+
+## The Loop
+
+Every feature in ctxhub must fit the same pattern:
+
+**Observe → Understand → Recommend → Approve → Remember**
+
+Features that skip **Approve** don't belong. Features that skip **Remember** don't compound.
+
+This applies at every scale — a single Captain finding, a Mission, a team review, an organisation-level recommendation from Engineering Intelligence. The loop is the product. Everything else is implementation.
 
 ---
 
