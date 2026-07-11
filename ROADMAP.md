@@ -35,6 +35,30 @@ Real signal, not vanity.
 
 ---
 
+## Principles in practice
+
+The four principles from [PRINCIPLES.md](./docs/strategy/PRINCIPLES.md) are each first realised in a specific milestone. The flywheel stages show where the scope of compounding expands.
+
+**Principles** (from PRINCIPLES.md)
+
+| Principle | First realised in |
+|-----------|-------------------|
+| Open Context | M1 — Runtime |
+| Humans Stay in Control | M2 — Mission Control |
+| The Loop (Observe → Understand → Recommend → Approve → Remember) | M2–M3 |
+| Knowledge Compounds | M3 — Team |
+
+**Engineering Flywheel — expanding radius**
+
+| Stage | Milestone |
+|-------|-----------|
+| Individual knowledge | M1–M3 — Runtime, Mission Control, Team |
+| Organisation knowledge | M7 — Org Graph |
+| Institutional judgement | M10 — Engineering Intelligence |
+| Industry knowledge | M13–M14 — Federation + Engineering Network |
+
+---
+
 ## What we are not optimising for
 
 - Replacing Git, IDEs, or AI models — ctxhub works alongside them, not instead of them
