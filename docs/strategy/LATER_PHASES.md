@@ -10,13 +10,13 @@
 
 Every phase is the same north star at a larger scale.
 
-| Phase | Who it serves | North star expression |
-|---|---|---|
-| **Runtime** | Individual developer | Every AI understands your project. |
-| **Mission Control** | Individual developer | Humans coordinate their AI workforce. |
-| **Cloud** | Engineering team | Teams coordinate engineering knowledge. |
-| **Cross-workspace Intelligence** | Engineering organisation | Organisations reason across all their software. |
-| **Engineering Intelligence** | Engineering leadership | ctxhub helps organisations continuously improve how they engineer. |
+| Phase | Who it serves | North star expression | Monday morning |
+|---|---|---|---|
+| **Runtime** | Individual developer | Every AI understands your project. | Claude knows your code. |
+| **Mission Control** | Individual developer | Humans coordinate their AI workforce. | You review what your Captains found overnight. |
+| **Cloud** | Engineering team | Teams coordinate engineering knowledge. | You see what your entire engineering organisation discovered overnight. |
+| **Organisation Graph** | Engineering organisation | Organisations reason across all their software. | You ask one question and get an answer spanning fifty repositories. |
+| **Engineering Intelligence** | Engineering leadership | ctxhub helps organisations continuously improve how they engineer. | Mission Control tells you what changed this month before you even know what to ask. |
 
 The mission — *turn every engineering decision into institutional knowledge* — doesn't change at any stage. What changes is the unit: one developer's project → one team's knowledge → one organisation's collective intelligence.
 
@@ -24,13 +24,29 @@ The mission — *turn every engineering decision into institutional knowledge* �
 
 ## Phase 4 — ctxhub Cloud
 
-**Framing: Mission Control for engineering organisations.**
+**Framing: Shared engineering consciousness.**
 
 Not "hosted ctxhub." That's not interesting, and it's not what teams actually need. The local runtime is already the right place to index code — it runs where the code lives, costs nothing to operate, and keeps data on premises by default. Cloud doesn't replace that.
 
-Cloud coordinates.
+Cloud coordinates. More precisely: Cloud creates awareness.
 
-Think Git and GitHub. Git runs locally, owns the source of truth, never needs a server. GitHub adds the coordination layer: visibility, collaboration, shared state. ctxhub Cloud follows the same model.
+Think Git and GitHub. Git runs locally, owns the source of truth, never needs a server. GitHub adds the coordination layer: visibility, collaboration, shared state. ctxhub Cloud follows the same model — but the thing being coordinated isn't code commits, it's engineering knowledge.
+
+The difference between sync and awareness matters. Sync is "your persona is now available on both machines." Awareness is:
+
+```
+Martin promoted an ADR
+  ↓
+Security Captain reran automatically
+  ↓
+Payments workspace updated its findings
+  ↓
+Another team's Captain references the new pattern
+  ↓
+Platform team notified: architecture constraint changed
+```
+
+That's not syncing state. That's an organisation becoming aware of itself.
 
 ```
           ctxhub Cloud
@@ -166,6 +182,18 @@ Installable, shareable, versionable. When you install the `aws-principal-archite
 - Gaming (performance, telemetry)
 - Insurance (audit, actuarial)
 
+**Team Blueprints** — complete engineering operating models:
+
+```bash
+ctxhub install startup-team
+ctxhub install platform-team
+ctxhub install fintech-team
+```
+
+A Team Blueprint installs everything needed to run a specific kind of engineering team: personas, Captains, policies, review templates, mission packs, knowledge packs, and approval rules — all pre-wired for a specific context. Not "here are some useful agents," but "here is how this type of team operates, encoded as a ctxhub configuration."
+
+This is the highest-leverage thing Blueprint Hub can ship. An engineering director at a new company shouldn't have to design their AI governance model from scratch. Someone has already solved it. Team Blueprints make that solution installable.
+
 ### Trust tiers
 
 - **Community** — published by anyone, unverified, use with judgement
@@ -238,11 +266,11 @@ An inbound request from a company that cannot use Cloud because of their data re
 
 ---
 
-## Phase 7 — Cross-workspace Intelligence
+## Phase 7 — Organisation Graph
 
-**This is the biggest differentiator after Mission Control.**
+**The graph is the product. Cross-workspace queries are just what you ask it.**
 
-Today, a developer asking "where is authentication implemented?" searches one repo. Cross-workspace Intelligence answers across all of them:
+Today, a developer asking "where is authentication implemented?" searches one repo. The Organisation Graph answers across all of them:
 
 ```
 Where is authentication implemented?
@@ -269,6 +297,21 @@ Where is authentication implemented?
 
 That's not search. That's organisational intelligence.
 
+### What the graph models
+
+The local index models: `repo → file → chunk`. The Organisation Graph models the relationships that sit above code:
+
+```
+Organisation
+  └─ Workspaces (repositories, teams, domains)
+       └─ Components (services, libraries, APIs, schemas)
+            └─ Relationships (depends on, exposes, owns, conflicts with)
+                 └─ Knowledge (ADRs, Captain findings, reviews, decisions)
+                      └─ Ownership (teams, engineers, Captains)
+```
+
+Cross-workspace queries are one interface to the graph. Cascade awareness (a change in one workspace triggering Captain runs in others) is another. Engineering Intelligence is a third. The graph is the substrate; everything else runs on top of it.
+
 ### Organisation-level questions
 
 - Show me every implementation of OAuth across our services.
@@ -284,24 +327,7 @@ That's not search. That's organisational intelligence.
 - Who owns this component? Which teams depend on it?
 - Which services share a database?
 
-### The Organisation Graph
-
-The local index models: `repo → file → chunk`.
-
-The organisation graph models:
-
-```
-Organisation
-  └─ Workspaces (repositories, teams, domains)
-       └─ Components (services, libraries, APIs, schemas)
-            └─ Relationships (depends on, exposes, owns, conflicts with)
-                 └─ Knowledge (ADRs, Captain findings, reviews, decisions)
-                      └─ Ownership (teams, engineers, Captains)
-```
-
-This is the thing that makes ctxhub structurally different from a code search tool. Code search finds text. The Organisation Graph finds *relationships* — and those relationships encode how the organisation actually works.
-
-### Why this is hard
+### Why building the graph is hard
 
 Cross-workspace intelligence isn't just "run search against multiple indexes." The hard part is:
 
@@ -399,20 +425,34 @@ Evidence that engineering leaders — VPs, CTOs, principal engineers — are ope
 
 **Enterprise** — don't build a separate product. Enterprise is deployment flexibility and compliance documentation on top of Mission Control Cloud, not a different feature set.
 
-**Cross-workspace** — don't build "search across repos." That's a feature. The Organisation Graph is a capability. Build the graph; search is a query against it.
+**Organisation Graph** — don't build "search across repos." That's a feature. The Organisation Graph is a capability. Build the graph; search is one query against it.
 
 **Engineering Intelligence** — don't build a dashboard that shows metrics. Engineering organisations already have metrics dashboards. Build insights from decisions, not measurements of process.
 
 ---
 
-## The compound effect
+## Network effects
 
-Each phase makes the previous one more valuable:
+The roadmap doesn't get more complicated as it scales. It gets more connected. That's the difference between a platform and a feature list.
 
-- Cloud makes the local runtime worth keeping updated (team depends on it)
-- Blueprint Hub makes Cloud more valuable (shared expertise, not just shared state)
-- Enterprise makes Cloud sellable to organisations that would otherwise self-host anyway
-- Cross-workspace Intelligence makes the Organisation Graph the asset, not just the runtime
-- Engineering Intelligence makes the longitudinal record of decisions the ultimate moat
+```
+One developer
+     ↓
+One team
+     ↓
+One organisation
+     ↓
+One ecosystem
+```
 
-The knowledge flywheel is already running in M1. Everything after is the flywheel growing larger.
+Each layer increases the value of the layers beneath it:
+
+- **Runtime** creates context — one developer's AI starts understanding real code
+- **Cloud** creates shared knowledge — a team's decisions compound instead of disappearing
+- **Blueprint Hub** creates reusable expertise — what one team figured out becomes installable by every team
+- **Organisation Graph** creates organisational intelligence — knowledge connects across boundaries that previously separated it
+- **Engineering Intelligence** creates organisational judgement — the accumulated record of decisions becomes legible as insight
+
+The flywheel in M1 is knowledge compounding for one developer. Engineering Intelligence is knowledge compounding for an entire industry.
+
+Each approved review, each promoted ADR, each Blueprint installed, each organisation-level query answered — all of it makes the next one more valuable. Not just for the team that created it, but increasingly for every team that shares the same ecosystem.
