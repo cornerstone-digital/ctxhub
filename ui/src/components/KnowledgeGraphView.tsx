@@ -37,27 +37,42 @@ function escapeRegExp(value: string): string {
 // what's dimmed on the canvas and what's marked in the preview always agree on what "matches"
 // means. Capped rather than unbounded: a short, very common query against a 200k-char file could
 // otherwise produce thousands of <mark> elements and visibly stall the render.
-function highlightMatches(text: string, query: string): ReactNode {
+//
+// `startIndex` is this text block's offset into the panel-wide match sequence (summary, then
+// content, then diagrams, in render order) so navigation can address "match 7" without caring
+// which section it's actually in; `activeIndex` picks which single mark, if any, renders as the
+// "current" one (data-match-index lets the nav effect find and scroll to it by that same number).
+function highlightMatches(text: string, query: string, startIndex: number, activeIndex: number): { node: ReactNode; count: number } {
   const q = query.trim()
-  if (!q) return text
+  if (!q) return { node: text, count: 0 }
 
   const re = new RegExp(`(${escapeRegExp(q)})`, 'gi')
   const parts = text.split(re)
-  if (parts.length <= 1) return text
+  if (parts.length <= 1) return { node: text, count: 0 }
 
-  let matchCount = 0
-  return parts.map((part, i) => {
+  let localCount = 0
+  const node = parts.map((part, i) => {
     const isMatch = i % 2 === 1
-    if (isMatch) matchCount++
-    if (isMatch && matchCount <= MAX_HIGHLIGHT_MATCHES) {
-      return (
-        <mark key={i} style={{ background: 'rgba(245,166,35,0.45)', color: 'inherit', borderRadius: 2 }}>
-          {part}
-        </mark>
-      )
-    }
-    return <span key={i}>{part}</span>
+    if (!isMatch) return <span key={i}>{part}</span>
+    const globalIndex = startIndex + localCount
+    localCount++
+    if (globalIndex >= MAX_HIGHLIGHT_MATCHES) return <span key={i}>{part}</span>
+    const isActive = globalIndex === activeIndex
+    return (
+      <mark
+        key={i}
+        data-match-index={globalIndex}
+        style={{
+          background: isActive ? 'rgba(124,110,245,0.75)' : 'rgba(245,166,35,0.45)',
+          color: isActive ? 'white' : 'inherit',
+          borderRadius: 2,
+        }}
+      >
+        {part}
+      </mark>
+    )
   })
+  return { node, count: localCount }
 }
 
 // Same right-hand slide-in pattern as DetailPanel/EventDetailPanel elsewhere in this app --
@@ -66,16 +81,50 @@ function highlightMatches(text: string, query: string): ReactNode {
 function NodePreviewPanel({ workspace, nodeId, query, onClose }: { workspace: string; nodeId: string; query: string; onClose: () => void }) {
   const { data, isLoading, error } = useKnowledgeGraphNode(workspace, nodeId)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [activeMatch, setActiveMatch] = useState(0)
 
-  // Jump straight to the relevant part of a long file instead of leaving the reader to scroll
-  // and hunt for what matched -- same query that dims the graph down to matching nodes.
+  // An active-match index from a previous file or query wouldn't point at anything meaningful
+  // for a new one.
   useEffect(() => {
-    if (!data || !query.trim()) return
+    setActiveMatch(0)
+  }, [nodeId, query])
+
+  // Sections render in a fixed order (summary, then content, then diagrams in array order), so a
+  // running offset computed here in plain JS -- before the JSX below ever touches it -- gives
+  // every match a stable global index without needing refs threaded through each section.
+  let matchOffset = 0
+  let summaryHighlighted: ReactNode = data?.kind === 'file' ? data.summary : undefined
+  let contentHighlighted: ReactNode = data?.kind === 'file' ? data.content : undefined
+  let diagramsHighlighted: ReactNode[] = data?.kind === 'component' ? data.diagrams.map(d => d.content) : []
+
+  if (data?.kind === 'file') {
+    if (data.summary) {
+      const r = highlightMatches(data.summary, query, matchOffset, activeMatch)
+      summaryHighlighted = r.node
+      matchOffset += r.count
+    }
+    const r = highlightMatches(data.content, query, matchOffset, activeMatch)
+    contentHighlighted = r.node
+    matchOffset += r.count
+  } else if (data?.kind === 'component') {
+    diagramsHighlighted = data.diagrams.map(d => {
+      const r = highlightMatches(d.content, query, matchOffset, activeMatch)
+      matchOffset += r.count
+      return r.node
+    })
+  }
+  const totalMatches = matchOffset
+
+  // Jump to (and keep in view) the current match instead of leaving the reader to scroll and
+  // hunt for it -- fires on open, on query change (both reset activeMatch to 0 above), and on
+  // every prev/next click.
+  useEffect(() => {
+    if (totalMatches === 0) return
     const id = requestAnimationFrame(() => {
-      scrollRef.current?.querySelector('mark')?.scrollIntoView({ block: 'center' })
+      scrollRef.current?.querySelector(`mark[data-match-index="${activeMatch}"]`)?.scrollIntoView({ block: 'center' })
     })
     return () => cancelAnimationFrame(id)
-  }, [data, query])
+  }, [activeMatch, totalMatches, data])
 
   return (
     <div
@@ -90,6 +139,31 @@ function NodePreviewPanel({ workspace, nodeId, query, onClose }: { workspace: st
           <X size={14} />
         </button>
       </div>
+
+      {totalMatches > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
+          <span className="text-[11px] flex-1" style={{ color: 'var(--text-muted)' }}>
+            Match {activeMatch + 1} of {totalMatches}
+            {totalMatches >= MAX_HIGHLIGHT_MATCHES ? '+' : ''}
+          </span>
+          <button
+            onClick={() => setActiveMatch(m => (m - 1 + totalMatches) % totalMatches)}
+            className="w-6 h-6 flex items-center justify-center rounded-md"
+            style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+            title="Previous match"
+          >
+            <ChevronDown size={12} style={{ transform: 'rotate(180deg)' }} />
+          </button>
+          <button
+            onClick={() => setActiveMatch(m => (m + 1) % totalMatches)}
+            className="w-6 h-6 flex items-center justify-center rounded-md"
+            style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+            title="Next match"
+          >
+            <ChevronDown size={12} />
+          </button>
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {isLoading && (
@@ -125,7 +199,7 @@ function NodePreviewPanel({ workspace, nodeId, query, onClose }: { workspace: st
                   Indexed summary
                 </p>
                 <p className="text-[11px] leading-relaxed p-2 rounded-md" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-                  {highlightMatches(data.summary, query)}
+                  {summaryHighlighted}
                 </p>
               </div>
             )}
@@ -138,7 +212,7 @@ function NodePreviewPanel({ workspace, nodeId, query, onClose }: { workspace: st
                 className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-md"
                 style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
               >
-                {highlightMatches(data.content, query)}
+                {contentHighlighted}
               </pre>
               {data.truncated && (
                 <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
@@ -168,7 +242,7 @@ function NodePreviewPanel({ workspace, nodeId, query, onClose }: { workspace: st
                   className="text-[11px] leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-md"
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
                 >
-                  {highlightMatches(diagram.content, query)}
+                  {diagramsHighlighted[i]}
                 </pre>
               </div>
             ))}
