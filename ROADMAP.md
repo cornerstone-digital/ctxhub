@@ -70,7 +70,12 @@ A new engineer on day one can read the last month of Captain findings and promot
 
 ## Later (no commitment, needs user evidence)
 
-- **ctxhub Cloud** — shared Mission Control for teams, RBAC, SSO
-- **Marketplace** — installable persona packs and workflow bundles
-- **Enterprise** — self-hosted, compliance, custom connectors
-- **Cross-workspace intelligence** — queries spanning all workspaces
+Full strategic detail in [docs/strategy/LATER_PHASES.md](./docs/strategy/LATER_PHASES.md).
+
+Each phase has a trigger condition — a specific pattern of user behaviour that has to be visible before building starts. No trigger, no build.
+
+- **ctxhub Cloud** — Mission Control for engineering organisations. Local runtime stays the source of truth; Cloud coordinates. Think Git + GitHub. Trigger: teams coordinating multiple ctxhub instances manually.
+- **Blueprint Hub** — installable expertise, not extensions. Persona packs, Captain packs, Mission packs, Industry packs. Full execution contexts, not prompts. Trigger: organic sharing of personas and execution profiles without infrastructure for it.
+- **Enterprise** — a deployment, not a product. Mission Control Cloud with RBAC, SSO, SCIM, audit logs, air-gapped option, and compliance documentation (SOC 2, ISO 27001, HIPAA, PCI). Trigger: a real deal that can't close without it.
+- **Cross-workspace Intelligence** — organisation-level queries across all workspaces. The Organisation Graph: repos, services, APIs, owners, ADRs, Captains, reviews — all connected. Trigger: Cloud teams asking "can I query across all our repos?" repeatedly.
+- **Engineering Intelligence** — insight from accumulated decisions. Not metrics about process; observations about how an organisation makes decisions over time. Trigger: leaders opening Mission Control for trends, not individual reviews.
