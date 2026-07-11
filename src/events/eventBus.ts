@@ -36,11 +36,15 @@ export type CtxhubEvent =
   | { type: 'auth.token_refresh'; sub: string; email: string }
   | { type: 'auth.login_failed'; error: string }
   | { type: 'auth.unauthorized'; path: string; method: string; reason: string }
+  | { type: 'auth.machine_token_created'; tokenId: string; name: string; roles: string[] }
+  | { type: 'auth.machine_token_revoked'; tokenId: string; name: string }
   // ── Corporate Groups ───────────────────────────────────────────────────────
   | { type: 'group.created'; groupId: string; name: string; createdBy: string }
   | { type: 'group.org_added'; groupId: string; orgId: string; orgName: string; tenantId: string; addedBy: string }
   | { type: 'group.org_removed'; groupId: string; orgId: string; removedBy: string }
-  | { type: 'group.sharing_updated'; groupId: string; fromOrgId: string; toOrgId: string; mode: string; updatedBy: string };
+  | { type: 'group.sharing_updated'; groupId: string; fromOrgId: string; toOrgId: string; mode: string; updatedBy: string }
+  // ── SCIM ───────────────────────────────────────────────────────────────────
+  | { type: 'auth.scim_user_deprovisioned'; userId: string; userName: string };
 
 export type CtxhubEventEnvelope = CtxhubEvent & { id: string; at: string };
 

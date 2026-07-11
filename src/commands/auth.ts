@@ -1,4 +1,4 @@
-import { initAuthConfig, loadAuthConfig, isAuthConfigured, updateRoleMap } from '../auth/config.js';
+import { initAuthConfig, initAuthConfigGeneric, loadAuthConfig, isAuthConfigured, updateRoleMap } from '../auth/config.js';
 import { loadTokens, clearTokens } from '../auth/store.js';
 import { runLoginFlow } from '../auth/loginFlow.js';
 import { REDIRECT_URI } from '../auth/loginFlow.js';
@@ -9,25 +9,67 @@ import { loadGroupStore, findGroup } from '../groups/store.js';
 import { resolveOrgForUser } from '../groups/groups.js';
 
 export interface AuthConfigureOptions {
-  tenantId: string;
+  tenantId?: string;
   clientId: string;
   clientSecret: string;
+  provider?: string;
+  issuerUrl?: string;
 }
 
 export async function authConfigureCommand(opts: AuthConfigureOptions): Promise<void> {
-  const config = await initAuthConfig({
-    tenantId: opts.tenantId,
-    clientId: opts.clientId,
-    clientSecret: opts.clientSecret,
-    redirectUri: REDIRECT_URI,
-  });
+  const provider = opts.provider ?? 'entra';
+
+  if (provider !== 'entra' && !opts.issuerUrl) {
+    console.error(`--issuer-url is required for provider "${provider}"`);
+    process.exit(1);
+  }
+
+  let config;
+
+  if (provider === 'entra') {
+    if (!opts.tenantId) {
+      console.error('--tenant-id is required for Entra ID provider');
+      process.exit(1);
+    }
+    config = await initAuthConfig({
+      provider: 'entra',
+      tenantId: opts.tenantId,
+      clientId: opts.clientId,
+      clientSecret: opts.clientSecret,
+      redirectUri: REDIRECT_URI,
+    });
+  } else {
+    const validProviders = ['okta', 'google', 'generic'] as const;
+    type NonEntraProvider = typeof validProviders[number];
+    if (!validProviders.includes(provider as NonEntraProvider)) {
+      console.error(`Invalid provider: ${provider}. Must be one of: entra, okta, google, generic`);
+      process.exit(1);
+    }
+    config = await initAuthConfigGeneric({
+      provider: provider as NonEntraProvider,
+      issuerUrl: opts.issuerUrl!,
+      clientId: opts.clientId,
+      clientSecret: opts.clientSecret,
+      redirectUri: REDIRECT_URI,
+    });
+  }
 
   console.log('✓ Auth configured');
-  console.log(`  Tenant ID:    ${config.oidc.tenantId}`);
+  console.log(`  Provider:     ${config.oidc.provider ?? 'entra'}`);
+  if (config.oidc.tenantId) {
+    console.log(`  Tenant ID:    ${config.oidc.tenantId}`);
+  }
+  if (config.oidc.issuerUrl) {
+    console.log(`  Issuer URL:   ${config.oidc.issuerUrl}`);
+  }
   console.log(`  Client ID:    ${config.oidc.clientId}`);
   console.log(`  Redirect URI: ${config.oidc.redirectUri}`);
   console.log('');
-  console.log('Ensure this redirect URI is registered in your Entra ID app registration.');
+  if (provider === 'entra') {
+    console.log('Ensure this redirect URI is registered in your Entra ID app registration.');
+  } else {
+    console.log(`Ensure this redirect URI is registered in your ${provider} application.`);
+  }
   console.log('Then run: ctxhub login');
 
   const allEnvVarsPresent =
@@ -58,8 +100,14 @@ export async function authStatusCommand(): Promise<void> {
   const config = await loadAuthConfig();
   const tokens = await loadTokens();
 
-  console.log('Auth:    configured (Microsoft Entra ID)');
-  console.log(`Tenant:  ${config!.oidc.tenantId}`);
+  const providerLabel = config!.oidc.provider ?? 'entra';
+  console.log(`Auth:    configured (${providerLabel})`);
+  if (config!.oidc.tenantId) {
+    console.log(`Tenant:  ${config!.oidc.tenantId}`);
+  }
+  if (config!.oidc.issuerUrl) {
+    console.log(`Issuer:  ${config!.oidc.issuerUrl}`);
+  }
   console.log(`Client:  ${config!.oidc.clientId}`);
   console.log('');
 

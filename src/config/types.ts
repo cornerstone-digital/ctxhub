@@ -12,6 +12,8 @@ export type CtxhubConfig = {
     name: string;
     /** Optional list of ctxhub roles that may access this workspace over HTTP. When absent, any authenticated user may access it. */
     allowedRoles?: string[];
+    /** Per-member role overrides: sub → role. Overrides the member's global role for this workspace only. */
+    memberOverrides?: Record<string, string>;
   };
   repositories: RepoConfig[];
   knowledge: {

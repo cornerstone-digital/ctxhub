@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname, resolve, relative } from 'node:path';
 import { promises as fsPromises } from 'node:fs';
@@ -25,7 +25,7 @@ import { getSkillsStatus, installSkills } from '../commands/skills.js';
 import { getPersonasStatus, initPersonas, syncPersonas } from '../commands/personas.js';
 import { createReviewResult, loadReviewerProfiles, DEFAULT_REVIEW_PROFILES_PATH } from '../commands/review.js';
 import { addJobDefinition, getJobDefinition, listJobRuns, loadJobDefinitions, loadJobRun, removeJobDefinition } from '../jobs/jobStore.js';
-import { createGroup, addOrg, removeOrg, updateSharing, resolveOrgForUser, canSearchCrossOrg } from '../groups/groups.js';
+import { createGroup, addOrg, removeOrg, updateSharing, resolveOrgForUser, canSearchCrossOrg, queryGroupKnowledge } from '../groups/groups.js';
 import { loadGroupStore, findGroup, findOrgsByGroup } from '../groups/store.js';
 import type { SharingMode, TrustTier } from '../groups/types.js';
 import type { Principal } from '../auth/types.js';
@@ -36,6 +36,12 @@ import type { EvalCase, EvalSuite } from '../commands/eval.js';
 import { CACHE_DIR } from '../config/config.js';
 import { RateLimiter, extractClientIp } from './rateLimiter.js';
 import { verifyShareToken, getShareSecret, getSharesDir } from '../commands/share.js';
+import { queryAuditLog, exportAuditLog } from '../events/auditLog.js';
+import { loadKnowledgeStore, listKnowledgeObjects } from '../knowledge/store.js';
+import type { KnowledgeObjectState } from '../knowledge/types.js';
+import { performCrossOrgSearch } from './crossOrgSearch.js';
+import { loadScimStore, saveScimStore, findScimUser, findScimUserByUserName, findScimGroup } from '../scim/store.js';
+import type { ScimUser, ScimGroup } from '../scim/types.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
@@ -266,12 +272,45 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   // ── Global multi-workspace search ─────────────────────────────────────────
   if (req.method === 'GET' && url.pathname === '/search') {
-    await handleGlobalSearch(res, url);
+    await handleGlobalSearch(req, res, url, authOutcome.principal);
+    return;
+  }
+
+  // ── Knowledge Objects ──────────────────────────────────────────────────────
+  if (req.method === 'GET' && url.pathname === '/knowledge') {
+    if (!hasRole(authOutcome.principal, 'member')) {
+      sendJson(res, 403, { error: 'forbidden', hint: 'Member or higher role required' });
+      return;
+    }
+    await handleKnowledgeList(res, url);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/knowledge/search') {
+    if (!hasRole(authOutcome.principal, 'member')) {
+      sendJson(res, 403, { error: 'forbidden', hint: 'Member or higher role required' });
+      return;
+    }
+    await handleKnowledgeSearch(res, url);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/knowledge/velocity') {
+    if (!hasRole(authOutcome.principal, 'member')) {
+      sendJson(res, 403, { error: 'forbidden', hint: 'Member or higher role required' });
+      return;
+    }
+    await handleKnowledgeVelocity(res, url);
     return;
   }
 
   if (req.method === 'GET' && url.pathname === '/events') {
     handleEventStream(req, res);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/audit') {
+    await handleAuditQuery(req, res, url, authOutcome.principal);
     return;
   }
 
@@ -305,7 +344,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         const allowedRoles = wsConfig.workspace.allowedRoles;
         if (allowedRoles && allowedRoles.length > 0) {
           const principal = authOutcome.principal;
-          const hasAccess = principal.roles.some(r => allowedRoles.includes(r));
+          // Check memberOverrides first — a workspace-scoped role override replaces the global role for this check
+          const memberOverrides = wsConfig.workspace.memberOverrides;
+          const overrideRole = memberOverrides?.[principal.sub];
+          const effectiveRoles = overrideRole ? [overrideRole] : principal.roles;
+          const hasAccess = effectiveRoles.some(r => allowedRoles.includes(r));
           if (!hasAccess) {
             sendJson(res, 403, { error: 'forbidden', hint: 'Your role does not permit access to this workspace' });
             return;
@@ -664,6 +707,28 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // ── Group Intel ───────────────────────────────────────────────────────────
+
+  if (req.method === 'GET' && url.pathname === '/group/intel') {
+    if (!hasRole(authOutcome.principal, 'member')) {
+      sendJson(res, 403, { error: 'forbidden', hint: 'Member or higher role required' });
+      return;
+    }
+    await handleGroupIntel(res, authOutcome.principal);
+    return;
+  }
+
+  // ── Group Knowledge (cross-org) ────────────────────────────────────────────
+
+  if (req.method === 'GET' && url.pathname === '/group/knowledge') {
+    if (!hasRole(authOutcome.principal, 'member')) {
+      sendJson(res, 403, { error: 'forbidden', hint: 'Member or higher role required' });
+      return;
+    }
+    await handleGroupKnowledgeQuery(res, url, authOutcome.principal);
+    return;
+  }
+
   // ── Share routes ──────────────────────────────────────────────────────────
 
   const shareTokenMatch = /^\/share\/(.+)$/.exec(url.pathname);
@@ -697,6 +762,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (req.method === 'GET' && url.pathname === '/cloud/status') {
     await handleCloudStatus(res);
+    return;
+  }
+
+  // ── SCIM 2.0 ─────────────────────────────────────────────────────────────
+  if (url.pathname.startsWith('/scim/v2/')) {
+    // All SCIM routes require admin or owner role
+    if (!hasRole(authOutcome.principal, 'admin')) {
+      sendScim(res, 403, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '403', detail: 'Admin or owner role required' });
+      return;
+    }
+    await handleScim(req, res, url);
     return;
   }
 
@@ -1570,10 +1646,16 @@ async function handleGroupSharing(req: http.IncomingMessage, res: http.ServerRes
 }
 
 // ── Global multi-workspace search ─────────────────────────────────────────────
-// GET /search?q=<query>[&all-workspaces=true][&limit=10]
+// GET /search?q=<query>[&all-workspaces=true][&cross-org=true][&limit=10]
 // When all-workspaces=true, fans out to every registered workspace, annotates each
 // result with {workspace:<name>}, deduplicates by chunk id, and returns sorted by score.
-async function handleGlobalSearch(res: http.ServerResponse, url: URL): Promise<void> {
+// When cross-org=true, additionally fans out to permitted peer org instances.
+async function handleGlobalSearch(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  url: URL,
+  principal: Principal,
+): Promise<void> {
   const q = url.searchParams.get('q') ?? '';
   if (!q.trim()) {
     sendJson(res, 400, { error: 'Missing or empty "q" query parameter' });
@@ -1581,9 +1663,10 @@ async function handleGlobalSearch(res: http.ServerResponse, url: URL): Promise<v
   }
 
   const allWs = url.searchParams.get('all-workspaces') === 'true';
+  const crossOrg = url.searchParams.get('cross-org') === 'true';
   const limit = Math.min(Number(url.searchParams.get('limit') ?? 10), 50);
 
-  if (!allWs) {
+  if (!allWs && !crossOrg) {
     // Single-workspace mode: require a workspace name (compatibility with existing pattern)
     sendJson(res, 400, { error: 'Pass all-workspaces=true or use /workspaces/:name/search' });
     return;
@@ -1591,7 +1674,7 @@ async function handleGlobalSearch(res: http.ServerResponse, url: URL): Promise<v
 
   const workspaces = await listWorkspaces();
   const active = workspaces.filter(ws => ws.exists);
-  if (!active.length) {
+  if (!active.length && !crossOrg) {
     sendJson(res, 200, { results: [], count: 0, workspacesSearched: 0 });
     return;
   }
@@ -1600,7 +1683,7 @@ async function handleGlobalSearch(res: http.ServerResponse, url: URL): Promise<v
   const { meetsMinTrustTier } = await import('../indexing/chunk.js');
   void meetsMinTrustTier; // used elsewhere
 
-  const allResults: Array<Record<string, unknown>> = [];
+  const localResults: Array<Record<string, unknown>> = [];
   const seen = new Set<string>();
 
   for (const ws of active) {
@@ -1612,7 +1695,7 @@ async function handleGlobalSearch(res: http.ServerResponse, url: URL): Promise<v
         const id = (r as { id?: string }).id;
         if (id && !seen.has(id)) {
           seen.add(id);
-          allResults.push({ ...(r as Record<string, unknown>), workspace: ws.name });
+          localResults.push({ ...(r as Record<string, unknown>), workspace: ws.name });
         }
       }
     } catch {
@@ -1620,10 +1703,141 @@ async function handleGlobalSearch(res: http.ServerResponse, url: URL): Promise<v
     }
   }
 
-  allResults.sort((a, b) => ((b.score as number) ?? 0) - ((a.score as number) ?? 0));
-  const topResults = allResults.slice(0, limit * active.length);
+  localResults.sort((a, b) => ((b.score as number) ?? 0) - ((a.score as number) ?? 0));
+  const topLocal = localResults.slice(0, limit * Math.max(active.length, 1));
 
-  sendJson(res, 200, { results: topResults, count: topResults.length, workspacesSearched: active.length });
+  if (!crossOrg) {
+    sendJson(res, 200, { results: topLocal, count: topLocal.length, workspacesSearched: active.length });
+    return;
+  }
+
+  // Cross-org fan-out
+  const groupStore = await loadGroupStore();
+  const authHeader = req.headers['authorization'];
+  const authToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+
+  const { results: mergedResults, sources } = await performCrossOrgSearch(
+    q.trim(),
+    principal,
+    groupStore,
+    authToken,
+    topLocal,
+  );
+
+  sendJson(res, 200, {
+    results: mergedResults,
+    count: mergedResults.length,
+    workspacesSearched: active.length,
+    sources,
+  });
+}
+
+// ── Knowledge Objects handler ──────────────────────────────────────────────────
+
+async function handleKnowledgeList(res: http.ServerResponse, url: URL): Promise<void> {
+  const workspace = url.searchParams.get('workspace') ?? undefined;
+  const q = url.searchParams.get('q') ?? undefined;
+  const state = (url.searchParams.get('state') ?? undefined) as KnowledgeObjectState | undefined;
+  const tag = url.searchParams.get('tag') ?? undefined;
+  const limit = Math.min(Number(url.searchParams.get('limit') ?? 20), 200);
+  const offset = Math.max(Number(url.searchParams.get('offset') ?? 0), 0);
+
+  // Resolve workspace id: if provided, validate it exists; otherwise use first registered workspace
+  let workspaceId: string;
+  if (workspace) {
+    const workspaces = await listWorkspaces();
+    const ws = workspaces.find(w => w.name === workspace);
+    if (!ws) {
+      sendJson(res, 404, { error: `No registered workspace named "${workspace}"` });
+      return;
+    }
+    workspaceId = ws.name;
+  } else {
+    const workspaces = await listWorkspaces();
+    const active = workspaces.find(ws => ws.exists);
+    if (!active) {
+      sendJson(res, 200, { objects: [], total: 0 });
+      return;
+    }
+    workspaceId = active.name;
+  }
+
+  const store = await loadKnowledgeStore(workspaceId);
+  let objects = listKnowledgeObjects(store, { state, tag });
+
+  // Text search in title + content
+  if (q?.trim()) {
+    const query = q.trim().toLowerCase();
+    objects = objects.filter(
+      o => o.title.toLowerCase().includes(query) || o.content.toLowerCase().includes(query),
+    );
+  }
+
+  const total = objects.length;
+  const page = objects.slice(offset, offset + limit);
+
+  sendJson(res, 200, { objects: page, total });
+}
+
+// ── Knowledge search (decision archaeology) ────────────────────────────────────
+
+async function handleKnowledgeSearch(res: http.ServerResponse, url: URL): Promise<void> {
+  const q = url.searchParams.get('q') ?? '';
+  if (!q.trim()) {
+    sendJson(res, 400, { error: 'Missing or empty "q" query parameter' });
+    return;
+  }
+
+  const workspace = url.searchParams.get('workspace') ?? undefined;
+  const minConfidence = url.searchParams.has('minConfidence')
+    ? Number(url.searchParams.get('minConfidence'))
+    : undefined;
+  const includeArchived = url.searchParams.get('includeArchived') === 'true';
+  const limit = Math.min(Number(url.searchParams.get('limit') ?? 10), 50);
+
+  const { searchDecisions } = await import('../knowledge/decisionSearch.js');
+  const results = await searchDecisions(q.trim(), { workspaceId: workspace, minConfidence, includeArchived, limit });
+
+  sendJson(res, 200, { results, query: q.trim(), total: results.length });
+}
+
+// ── Knowledge velocity ─────────────────────────────────────────────────────────
+
+async function handleKnowledgeVelocity(res: http.ServerResponse, url: URL): Promise<void> {
+  const workspace = url.searchParams.get('workspace') ?? undefined;
+
+  let workspaceId: string;
+  if (workspace) {
+    const workspaces = await listWorkspaces();
+    const ws = workspaces.find(w => w.name === workspace);
+    if (!ws) {
+      sendJson(res, 404, { error: `No registered workspace named "${workspace}"` });
+      return;
+    }
+    workspaceId = ws.name;
+  } else {
+    const workspaces = await listWorkspaces();
+    const active = workspaces.find(ws => ws.exists);
+    if (!active) {
+      sendJson(res, 200, { workspaceId: '', period: {}, buckets: [], totals: {}, trend: 'stable' });
+      return;
+    }
+    workspaceId = active.name;
+  }
+
+  const toDate = url.searchParams.has('to')
+    ? new Date(url.searchParams.get('to')!)
+    : new Date();
+  const fromDate = url.searchParams.has('from')
+    ? new Date(url.searchParams.get('from')!)
+    : new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const bucketSize = (url.searchParams.get('bucket') === 'week' ? 'week' : 'day') as 'day' | 'week';
+
+  const store = await loadKnowledgeStore(workspaceId);
+  const { computeVelocity } = await import('../knowledge/velocity.js');
+  const report = computeVelocity(store.objects, fromDate, toDate, bucketSize, workspaceId);
+
+  sendJson(res, 200, report);
 }
 
 // ── Share handler ─────────────────────────────────────────────────────────────
@@ -1818,6 +2032,487 @@ async function handleCloudStatus(res: http.ServerResponse): Promise<void> {
   } catch (error) {
     sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
   }
+}
+
+async function handleAuditQuery(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  url: URL,
+  principal: Principal,
+): Promise<void> {
+  // Only admin and owner can query the audit log
+  if (!hasRole(principal, 'admin')) {
+    sendJson(res, 403, { error: 'forbidden', hint: 'Admin or owner role required to query audit log' });
+    return;
+  }
+
+  const actor = url.searchParams.get('actor') ?? undefined;
+  const action = url.searchParams.get('action') ?? undefined;
+  const from = url.searchParams.get('from') ?? undefined;
+  const to = url.searchParams.get('to') ?? undefined;
+  const limit = Math.min(Number(url.searchParams.get('limit') ?? 100), 500);
+  const offset = Math.max(Number(url.searchParams.get('offset') ?? 0), 0);
+  const format = (url.searchParams.get('format') ?? 'json') as 'json' | 'csv';
+
+  const filter = { actor, action, from, to, limit, offset };
+
+  // Get total count (without pagination)
+  const { queryAuditLog: q } = await import('../events/auditLog.js');
+  const allEntries = await q({ actor, action, from, to });
+  const totalCount = allEntries.length;
+
+  if (format === 'csv') {
+    const csv = await exportAuditLog(filter, 'csv');
+    res.writeHead(200, {
+      'Content-Type': 'text/csv',
+      'X-Total-Count': String(totalCount),
+      'Content-Length': Buffer.byteLength(csv),
+    });
+    res.end(csv);
+    return;
+  }
+
+  const entries = await queryAuditLog(filter);
+  const payload = JSON.stringify(entries);
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'X-Total-Count': String(totalCount),
+    'Content-Length': Buffer.byteLength(payload),
+  });
+  res.end(payload);
+}
+
+// ── Group Intel handler ───────────────────────────────────────────────────────
+
+async function handleGroupIntel(res: http.ServerResponse, principal: Principal): Promise<void> {
+  const store = await loadGroupStore();
+
+  // Identify the caller's group via their tenantId
+  const userOrg = principal.tenantId ? resolveOrgForUser(principal.tenantId, store) : undefined;
+  const group = userOrg ? store.groups.find(g => g.id === userOrg.groupId) : undefined;
+
+  if (!group) {
+    // No group membership — return empty intel payload
+    sendJson(res, 200, { group: null, promotedChunks: [], recentEvents: [] });
+    return;
+  }
+
+  const orgs = findOrgsByGroup(store, group.id);
+  const sharingPolicies = store.sharingPolicies.filter(
+    p => orgs.some(o => o.id === p.fromOrgId) || orgs.some(o => o.id === p.toOrgId)
+  );
+
+  // Promoted chunks: active knowledge objects from current workspace
+  let promotedChunks: unknown[] = [];
+  try {
+    const workspaces = await listWorkspaces();
+    const active = workspaces.find(ws => ws.exists);
+    if (active) {
+      const ks = await loadKnowledgeStore(active.name);
+      const objects = listKnowledgeObjects(ks, { state: 'active' });
+      promotedChunks = objects.slice(0, 10).map(o => ({
+        id: o.id,
+        title: o.title,
+        confidence: o.confidence,
+        workspace: active.name,
+        createdAt: o.createdAt,
+        state: o.state,
+      }));
+    }
+  } catch {
+    // knowledge store unavailable — return empty
+  }
+
+  // Recent audit events (last 5)
+  let recentEvents: unknown[] = [];
+  try {
+    recentEvents = await queryAuditLog({ limit: 5 });
+  } catch {
+    // audit log unavailable — return empty
+  }
+
+  sendJson(res, 200, {
+    group: { id: group.id, name: group.name, orgs: orgs.map(o => ({
+      id: o.id,
+      name: o.name,
+      trustTier: o.trustTier,
+      lastSeen: o.lastSeen ?? null,
+      peerUrl: o.peerUrl ?? null,
+      sharingPolicies: sharingPolicies.filter(p => p.fromOrgId === o.id || p.toOrgId === o.id),
+    })) },
+    promotedChunks,
+    recentEvents,
+  });
+}
+
+// ── Group Knowledge handler ───────────────────────────────────────────────────
+
+async function handleGroupKnowledgeQuery(
+  res: http.ServerResponse,
+  url: URL,
+  principal: Principal,
+): Promise<void> {
+  const query = url.searchParams.get('q') ?? '';
+  const minConfidenceParam = url.searchParams.get('minConfidence');
+  const minConfidence = minConfidenceParam ? parseFloat(minConfidenceParam) : undefined;
+
+  if (!query.trim()) {
+    sendJson(res, 400, { error: 'bad_request', hint: 'q parameter is required' });
+    return;
+  }
+
+  const store = await loadGroupStore();
+  const tenantId = principal.tenantId ?? '';
+
+  const results = await queryGroupKnowledge(query, tenantId, store, { minConfidence });
+  sendJson(res, 200, { results, query });
+}
+
+// ── SCIM 2.0 handlers ─────────────────────────────────────────────────────────
+
+function sendScim(res: http.ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, { 'Content-Type': 'application/scim+json', 'Content-Length': Buffer.byteLength(payload) });
+  res.end(payload);
+}
+
+function scimUserLocation(id: string): string {
+  return `/scim/v2/Users/${id}`;
+}
+
+function scimGroupLocation(id: string): string {
+  return `/scim/v2/Groups/${id}`;
+}
+
+/** Parse a simple SCIM eq filter: `userName eq "value"` or `displayName eq "value"` */
+function parseScimEqFilter(filter: string): { attr: string; value: string } | undefined {
+  const m = /^(\w+)\s+eq\s+"([^"]*)"$/i.exec(filter.trim());
+  if (!m) return undefined;
+  return { attr: m[1].toLowerCase(), value: m[2] };
+}
+
+function randomScimId(): string {
+  return randomBytes(12).toString('hex');
+}
+
+async function handleScim(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+  const path = url.pathname;
+
+  // ── ServiceProviderConfig ───────────────────────────────────────────────
+  if (req.method === 'GET' && path === '/scim/v2/ServiceProviderConfig') {
+    sendScim(res, 200, {
+      schemas: ['urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig'],
+      patch: { supported: true },
+      bulk: { supported: false, maxOperations: 0, maxPayloadSize: 0 },
+      filter: { supported: true, maxResults: 200 },
+      changePassword: { supported: false },
+      sort: { supported: false },
+      etag: { supported: false },
+      authenticationSchemes: [{ type: 'oauthbearertoken', name: 'OAuth Bearer Token', description: 'ctxhub machine tokens (ctxm_ prefix)' }],
+    });
+    return;
+  }
+
+  // ── Schemas ─────────────────────────────────────────────────────────────
+  if (req.method === 'GET' && path === '/scim/v2/Schemas') {
+    sendScim(res, 200, {
+      schemas: ['urn:ietf:params:scim:api:messages:2.0:ListResponse'],
+      totalResults: 2,
+      startIndex: 1,
+      itemsPerPage: 2,
+      Resources: [
+        {
+          id: 'urn:ietf:params:scim:schemas:core:2.0:User',
+          name: 'User',
+          description: 'User account',
+          attributes: [
+            { name: 'userName', type: 'string', multiValued: false, required: true, caseExact: false, mutability: 'readWrite', returned: 'default', uniqueness: 'server' },
+            { name: 'displayName', type: 'string', multiValued: false, required: false, caseExact: false, mutability: 'readWrite', returned: 'default', uniqueness: 'none' },
+            { name: 'active', type: 'boolean', multiValued: false, required: false, mutability: 'readWrite', returned: 'default', uniqueness: 'none' },
+            { name: 'emails', type: 'complex', multiValued: true, required: false, mutability: 'readWrite', returned: 'default', uniqueness: 'none' },
+          ],
+        },
+        {
+          id: 'urn:ietf:params:scim:schemas:core:2.0:Group',
+          name: 'Group',
+          description: 'Group',
+          attributes: [
+            { name: 'displayName', type: 'string', multiValued: false, required: true, caseExact: false, mutability: 'readWrite', returned: 'default', uniqueness: 'server' },
+            { name: 'members', type: 'complex', multiValued: true, required: false, mutability: 'readWrite', returned: 'default', uniqueness: 'none' },
+          ],
+        },
+      ],
+    });
+    return;
+  }
+
+  // ── Users ────────────────────────────────────────────────────────────────
+
+  if (req.method === 'GET' && path === '/scim/v2/Users') {
+    const store = await loadScimStore();
+    let users = store.users;
+    const filter = url.searchParams.get('filter');
+    if (filter) {
+      const parsed = parseScimEqFilter(filter);
+      if (parsed?.attr === 'username') {
+        users = users.filter(u => u.userName === parsed.value);
+      }
+    }
+    const startIndex = Math.max(1, Number(url.searchParams.get('startIndex') ?? 1));
+    const count = Math.min(200, Math.max(1, Number(url.searchParams.get('count') ?? 100)));
+    const page = users.slice(startIndex - 1, startIndex - 1 + count);
+    sendScim(res, 200, {
+      schemas: ['urn:ietf:params:scim:api:messages:2.0:ListResponse'],
+      totalResults: users.length,
+      startIndex,
+      itemsPerPage: page.length,
+      Resources: page,
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && path === '/scim/v2/Users') {
+    const body = (await readJsonBody(req)) as Partial<ScimUser>;
+    if (!body.userName) {
+      sendScim(res, 400, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '400', detail: 'userName is required' });
+      return;
+    }
+    const store = await loadScimStore();
+    // Check for duplicate
+    if (findScimUserByUserName(store, body.userName)) {
+      sendScim(res, 409, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '409', detail: `User with userName "${body.userName}" already exists` });
+      return;
+    }
+    const now = new Date().toISOString();
+    const id = randomScimId();
+    const user: ScimUser = {
+      id,
+      externalId: body.externalId,
+      userName: body.userName,
+      displayName: body.displayName,
+      active: body.active !== false, // treat omitted as active
+      emails: body.emails,
+      groups: body.groups,
+      meta: { resourceType: 'User', created: now, lastModified: now, location: scimUserLocation(id) },
+    };
+    store.users.push(user);
+    await saveScimStore(store);
+    sendScim(res, 201, user);
+    return;
+  }
+
+  const userIdMatch = /^\/scim\/v2\/Users\/([^/]+)$/.exec(path);
+  if (userIdMatch) {
+    const userId = decodeURIComponent(userIdMatch[1]);
+
+    if (req.method === 'GET') {
+      const store = await loadScimStore();
+      const user = findScimUser(store, userId);
+      if (!user) {
+        sendScim(res, 404, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '404', detail: `User ${userId} not found` });
+        return;
+      }
+      sendScim(res, 200, user);
+      return;
+    }
+
+    if (req.method === 'PUT') {
+      const store = await loadScimStore();
+      const existing = findScimUser(store, userId);
+      if (!existing) {
+        sendScim(res, 404, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '404', detail: `User ${userId} not found` });
+        return;
+      }
+      const body = (await readJsonBody(req)) as Partial<ScimUser>;
+      if (!body.userName) {
+        sendScim(res, 400, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '400', detail: 'userName is required' });
+        return;
+      }
+      const now = new Date().toISOString();
+      const wasActive = existing.active;
+      const updated: ScimUser = {
+        ...existing,
+        userName: body.userName,
+        displayName: body.displayName,
+        active: body.active !== false,
+        emails: body.emails,
+        groups: body.groups,
+        externalId: body.externalId ?? existing.externalId,
+        meta: { ...existing.meta, lastModified: now },
+      };
+      const idx = store.users.findIndex(u => u.id === userId);
+      store.users[idx] = updated;
+      await saveScimStore(store);
+      if (wasActive && !updated.active) {
+        eventBus.publish({ type: 'auth.scim_user_deprovisioned', userId, userName: updated.userName });
+      }
+      sendScim(res, 200, updated);
+      return;
+    }
+
+    if (req.method === 'PATCH') {
+      const store = await loadScimStore();
+      const existing = findScimUser(store, userId);
+      if (!existing) {
+        sendScim(res, 404, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '404', detail: `User ${userId} not found` });
+        return;
+      }
+      const body = (await readJsonBody(req)) as { Operations?: Array<{ op: string; path?: string; value?: unknown }> };
+      const ops = body.Operations ?? [];
+      const now = new Date().toISOString();
+      const wasActive = existing.active;
+      let updated = { ...existing, meta: { ...existing.meta, lastModified: now } };
+
+      for (const op of ops) {
+        const opLower = op.op.toLowerCase();
+        const opPath = op.path?.toLowerCase();
+
+        if (opLower === 'replace' || opLower === 'add') {
+          if (opPath === 'active' || opPath === 'active') {
+            updated = { ...updated, active: Boolean(op.value) };
+          } else if (opPath === 'displayname') {
+            updated = { ...updated, displayName: String(op.value ?? '') };
+          } else if (!opPath && typeof op.value === 'object' && op.value !== null) {
+            // Bulk replace via value object
+            const vals = op.value as Record<string, unknown>;
+            if ('active' in vals) updated = { ...updated, active: Boolean(vals.active) };
+            if ('displayName' in vals) updated = { ...updated, displayName: String(vals.displayName ?? '') };
+          }
+        } else if (opLower === 'remove') {
+          if (opPath === 'active') updated = { ...updated, active: false };
+        }
+      }
+
+      const idx = store.users.findIndex(u => u.id === userId);
+      store.users[idx] = updated;
+      await saveScimStore(store);
+      if (wasActive && !updated.active) {
+        eventBus.publish({ type: 'auth.scim_user_deprovisioned', userId, userName: updated.userName });
+      }
+      sendScim(res, 200, updated);
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      const store = await loadScimStore();
+      const existing = findScimUser(store, userId);
+      if (!existing) {
+        sendScim(res, 404, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '404', detail: `User ${userId} not found` });
+        return;
+      }
+      // Soft delete: set active = false
+      const now = new Date().toISOString();
+      const wasActive = existing.active;
+      const idx = store.users.findIndex(u => u.id === userId);
+      store.users[idx] = { ...existing, active: false, meta: { ...existing.meta, lastModified: now } };
+      await saveScimStore(store);
+      if (wasActive) {
+        eventBus.publish({ type: 'auth.scim_user_deprovisioned', userId, userName: existing.userName });
+      }
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+  }
+
+  // ── Groups ───────────────────────────────────────────────────────────────
+
+  if (req.method === 'GET' && path === '/scim/v2/Groups') {
+    const store = await loadScimStore();
+    const groups = store.groups;
+    const startIndex = Math.max(1, Number(url.searchParams.get('startIndex') ?? 1));
+    const count = Math.min(200, Math.max(1, Number(url.searchParams.get('count') ?? 100)));
+    const page = groups.slice(startIndex - 1, startIndex - 1 + count);
+    sendScim(res, 200, {
+      schemas: ['urn:ietf:params:scim:api:messages:2.0:ListResponse'],
+      totalResults: groups.length,
+      startIndex,
+      itemsPerPage: page.length,
+      Resources: page,
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && path === '/scim/v2/Groups') {
+    const body = (await readJsonBody(req)) as Partial<ScimGroup>;
+    if (!body.displayName) {
+      sendScim(res, 400, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '400', detail: 'displayName is required' });
+      return;
+    }
+    const store = await loadScimStore();
+    const now = new Date().toISOString();
+    const id = randomScimId();
+    const group: ScimGroup = {
+      id,
+      externalId: body.externalId,
+      displayName: body.displayName,
+      members: body.members ?? [],
+      meta: { resourceType: 'Group', created: now, lastModified: now, location: scimGroupLocation(id) },
+    };
+    store.groups.push(group);
+    await saveScimStore(store);
+    sendScim(res, 201, group);
+    return;
+  }
+
+  const groupIdMatch = /^\/scim\/v2\/Groups\/([^/]+)$/.exec(path);
+  if (groupIdMatch) {
+    const groupId = decodeURIComponent(groupIdMatch[1]);
+
+    if (req.method === 'GET') {
+      const store = await loadScimStore();
+      const group = findScimGroup(store, groupId);
+      if (!group) {
+        sendScim(res, 404, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '404', detail: `Group ${groupId} not found` });
+        return;
+      }
+      sendScim(res, 200, group);
+      return;
+    }
+
+    if (req.method === 'PUT') {
+      const store = await loadScimStore();
+      const existing = findScimGroup(store, groupId);
+      if (!existing) {
+        sendScim(res, 404, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '404', detail: `Group ${groupId} not found` });
+        return;
+      }
+      const body = (await readJsonBody(req)) as Partial<ScimGroup>;
+      if (!body.displayName) {
+        sendScim(res, 400, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '400', detail: 'displayName is required' });
+        return;
+      }
+      const now = new Date().toISOString();
+      const updated: ScimGroup = {
+        ...existing,
+        displayName: body.displayName,
+        members: body.members ?? [],
+        externalId: body.externalId ?? existing.externalId,
+        meta: { ...existing.meta, lastModified: now },
+      };
+      const idx = store.groups.findIndex(g => g.id === groupId);
+      store.groups[idx] = updated;
+      await saveScimStore(store);
+      sendScim(res, 200, updated);
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      const store = await loadScimStore();
+      const idx = store.groups.findIndex(g => g.id === groupId);
+      if (idx === -1) {
+        sendScim(res, 404, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '404', detail: `Group ${groupId} not found` });
+        return;
+      }
+      store.groups.splice(idx, 1);
+      await saveScimStore(store);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+  }
+
+  sendScim(res, 404, { schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'], status: '404', detail: `Not found: ${req.method} ${path}` });
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {

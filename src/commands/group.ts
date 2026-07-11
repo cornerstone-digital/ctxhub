@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
-import { addOrg, createGroup, removeOrg, updateSharing } from '../groups/groups.js';
-import { findGroup, findOrgsByGroup, findSharingPolicy, loadGroupStore } from '../groups/store.js';
+import { addOrg, createGroup, removeOrg, updateSharing, setOrgIdentityDefaultRole, addOrgIdentityGroupRole, addOrgIdentityOverride, queryGroupKnowledge } from '../groups/groups.js';
+import { findGroup, findOrg, findOrgsByGroup, findSharingPolicy, loadGroupStore } from '../groups/store.js';
 import type { SharingMode, TrustTier } from '../groups/types.js';
 import { loadAuthConfig } from '../auth/config.js';
 import { loadTokens } from '../auth/store.js';
@@ -379,6 +379,154 @@ export async function groupJoinCommand(token: string): Promise<void> {
   console.log(`  Org name:     ${org.name}`);
   console.log(`  Tenant ID:    ${org.tenantId}`);
   console.log(`  Trust tier:   ${org.trustTier}`);
+}
+
+// ── groupIdentityCommands ─────────────────────────────────────────────────────
+
+export async function groupIdentitySetDefaultCommand(opts: { groupId: string; orgId: string; role: string }): Promise<void> {
+  if (!opts.groupId?.trim()) { console.error('Error: --group-id is required'); process.exit(1); }
+  if (!opts.orgId?.trim()) { console.error('Error: --org-id is required'); process.exit(1); }
+  if (!opts.role?.trim()) { console.error('Error: --role is required'); process.exit(1); }
+
+  try {
+    const org = await setOrgIdentityDefaultRole(opts.groupId.trim(), opts.orgId.trim(), opts.role.trim());
+    console.log(`Identity default role set for org ${org.name} (${org.id}):`);
+    console.log(`  defaultRole: ${org.identityConfig?.defaultRole}`);
+  } catch (err) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
+export async function groupIdentityAddGroupRoleCommand(opts: { groupId: string; orgId: string; entraGroup: string; role: string }): Promise<void> {
+  if (!opts.groupId?.trim()) { console.error('Error: --group-id is required'); process.exit(1); }
+  if (!opts.orgId?.trim()) { console.error('Error: --org-id is required'); process.exit(1); }
+  if (!opts.entraGroup?.trim()) { console.error('Error: --entra-group is required'); process.exit(1); }
+  if (!opts.role?.trim()) { console.error('Error: --role is required'); process.exit(1); }
+
+  try {
+    const org = await addOrgIdentityGroupRole(opts.groupId.trim(), opts.orgId.trim(), opts.entraGroup.trim(), opts.role.trim());
+    console.log(`Added group role mapping for org ${org.name} (${org.id}):`);
+    console.log(`  entraGroup: ${opts.entraGroup.trim()} → ${opts.role.trim()}`);
+  } catch (err) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
+export async function groupIdentityAddOverrideCommand(opts: { groupId: string; orgId: string; sub: string; role: string }): Promise<void> {
+  if (!opts.groupId?.trim()) { console.error('Error: --group-id is required'); process.exit(1); }
+  if (!opts.orgId?.trim()) { console.error('Error: --org-id is required'); process.exit(1); }
+  if (!opts.sub?.trim()) { console.error('Error: --sub is required'); process.exit(1); }
+  if (!opts.role?.trim()) { console.error('Error: --role is required'); process.exit(1); }
+
+  try {
+    const org = await addOrgIdentityOverride(opts.groupId.trim(), opts.orgId.trim(), opts.sub.trim(), opts.role.trim());
+    console.log(`Added role override for org ${org.name} (${org.id}):`);
+    console.log(`  sub: ${opts.sub.trim()} → ${opts.role.trim()}`);
+  } catch (err) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+}
+
+export async function groupIdentityShowCommand(opts: { groupId: string; orgId: string }): Promise<void> {
+  if (!opts.groupId?.trim()) { console.error('Error: --group-id is required'); process.exit(1); }
+  if (!opts.orgId?.trim()) { console.error('Error: --org-id is required'); process.exit(1); }
+
+  const store = await loadGroupStore();
+  const group = findGroup(store, opts.groupId.trim());
+  if (!group) {
+    console.error(`Error: No corporate group with id "${opts.groupId}"`);
+    process.exit(1);
+  }
+
+  const org = findOrg(store, opts.orgId.trim());
+  if (!org || org.groupId !== opts.groupId.trim()) {
+    console.error(`Error: No org with id "${opts.orgId}" in group "${opts.groupId}"`);
+    process.exit(1);
+  }
+
+  console.log(`Identity config for org: ${org.name} (${org.id})`);
+  console.log(`Group: ${group.name} (${group.id})`);
+
+  const cfg = org.identityConfig;
+  if (!cfg) {
+    console.log('  No identity config set.');
+    return;
+  }
+
+  if (cfg.defaultRole) {
+    console.log(`  defaultRole: ${cfg.defaultRole}`);
+  }
+
+  if (cfg.groupRoles && Object.keys(cfg.groupRoles).length > 0) {
+    console.log('  groupRoles:');
+    for (const [entraGroupId, role] of Object.entries(cfg.groupRoles)) {
+      console.log(`    ${entraGroupId} → ${role}`);
+    }
+  }
+
+  if (cfg.roleOverrides && Object.keys(cfg.roleOverrides).length > 0) {
+    console.log('  roleOverrides:');
+    for (const [sub, role] of Object.entries(cfg.roleOverrides)) {
+      console.log(`    ${sub} → ${role}`);
+    }
+  }
+}
+
+// ── groupQueryCommand ─────────────────────────────────────────────────────────
+
+export async function groupQueryCommand(opts: { q: string; minConfidence?: string }): Promise<void> {
+  if (!opts.q?.trim()) {
+    console.error('Error: --q (query) is required');
+    process.exit(1);
+  }
+
+  const minConfidence = opts.minConfidence ? parseFloat(opts.minConfidence) : undefined;
+
+  const store = await loadGroupStore();
+
+  // Try to get tenantId from current auth session
+  let tenantId = '';
+  try {
+    const tokens = await loadTokens();
+    if (tokens?.user?.sub) {
+      // Try to decode tenantId from ctxhub JWT
+      try {
+        const parts = tokens.ctxhubToken.token.split('.');
+        if (parts.length === 3) {
+          const payloadJson = Buffer.from(
+            parts[1].replace(/-/g, '+').replace(/_/g, '/'),
+            'base64'
+          ).toString('utf-8');
+          const payload = JSON.parse(payloadJson) as { tenantId?: string };
+          if (payload.tenantId) tenantId = payload.tenantId;
+        }
+      } catch {
+        // fall through
+      }
+    }
+  } catch {
+    // not logged in — tenantId stays empty
+  }
+
+  const results = await queryGroupKnowledge(opts.q.trim(), tenantId, store, { minConfidence });
+
+  if (results.length === 0 || results.every(r => r.objects.length === 0)) {
+    console.log('No results from peer orgs (check peer URLs are configured with ctxhub group add-org --peer-url)');
+    return;
+  }
+
+  for (const { orgName, orgId, objects } of results) {
+    if (objects.length === 0) continue;
+    console.log(`\n=== ${orgName} (${orgId.substring(0, 8)}) — ${objects.length} result(s) ===`);
+    for (const obj of objects) {
+      console.log(`\n  [${obj.state}] ${obj.title}`);
+      console.log(`  confidence: ${obj.confidence.toFixed(2)}  tags: ${(obj.tags ?? []).join(', ') || '(none)'}`);
+      console.log(`  ${obj.content.substring(0, 200)}${obj.content.length > 200 ? '…' : ''}`);
+    }
+  }
 }
 
 // ── groupHeartbeatCommand ─────────────────────────────────────────────────────

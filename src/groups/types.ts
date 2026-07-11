@@ -23,6 +23,11 @@ export interface Org {
   registeredAt?: string;         // when peerUrl was first registered
   addedAt: string;               // ISO 8601
   addedBy: string;               // sub
+  identityConfig?: {
+    roleOverrides?: Record<string, string>; // sub → role, per-org role override
+    groupRoles?: Record<string, string>;    // Entra group ID → ctxhub role (per-org)
+    defaultRole?: string;                   // fallback role for this org (overrides global)
+  };
 }
 
 export interface SharingPolicy {

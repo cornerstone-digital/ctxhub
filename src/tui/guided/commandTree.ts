@@ -72,6 +72,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   webhook: 'Fleet',
   group: 'Fleet',
   chunk: 'Search & Context',
+  knowledge: 'Search & Context',
   share: 'Search & Context',
   cloud: 'Fleet',
   login: 'Setup',
@@ -79,6 +80,11 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   auth: 'Setup',
   version: 'Setup',
   blueprint: 'Setup',
+  'machine-token': 'Setup',
+  audit: 'Setup',
+  status: 'Setup',
+  topology: 'Search & Context',
+  cascade: 'Search & Context',
 };
 
 export function extractGuidedCommands(program: Command): GuidedCommand[] {

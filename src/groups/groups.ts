@@ -1,6 +1,7 @@
-import { loadGroupStore, saveGroupStore, findGroup, findOrg, findSharingPolicy, getGroupStorePath } from './store.js';
+import { loadGroupStore, saveGroupStore, findGroup, findOrg, findSharingPolicy, getGroupStorePath, findOrgsByGroup } from './store.js';
 import type { CorporateGroup, GroupStore, Org, SharingMode, SharingPolicy, TrustTier } from './types.js';
 import { eventBus } from '../events/eventBus.js';
+import type { KnowledgeObject } from '../knowledge/types.js';
 
 // ── createGroup ───────────────────────────────────────────────────────────────
 
@@ -168,6 +169,93 @@ export function resolveOrgForUser(tenantId: string, store: GroupStore): Org | un
   return store.orgs.find(o => o.tenantId === tenantId);
 }
 
+// ── resolveRoleForOrgMember ───────────────────────────────────────────────────
+
+/**
+ * Resolves the ctxhub role for a user within a specific org, using the org's
+ * identityConfig. Resolution order:
+ *   1. roleOverrides[sub]
+ *   2. groupRoles[entraGroupId] (first match)
+ *   3. identityConfig.defaultRole
+ *   4. null (caller should fall back to global role map)
+ */
+export function resolveRoleForOrgMember(sub: string, entraGroups: string[], org: Org): string | null {
+  if (org.identityConfig?.roleOverrides?.[sub]) {
+    return org.identityConfig.roleOverrides[sub];
+  }
+  if (org.identityConfig?.groupRoles) {
+    for (const g of entraGroups) {
+      const role = org.identityConfig.groupRoles[g];
+      if (role) return role;
+    }
+  }
+  if (org.identityConfig?.defaultRole) {
+    return org.identityConfig.defaultRole;
+  }
+  return null;
+}
+
+// ── updateOrgIdentityConfig ───────────────────────────────────────────────────
+
+export async function setOrgIdentityDefaultRole(
+  groupId: string,
+  orgId: string,
+  role: string,
+  storePath = getGroupStorePath(),
+): Promise<Org> {
+  const store = await loadGroupStore(storePath);
+  const group = findGroup(store, groupId);
+  if (!group) throw new Error(`No corporate group with id "${groupId}"`);
+  const org = findOrg(store, orgId);
+  if (!org || org.groupId !== groupId) throw new Error(`No org with id "${orgId}" in group "${groupId}"`);
+
+  org.identityConfig = { ...org.identityConfig, defaultRole: role };
+  await saveGroupStore(store, storePath);
+  return org;
+}
+
+export async function addOrgIdentityGroupRole(
+  groupId: string,
+  orgId: string,
+  entraGroup: string,
+  role: string,
+  storePath = getGroupStorePath(),
+): Promise<Org> {
+  const store = await loadGroupStore(storePath);
+  const group = findGroup(store, groupId);
+  if (!group) throw new Error(`No corporate group with id "${groupId}"`);
+  const org = findOrg(store, orgId);
+  if (!org || org.groupId !== groupId) throw new Error(`No org with id "${orgId}" in group "${groupId}"`);
+
+  org.identityConfig = {
+    ...org.identityConfig,
+    groupRoles: { ...org.identityConfig?.groupRoles, [entraGroup]: role },
+  };
+  await saveGroupStore(store, storePath);
+  return org;
+}
+
+export async function addOrgIdentityOverride(
+  groupId: string,
+  orgId: string,
+  sub: string,
+  role: string,
+  storePath = getGroupStorePath(),
+): Promise<Org> {
+  const store = await loadGroupStore(storePath);
+  const group = findGroup(store, groupId);
+  if (!group) throw new Error(`No corporate group with id "${groupId}"`);
+  const org = findOrg(store, orgId);
+  if (!org || org.groupId !== groupId) throw new Error(`No org with id "${orgId}" in group "${groupId}"`);
+
+  org.identityConfig = {
+    ...org.identityConfig,
+    roleOverrides: { ...org.identityConfig?.roleOverrides, [sub]: role },
+  };
+  await saveGroupStore(store, storePath);
+  return org;
+}
+
 // ── canSearchCrossOrg ─────────────────────────────────────────────────────────
 
 /**
@@ -177,4 +265,84 @@ export function canSearchCrossOrg(store: GroupStore, fromOrgId: string, toOrgId:
   const policy = findSharingPolicy(store, fromOrgId, toOrgId);
   if (!policy) return false;
   return policy.mode === 'read' || policy.mode === 'bidirectional';
+}
+
+// ── queryGroupKnowledge ───────────────────────────────────────────────────────
+
+/**
+ * Query knowledge from peer orgs within the same corporate group.
+ *
+ * For each other org with read/bidirectional sharing policy:
+ *   - If the org has a peerUrl: GET <peerUrl>/knowledge?q=<query>&state=active (3s timeout)
+ *   - Otherwise: skip (peer not reachable)
+ *
+ * Returns results grouped by org.
+ */
+export async function queryGroupKnowledge(
+  query: string,
+  requestingTenantId: string,
+  groupStore: GroupStore,
+  options?: { minConfidence?: number; tags?: string[] },
+): Promise<Array<{ orgName: string; orgId: string; objects: KnowledgeObject[] }>> {
+  // Resolve the requesting org from tenantId
+  const requestingOrg = resolveOrgForUser(requestingTenantId, groupStore);
+  if (!requestingOrg) return [];
+
+  // Find the group
+  const group = groupStore.groups.find(g => g.id === requestingOrg.groupId);
+  if (!group) return [];
+
+  // Get all orgs in the group except the requesting one
+  const peerOrgs = findOrgsByGroup(groupStore, group.id).filter(
+    o => o.id !== requestingOrg.id,
+  );
+
+  const results: Array<{ orgName: string; orgId: string; objects: KnowledgeObject[] }> = [];
+
+  for (const peerOrg of peerOrgs) {
+    // Check sharing policy: requesting org must have read/bidirectional access to peer
+    if (!canSearchCrossOrg(groupStore, requestingOrg.id, peerOrg.id)) continue;
+
+    // Peer must have a peerUrl configured
+    if (!peerOrg.peerUrl) continue;
+
+    try {
+      const params = new URLSearchParams({ q: query, state: 'active' });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+
+      let objects: KnowledgeObject[] = [];
+      try {
+        const res = await fetch(`${peerOrg.peerUrl}/knowledge?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (res.ok) {
+          const data = await res.json() as { objects?: KnowledgeObject[] };
+          objects = data.objects ?? [];
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      // Filter by minConfidence if set
+      if (options?.minConfidence !== undefined) {
+        objects = objects.filter(o => o.confidence >= options.minConfidence!);
+      }
+
+      // Filter by tags if set
+      if (options?.tags?.length) {
+        const requiredTags = options.tags;
+        objects = objects.filter(o =>
+          requiredTags.every(t => o.tags?.includes(t))
+        );
+      }
+
+      results.push({ orgName: peerOrg.name, orgId: peerOrg.id, objects });
+    } catch {
+      // timeout or network error — skip this peer
+    }
+  }
+
+  return results;
 }

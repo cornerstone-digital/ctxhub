@@ -5,17 +5,48 @@ import type { OidcConfig, OidcDiscovery, EntraTokenResponse } from './types.js';
 // Cache discovery documents in-process — Entra ID rarely changes these
 const discoveryCache = new Map<string, OidcDiscovery>();
 
-export async function discoverOidc(tenantId: string): Promise<OidcDiscovery> {
-  if (discoveryCache.has(tenantId)) return discoveryCache.get(tenantId)!;
+/**
+ * Discover the OIDC configuration for the given provider config.
+ *
+ * - Entra (or legacy configs with tenantId and no provider): uses Entra discovery URL.
+ * - okta/google/generic: uses `${issuerUrl}/.well-known/openid-configuration`.
+ *
+ * The string key parameter is kept for backward compatibility; the full OidcConfig
+ * overload is the preferred form for new callers.
+ */
+export async function discoverOidc(tenantIdOrConfig: string | OidcConfig): Promise<OidcDiscovery> {
+  let discoveryUrl: string;
+  let cacheKey: string;
 
-  const url = `https://login.microsoftonline.com/${tenantId}/v2.0/.well-known/openid-configuration`;
-  const res = await fetch(url);
+  if (typeof tenantIdOrConfig === 'string') {
+    // Legacy call: discoverOidc(tenantId)
+    const tenantId = tenantIdOrConfig;
+    cacheKey = `entra:${tenantId}`;
+    discoveryUrl = `https://login.microsoftonline.com/${tenantId}/v2.0/.well-known/openid-configuration`;
+  } else {
+    const cfg = tenantIdOrConfig;
+    const provider = cfg.provider ?? (cfg.tenantId ? 'entra' : 'generic');
+
+    if (provider === 'entra') {
+      if (!cfg.tenantId) throw new Error('tenantId is required for Entra ID provider');
+      cacheKey = `entra:${cfg.tenantId}`;
+      discoveryUrl = `https://login.microsoftonline.com/${cfg.tenantId}/v2.0/.well-known/openid-configuration`;
+    } else {
+      if (!cfg.issuerUrl) throw new Error(`issuerUrl is required for provider "${provider}"`);
+      cacheKey = `generic:${cfg.issuerUrl}`;
+      discoveryUrl = `${cfg.issuerUrl}/.well-known/openid-configuration`;
+    }
+  }
+
+  if (discoveryCache.has(cacheKey)) return discoveryCache.get(cacheKey)!;
+
+  const res = await fetch(discoveryUrl);
   if (!res.ok) {
     throw new Error(`OIDC discovery failed (${res.status}): ${res.statusText}`);
   }
 
   const doc = (await res.json()) as OidcDiscovery;
-  discoveryCache.set(tenantId, doc);
+  discoveryCache.set(cacheKey, doc);
   return doc;
 }
 

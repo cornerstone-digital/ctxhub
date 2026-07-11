@@ -1,6 +1,7 @@
 import type http from 'node:http';
 import { verifyAccessToken, principalFromClaims } from './jwt.js';
 import { loadAuthConfig, isAuthConfigured } from './config.js';
+import { loadMachineTokenStore, verifyToken, saveMachineTokenStore } from './machineTokenStore.js';
 import { eventBus } from '../events/eventBus.js';
 import type { Principal } from './types.js';
 
@@ -26,6 +27,47 @@ function isPublicPath(pathname: string): boolean {
 export type AuthOutcome =
   | { ok: true; principal: Principal }
   | { ok: false; status: 401; code: string; hint: string };
+
+async function authenticateMachineToken(
+  rawToken: string,
+  req: http.IncomingMessage,
+  path: string,
+  method: string,
+): Promise<AuthOutcome> {
+  const store = await loadMachineTokenStore();
+  const now = new Date();
+
+  for (const mt of store.tokens) {
+    // Skip revoked tokens
+    if (mt.revokedAt) continue;
+    // Skip expired tokens
+    if (new Date(mt.expiresAt) < now) continue;
+
+    const matches = await verifyToken(rawToken, mt.hashedToken);
+    if (matches) {
+      // Update lastUsedAt — best-effort, fire-and-forget
+      mt.lastUsedAt = now.toISOString();
+      void saveMachineTokenStore(store).catch(() => { /* best-effort */ });
+
+      const principal: Principal = {
+        sub: `machine:${mt.id}`,
+        email: '',
+        name: mt.name,
+        roles: mt.roles,
+      };
+      req.principal = principal;
+      return { ok: true, principal };
+    }
+  }
+
+  try { eventBus.publish({ type: 'auth.unauthorized', path, method, reason: 'invalid_token' }); } catch { /* audit failure must not block request */ }
+  return {
+    ok: false,
+    status: 401,
+    code: 'invalid_token',
+    hint: 'Invalid or expired machine token',
+  };
+}
 
 /**
  * Authenticate a request against the ctxhub JWT.
@@ -72,6 +114,12 @@ export async function authenticate(
   }
 
   const token = authHeader.slice(7);
+
+  // Machine token path: Bearer ctxm_<hex>
+  if (token.startsWith('ctxm_')) {
+    return authenticateMachineToken(token, req, path, method);
+  }
+
   const config = await loadAuthConfig();
   if (!config) {
     try { eventBus.publish({ type: 'auth.unauthorized', path, method, reason: 'auth_not_configured' }); } catch { /* audit failure must not block request */ }

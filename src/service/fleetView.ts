@@ -399,6 +399,9 @@ body{
     <div class="nav-item" id="nav-cloud" style="cursor:pointer">
       <span class="nav-icon">&#9729;</span> Cloud
     </div>
+    <div class="nav-item" id="nav-group-intel" style="cursor:pointer">
+      <span class="nav-icon">&#9768;</span> Group Intel
+    </div>
     <div class="nav-item" style="opacity:0.45;cursor:default" title="Coming in Phase 4 — Captains">
       <span class="nav-icon">&#9670;</span> Captains
     </div>
@@ -457,6 +460,21 @@ body{
       <button class="tbtn" id="btn-groups-refresh" style="margin-left:auto">&#8635; Refresh</button>
     </div>
     <div id="groups-content">
+      <div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>
+    </div>
+  </div>
+
+  <!-- group intel panel -->
+  <div id="group-intel-panel" style="display:none;position:absolute;inset:0;overflow-y:auto;padding:20px 24px;background:var(--bg-base)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <span style="color:var(--text-accent);font-size:18px">&#9768;</span>
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-1)">Group Intel</div>
+        <div style="font-size:11px;color:var(--text-3)">Aggregated view across your corporate group</div>
+      </div>
+      <button class="tbtn" id="btn-group-intel-refresh" style="margin-left:auto">&#8635; Refresh</button>
+    </div>
+    <div id="group-intel-content">
       <div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>
     </div>
   </div>
@@ -1154,9 +1172,9 @@ document.getElementById('det-refresh-btn').addEventListener('click',function(){
   if(state.selected) fetchWsStatus(state.selected);
 });
 
-// ── Groups / Cloud panels ────────────────────────────────────────────
+// ── Groups / Cloud / Group Intel panels ──────────────────────────────
 var GRAPH_ELEMENTS = ['gtb','graph-canvas','mmap'];
-var ALL_PANELS = ['groups-panel','cloud-panel'];
+var ALL_PANELS = ['groups-panel','cloud-panel','group-intel-panel'];
 
 function showView(view){
   var isFleet = (view === 'fleet');
@@ -1176,8 +1194,10 @@ function showView(view){
   document.getElementById('nav-fleet').classList.toggle('active', isFleet);
   document.getElementById('nav-groups').classList.toggle('active', view === 'groups');
   document.getElementById('nav-cloud').classList.toggle('active', view === 'cloud');
+  document.getElementById('nav-group-intel').classList.toggle('active', view === 'group-intel');
   if(view === 'groups') loadGroups();
   if(view === 'cloud') loadCloud();
+  if(view === 'group-intel') loadGroupIntel();
 }
 
 function loadGroups(){
@@ -1285,8 +1305,10 @@ function renderGroups(data){
 document.getElementById('nav-fleet').addEventListener('click', function(){ showView('fleet'); });
 document.getElementById('nav-groups').addEventListener('click', function(){ showView('groups'); });
 document.getElementById('nav-cloud').addEventListener('click', function(){ showView('cloud'); });
+document.getElementById('nav-group-intel').addEventListener('click', function(){ showView('group-intel'); });
 document.getElementById('btn-groups-refresh').addEventListener('click', function(){ loadGroups(); });
 document.getElementById('btn-cloud-refresh').addEventListener('click', function(){ loadCloud(); });
+document.getElementById('btn-group-intel-refresh').addEventListener('click', function(){ loadGroupIntel(); });
 
 // ── Cloud panel ──────────────────────────────────────────────
 
@@ -1376,6 +1398,123 @@ function renderCloud(data){
       result.textContent = String(err);
     });
   });
+}
+
+// ── Group Intel panel ────────────────────────────────────────────────
+
+function loadGroupIntel(){
+  document.getElementById('group-intel-content').innerHTML =
+    '<div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>';
+  fetch('/group/intel').then(function(r){ return r.json(); }).then(function(data){
+    renderGroupIntel(data);
+  }).catch(function(err){
+    document.getElementById('group-intel-content').innerHTML =
+      '<div style="color:var(--error);font-size:12px">' + esc(String(err)) + '</div>';
+  });
+}
+
+function renderGroupIntel(data){
+  var el = document.getElementById('group-intel-content');
+
+  if(!data.group){
+    el.innerHTML =
+      '<div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:18px 20px">' +
+      '<div style="color:var(--warn);font-size:13px;font-weight:600;margin-bottom:8px">&#9888; No group membership</div>' +
+      '<div style="color:var(--text-3);font-size:12px;line-height:1.8">' +
+      'Your account is not a member of any corporate group.<br>' +
+      'Contact your group administrator or run: <code style="font-family:var(--font-mono)">ctxhub group create</code>' +
+      '</div></div>';
+    return;
+  }
+
+  var group = data.group;
+  var orgs = group.orgs || [];
+  var chunks = data.promotedChunks || [];
+  var events = data.recentEvents || [];
+
+  // Group header card
+  var header =
+    '<div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:16px">' +
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">' +
+    '<span style="color:var(--text-accent);font-size:16px">&#9768;</span>' +
+    '<div style="font-size:14px;font-weight:600;color:var(--text-1)">' + esc(group.name) + '</div>' +
+    '<div style="font-size:10px;background:var(--accent-dim);color:var(--text-accent);padding:2px 8px;border-radius:20px;font-family:var(--font-mono)">' +
+    orgs.length + ' org' + (orgs.length !== 1 ? 's' : '') + '</div>' +
+    '<div style="margin-left:auto;font-size:10px;color:var(--text-3)">id: ' + esc(group.id.slice(0,8)) + '&hellip;</div>' +
+    '</div>';
+
+  // Org rows
+  var orgRows = orgs.map(function(o){
+    var tier = o.trustTier || 'participant';
+    var tierColor = tier === 'trusted' ? 'var(--ok)' : tier === 'observer' ? 'var(--muted)' : 'var(--accent)';
+    var lastSeen = o.lastSeen ? new Date(o.lastSeen).toLocaleString() : 'Never';
+    var peerStatus = o.peerUrl
+      ? '<span style="color:var(--ok);font-size:10px">&#10003; configured</span>'
+      : '<span style="color:var(--text-3);font-size:10px">&#10005; not configured</span>';
+
+    // Sharing summary for this org
+    var sharingPolicies = o.sharingPolicies || [];
+    var sharingBadges = sharingPolicies.map(function(p){
+      var mode = p.mode || 'none';
+      var c = mode === 'bidirectional' ? 'var(--ok)' : mode === 'read' ? 'var(--accent)' : 'var(--text-3)';
+      var icon = mode === 'bidirectional' ? '&#8644;' : mode === 'read' ? '&#8594;' : '&#10005;';
+      return '<span style="color:' + c + ';font-size:11px">' + icon + '</span>';
+    }).join(' ');
+
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-faint)">' +
+      '<div style="width:7px;height:7px;border-radius:50%;background:' + tierColor + ';flex-shrink:0"></div>' +
+      '<div style="flex:1;color:var(--text-1);font-size:12px">' + esc(o.name) + '</div>' +
+      '<div style="color:var(--text-3);font-size:10px">' + esc(lastSeen) + '</div>' +
+      '<div style="font-size:10px">' + peerStatus + '</div>' +
+      (sharingBadges ? '<div style="font-size:11px">' + sharingBadges + '</div>' : '') +
+      '<div style="color:' + tierColor + ';font-size:10px;width:72px;text-align:right">' + esc(tier) + '</div>' +
+      '</div>';
+  }).join('');
+
+  header += (orgRows ? '<div>' + orgRows + '</div>' : '<div style="color:var(--text-3);font-size:11px;padding:4px 0">No orgs in this group.</div>') + '</div>';
+
+  // Promoted findings card
+  var chunksCard =
+    '<div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:16px">' +
+    '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Promoted findings</div>';
+
+  if(!chunks.length){
+    chunksCard += '<div style="background:var(--bg-elevated);border:1px solid var(--border-faint);border-radius:var(--r);padding:12px 14px;color:var(--text-3);font-size:12px">No active knowledge objects found. Promote a finding using <code style="font-family:var(--font-mono)">ctxhub knowledge promote</code>.</div>';
+  } else {
+    chunksCard += chunks.map(function(c){
+      var conf = typeof c.confidence === 'number' ? Math.round(c.confidence * 100) + '%' : '—';
+      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-faint)">' +
+        '<div style="flex:1;min-width:0">' +
+        '<div style="color:var(--text-1);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(c.title || '(untitled)') + '</div>' +
+        '<div style="color:var(--text-3);font-size:10px;font-family:var(--font-mono)">' + esc(c.workspace || '') + '</div>' +
+        '</div>' +
+        '<div style="color:var(--accent);font-size:10px;flex-shrink:0">' + conf + '</div>' +
+        '</div>';
+    }).join('');
+  }
+  chunksCard += '</div>';
+
+  // Recent audit events card
+  var eventsCard =
+    '<div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:18px 20px">' +
+    '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Recent audit events</div>';
+
+  if(!events.length){
+    eventsCard += '<div style="background:var(--bg-elevated);border:1px solid var(--border-faint);border-radius:var(--r);padding:12px 14px;color:var(--text-3);font-size:12px">No audit events recorded yet.</div>';
+  } else {
+    eventsCard += events.map(function(e){
+      var ts = e.ts ? new Date(e.ts).toLocaleString() : '—';
+      var actor = e.actor || e.sub || '—';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--border-faint)">' +
+        '<div style="color:var(--accent);font-size:11px;flex-shrink:0;width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(e.type || '') + '</div>' +
+        '<div style="flex:1;color:var(--text-3);font-size:10px;font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(actor) + '</div>' +
+        '<div style="color:var(--text-3);font-size:10px;flex-shrink:0">' + esc(ts) + '</div>' +
+        '</div>';
+    }).join('');
+  }
+  eventsCard += '</div>';
+
+  el.innerHTML = header + chunksCard + eventsCard;
 }
 
 // ── Server-Sent Events ────────────────────────────────────────

@@ -41,7 +41,7 @@ export async function refreshSession(): Promise<Principal | null> {
   if (!config || !tokens) return null;
 
   try {
-    const discovery = await discoverOidc(config.oidc.tenantId);
+    const discovery = await discoverOidc(config.oidc);
     const entraTokens = await refreshEntraTokens(discovery, config.oidc, tokens.entraTokens.refreshToken);
     const idPayload = await validateIdToken(entraTokens.id_token, discovery, config.oidc);
 
@@ -108,7 +108,7 @@ export async function runLoginFlow(): Promise<Principal> {
     throw new Error('Auth not configured. Run: ctxhub auth configure');
   }
 
-  const discovery = await discoverOidc(config.oidc.tenantId);
+  const discovery = await discoverOidc(config.oidc);
   const { verifier, challenge } = generatePkce();
   const state = generateState();
   const authUrl = buildAuthUrl(discovery, config.oidc, challenge, state);

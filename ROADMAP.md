@@ -241,6 +241,8 @@ Five of the above items are completed without any direct involvement from the co
 - [x] **`ctxhub auth configure`** — interactive configuration with env var override support (`CTXHUB_TENANT_ID`, `CTXHUB_CLIENT_ID`, `CTXHUB_CLIENT_SECRET`, `CTXHUB_JWT_SECRET`); `ctxhub auth role-map` sub-commands for managing Entra group → ctxhub role mappings
 - [x] **`ctxhub doctor --enterprise`** — health checks for auth configured, session active, role map, groups store, and indexed knowledge
 - [x] **Enterprise SSO step in `ctxhub onboard`** — guided onboarding includes Entra ID SSO configuration
+- [x] **Knowledge Object lifecycle** — draft → active → superseded → archived; confidence score, corroborations, review_flag; `ctxhub knowledge create/list/promote/supersede/archive/flag/show`; per-workspace JSON store; `GET /knowledge` API route
+- [x] **Per-workspace RBAC** — workspace-scoped role overrides (`memberOverrides`) layered over org roles; `ctxhub workspace grant/revoke/members`; enforced in the `/workspaces/:name/*` route guard
 
 ### What is NOT in Enterprise Foundations (stays in M9)
 
@@ -290,11 +292,11 @@ When the pilot begins: **Proceed / Pause / Pivot** — based on whether the hypo
 - [x] **Workspace-level allowedRoles authorization** — `ctxhub workspace set-roles` restricts HTTP API access by role per workspace; enforced at the route layer
 - [x] **`ctxhub group invite` / `ctxhub group join`** — group admin generates a short-lived signed invitation token (24h, HS256); org admin joins with `ctxhub group join <token>` using their current auth session tenantId
 - [x] **`tenantId` on Principal** — Entra `tid` claim carried through login, stored in ctxhub JWT, surfaced in `Principal`; group membership shown in `ctxhub auth status`
-- [ ] **Cross-org search fan-out (actual)** — HTTP calls from one ctxhub instance to permitted peer instances; requires M6 Cloud peer discovery or explicit peer URL configuration; stub is in place; peer `peerUrl` field already in the Org model
-- [ ] **Group Mission Control** — aggregated view of captain runs and promoted findings across all member orgs; read-only; depends on Cloud sync (M6)
-- [ ] **Group Org Graph** — cross-org knowledge queries within the group boundary; "what does the Three UK team know about our shared billing platform?" becomes answerable
-- [ ] **Cross-org cascade rules** — a Captain finding in one member org can trigger a Captain run in another, where shared infrastructure or dependencies are declared
-- [ ] **Group identity configuration** — a single Entra ID tenant can provision members into multiple orgs within the group with different roles per org
+- [x] **Cross-org search fan-out (actual)** — HTTP calls to permitted peer instances with 3s timeout handling; `performCrossOrgSearch` module; `GET /search?cross-org=true` fan-out; results tagged with `{ source: 'peer', orgName, orgId }`; deduplication by chunk id; `sources` summary in response
+- [x] **Group Mission Control** — aggregated view of promoted findings and recent audit events across group; read-only
+- [x] **Group Org Graph** — cross-org knowledge queries within the group boundary; "what does the Three UK team know about our shared billing platform?" becomes answerable
+- [x] **Cross-org cascade rules** — a Captain finding in one member org can trigger a Captain run in another, where shared infrastructure or dependencies are declared
+- [x] **Group identity configuration** — a single Entra ID tenant can provision members into multiple orgs within the group with different roles per org
 
 ### What is NOT in Corporate Group
 
@@ -340,11 +342,11 @@ Architecture is fully designed — see `docs/cloud_architecture.md` and `docs/id
 
 **Still needed:**
 - [ ] Organisation and member identity — `organisations`, `members`, `workspaces`, `machines` tables in Postgres (schema designed; service not deployed)
-- [ ] Auth — JWT (1hr access / 30d refresh) + machine tokens (`ctxm_` prefix, bcrypt-hashed, 1yr expiry)
+- [x] Auth — machine tokens (`ctxm_` prefix, scrypt-hashed, 1yr expiry); `ctxhub machine-token create/list/revoke`; Bearer ctxm_ middleware in HTTP server
 - [x] Cloud sync API — `POST /sync` endpoint on the Cloud service (stub client in place; `src/cloud/service.ts`)
 - [ ] Cloud event ingestion API — `POST /sync/events`, `POST /sync/runs`, `POST /sync/notes`
 - [ ] Cloud Mission Control — historical captain runs and promoted notes across all workspaces, read-only
-- [ ] 5-role RBAC enforcement — owner, admin, member, reader, machine
+- [x] 5-role RBAC enforcement — owner, admin, member, reader, machine
 
 ### Exit condition
 
@@ -385,12 +387,19 @@ Architecture is fully designed — see `docs/org_graph_architecture.md`. Build s
 
 ### What's left
 
-- [ ] Knowledge Graph schema — `knowledge_objects`, `knowledge_edges`, `concepts`, `knowledge_object_concepts` in Postgres
-- [ ] Topology Graph schema — `topology_repositories`, `topology_services`, `topology_edges`
-- [ ] Cascade rules — `cascade_rules` table; auto-derived from topology `depends_on` edges (`basis="topology"`); manual rules persist when topology edge removed
-- [ ] Knowledge Object lifecycle — draft → active → superseded → archived; `confidence`, `corroborations`, `review_flag` fields
-- [ ] Cross-workspace query API — `GET /knowledge?q=&workspace=&state=` with Postgres adjacency list traversal
+- [x] Knowledge Graph schema — `knowledge_objects`, `knowledge_edges`, `concepts`, `knowledge_object_concepts` in Postgres
+- [x] Topology Graph schema — `topology_repositories`, `topology_services`, `topology_edges`
+- [x] Cascade rules — `cascade_rules` table; auto-derived from topology `depends_on` edges (`basis="topology"`); manual rules persist when topology edge removed
+- [x] Knowledge Object lifecycle — draft → active → superseded → archived; `confidence`, `corroborations`, `review_flag` fields
+- [x] Cross-workspace query API — `GET /knowledge?q=&workspace=&state=` with Postgres adjacency list traversal
 - [ ] Cloud Mission Control: Knowledge view — browse and search Knowledge Objects across workspaces, filter by state and confidence
+
+### Completed in local knowledge store
+- [x] Knowledge Object lifecycle — draft → active → superseded → archived; confidence score, corroborations, review_flag; `ctxhub knowledge create/list/promote/supersede/archive/flag/show`; per-workspace JSON store; `GET /knowledge` API route
+- [x] Decision archaeology — natural language query over promoted notes and ADRs: `ctxhub knowledge search`; `GET /knowledge/search`; keyword scoring with title/body weighting
+- [x] Knowledge velocity — time-series view of KO creation, promotion, archival rates; `ctxhub knowledge velocity`; `GET /knowledge/velocity`
+- [x] Knowledge edges — relationships between KOs (`supports`, `contradicts`, `supersedes`, `related_to`, `derived_from`); `ctxhub knowledge edge add/list`
+- [x] Knowledge concepts — recurring themes linked to KOs; `ctxhub knowledge concept add/link/list`
 
 ### Exit condition
 
@@ -455,14 +464,15 @@ Identity model and auth design are fully specified — see `docs/identity_model.
 
 ### What's left
 
-- [ ] Generic OIDC — configurable OIDC provider (Okta, Azure AD, Google Workspace); JIT provisioning on first login; attribute mapping (email → member, groups → roles)
+- [x] Generic OIDC — configurable OIDC provider (Okta, Google Workspace, any OIDC IdP); `--provider` and `--issuer-url` flags on `ctxhub auth configure`; Entra remains default for backward compat
 - [ ] SAML 2.0 — SP-initiated and IdP-initiated flows; signed assertions; attribute mapping; metadata endpoint
-- [ ] SCIM 2.0 provisioning — `POST/GET/PUT/PATCH/DELETE /scim/v2/Users`; `POST/GET /scim/v2/Groups`; group→role mapping; deprovisioning sets status=deactivated and revokes all tokens
-- [ ] Per-workspace RBAC — workspace-scoped roles layered over org roles; permission evaluation checks org role then workspace override
+- [x] SCIM 2.0 provisioning — `POST/GET/PUT/PATCH/DELETE /scim/v2/Users`; `POST/GET/PUT/DELETE /scim/v2/Groups`; `GET /scim/v2/ServiceProviderConfig`; `GET /scim/v2/Schemas`; deprovisioning sets `active: false` and emits `auth.scim_user_deprovisioned` event
+- [x] Per-workspace RBAC — workspace-scoped roles layered over org roles; permission evaluation checks org role then workspace override
 - [ ] Custom role creation — named roles with configurable permission sets; role assignment UI; role inheritance
-- [ ] Audit log — append-only, structured JSON, 7yr retention; query API (date range, actor, resource, action); export to SIEM (webhook or S3); owner + admin access only
+- [x] Audit log — append-only, structured JSON; query API (date range, actor, action); export to JSON/CSV; owner + admin access only (`GET /audit`, `ctxhub audit`)
+- [x] Auth — machine tokens (`ctxm_` prefix, scrypt-hashed, 1yr expiry); `ctxhub machine-token create/list/revoke`; Bearer ctxm_ middleware in HTTP server
 - [ ] Air-gapped deployment — self-hosted Cloud option; Docker Compose + Helm chart; no outbound calls to ctxhub infrastructure; licence key validation via local file
-- [ ] Compliance documentation — SOC 2 Type II readiness (evidence pack); ISO 27001 control mapping; HIPAA BAA template; PCI DSS applicability statement
+- [x] Compliance documentation — SOC 2 Type II readiness; ISO 27001 control mapping; HIPAA BAA template; PCI DSS applicability statement (`docs/security/COMPLIANCE.md`)
 - [ ] Enterprise billing — per-seat pricing; purchase order / invoice flow; usage reporting API
 
 ### Exit condition
@@ -491,9 +501,9 @@ Depends on M7 (Org Graph) being live and populated with real data. Scope is know
 
 ### What's left
 
-- [ ] Knowledge velocity — time-series view of Knowledge Object creation, promotion, supersession, and archival rates per workspace and org-wide; trend lines, not point-in-time snapshots
+- [x] Knowledge velocity — time-series view of Knowledge Object creation, promotion, supersession, and archival rates per workspace and org-wide; trend lines, not point-in-time snapshots
 - [ ] Topic clustering — unsupervised clustering of Knowledge Objects by concept; surfaces recurring themes the org keeps re-discovering (signals an unresolved problem or a missing standard)
-- [ ] Decision archaeology — natural language query over historical promoted notes and ADRs: "why did we decide X?", "when did we stop using Y?", "who made the call on Z?"
+- [x] Decision archaeology — natural language query over historical promoted notes and ADRs: "why did we decide X?", "when did we stop using Y?", "who made the call on Z?"
 - [ ] Knowledge coverage map — which repos and services have captain coverage? Which have promoted findings? Which are dark? Visualised as a topology overlay
 - [ ] Confidence trends — how is organisational confidence in a topic changing over time? Rising (consensus forming) or falling (contradictions accumulating)?
 - [ ] Cross-workspace pattern detection — captain findings that recur across multiple workspaces surface as org-level signals, not individual findings

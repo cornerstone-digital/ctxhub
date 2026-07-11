@@ -175,6 +175,90 @@ export async function workspaceImportCommand(opts: { from: string; name?: string
   console.log(chalk.dim('Run: ctxhub workspace register && ctxhub index   to register and rebuild the index.'));
 }
 
+// ── Per-workspace RBAC: grant / revoke / members ──────────────────────────────
+
+export async function workspaceGrantCommand(opts: { workspace: string; sub: string; role: string }) {
+  if (!opts.workspace?.trim()) { console.error('Error: --workspace is required'); process.exit(1); }
+  if (!opts.sub?.trim()) { console.error('Error: --sub is required'); process.exit(1); }
+  if (!opts.role?.trim()) { console.error('Error: --role is required'); process.exit(1); }
+
+  const workspaces = await listWorkspaces();
+  const wsEntry = workspaces.find(w => w.name === opts.workspace.trim());
+  if (!wsEntry) {
+    console.error(`Error: No registered workspace named "${opts.workspace}". Run: ctxhub workspace list`);
+    process.exit(1);
+  }
+  if (!wsEntry.exists) {
+    console.error(`Error: Workspace path no longer exists: ${wsEntry.path}`);
+    process.exit(1);
+  }
+
+  const { config } = await loadWorkspaceConfig(wsEntry.path);
+  config.workspace.memberOverrides = { ...(config.workspace.memberOverrides ?? {}), [opts.sub.trim()]: opts.role.trim() };
+  await saveConfig(config, wsEntry.path);
+
+  console.log(chalk.green(`✓ Granted ${opts.sub.trim()} role ${opts.role.trim()} in workspace ${opts.workspace.trim()}`));
+}
+
+export async function workspaceRevokeCommand(opts: { workspace: string; sub: string }) {
+  if (!opts.workspace?.trim()) { console.error('Error: --workspace is required'); process.exit(1); }
+  if (!opts.sub?.trim()) { console.error('Error: --sub is required'); process.exit(1); }
+
+  const workspaces = await listWorkspaces();
+  const wsEntry = workspaces.find(w => w.name === opts.workspace.trim());
+  if (!wsEntry) {
+    console.error(`Error: No registered workspace named "${opts.workspace}". Run: ctxhub workspace list`);
+    process.exit(1);
+  }
+  if (!wsEntry.exists) {
+    console.error(`Error: Workspace path no longer exists: ${wsEntry.path}`);
+    process.exit(1);
+  }
+
+  const { config } = await loadWorkspaceConfig(wsEntry.path);
+  const overrides = { ...(config.workspace.memberOverrides ?? {}) };
+  delete overrides[opts.sub.trim()];
+  config.workspace.memberOverrides = Object.keys(overrides).length ? overrides : undefined;
+  await saveConfig(config, wsEntry.path);
+
+  console.log(chalk.green(`✓ Revoked override for ${opts.sub.trim()} in workspace ${opts.workspace.trim()}`));
+}
+
+export async function workspaceMembersCommand(opts: { workspace: string }) {
+  if (!opts.workspace?.trim()) { console.error('Error: --workspace is required'); process.exit(1); }
+
+  const workspaces = await listWorkspaces();
+  const wsEntry = workspaces.find(w => w.name === opts.workspace.trim());
+  if (!wsEntry) {
+    console.error(`Error: No registered workspace named "${opts.workspace}". Run: ctxhub workspace list`);
+    process.exit(1);
+  }
+  if (!wsEntry.exists) {
+    console.error(`Error: Workspace path no longer exists: ${wsEntry.path}`);
+    process.exit(1);
+  }
+
+  const { config } = await loadWorkspaceConfig(wsEntry.path);
+  const allowedRoles = config.workspace.allowedRoles;
+  const memberOverrides = config.workspace.memberOverrides;
+
+  console.log(chalk.bold(`Workspace: ${opts.workspace.trim()}`));
+  if (allowedRoles && allowedRoles.length > 0) {
+    console.log(`  Allowed roles:   ${allowedRoles.join(', ')}`);
+  } else {
+    console.log(`  Allowed roles:   ${chalk.gray('(any authenticated user)')}`);
+  }
+
+  if (memberOverrides && Object.keys(memberOverrides).length > 0) {
+    console.log(`\n  Member overrides:`);
+    for (const [sub, role] of Object.entries(memberOverrides)) {
+      console.log(`    ${sub}  →  ${chalk.cyan(role)}`);
+    }
+  } else {
+    console.log(`  Member overrides: ${chalk.gray('(none)')}`);
+  }
+}
+
 export async function workspaceSetRolesCommand(opts: { name: string; roles: string }) {
   if (!opts.name?.trim()) {
     console.error('Error: --name is required');

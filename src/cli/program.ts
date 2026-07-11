@@ -20,7 +20,8 @@ import { replayCommand } from '../commands/replay.js';
 import { handoffCommand } from '../commands/handoff.js';
 import { reviewCommand } from '../commands/review.js';
 import { personasInitCommand, personasSyncCommand, SUPPORTED_PERSONA_SYNC_AGENTS } from '../commands/personas.js';
-import { workspaceExportCommand, workspaceImportCommand, workspaceListCommand, workspaceRegisterCommand, workspaceRemoveCommand, workspaceSetRolesCommand } from '../commands/workspace.js';
+import { workspaceExportCommand, workspaceGrantCommand, workspaceImportCommand, workspaceListCommand, workspaceMembersCommand, workspaceRegisterCommand, workspaceRemoveCommand, workspaceRevokeCommand, workspaceSetRolesCommand } from '../commands/workspace.js';
+import { knowledgeArchiveCommand, knowledgeCreateCommand, knowledgeFlagCommand, knowledgeListCommand, knowledgePromoteCommand, knowledgeShowCommand, knowledgeSupersededCommand } from '../commands/knowledge.js';
 import { serviceStartCommand, serviceStopCommand, serviceStatusCommand, dashboardCommand } from '../commands/service.js';
 import {
   captainAddCommand,
@@ -56,7 +57,7 @@ import {
 import { VALID_ROLES } from '../auth/roles.js';
 import { jobAddCommand, jobListCommand, jobRemoveCommand, jobRunCommand, jobRunsCommand } from '../commands/job.js';
 import { webhookGenerateTokenCommand, webhookSetSecretCommand, webhookSetTokenCommand, webhookShowCommand } from '../commands/webhook.js';
-import { groupCreateCommand, groupListCommand, groupAddOrgCommand, groupRemoveOrgCommand, groupSharingCommand, groupStatusCommand, groupInviteCommand, groupJoinCommand, groupHeartbeatCommand } from '../commands/group.js';
+import { groupCreateCommand, groupListCommand, groupAddOrgCommand, groupRemoveOrgCommand, groupSharingCommand, groupStatusCommand, groupInviteCommand, groupJoinCommand, groupHeartbeatCommand, groupIdentitySetDefaultCommand, groupIdentityAddGroupRoleCommand, groupIdentityAddOverrideCommand, groupIdentityShowCommand, groupQueryCommand } from '../commands/group.js';
 import { chunkPromoteCommand, chunkListCommand } from '../commands/chunk.js';
 import { runGuidedMode } from '../commands/guided.js';
 import { checkForDriftOnce } from '../utils/driftCheck.js';
@@ -66,6 +67,25 @@ import { serviceSetPeerUrlCommand } from '../commands/service.js';
 import { cloudConfigureCommand, cloudStatusCommand, cloudSyncCommand } from '../commands/cloud.js';
 import { demoCommand } from '../commands/demo.js';
 import { blueprintPackCommand, blueprintInstallCommand, blueprintListCommand, blueprintRemoveCommand } from '../commands/blueprint.js';
+import { machineTokenCreateCommand, machineTokenListCommand, machineTokenRevokeCommand } from '../commands/machineToken.js';
+import { auditCommand } from '../commands/audit.js';
+import { statusCommand } from '../commands/status.js';
+import {
+  topologyRepoAddCommand,
+  topologyRepoListCommand,
+  topologyServiceAddCommand,
+  topologyServiceListCommand,
+  topologyEdgeAddCommand,
+  topologyEdgeListCommand,
+  topologyDepsCommand,
+  topologyShowCommand,
+} from '../commands/topology.js';
+import {
+  cascadeListCommand,
+  cascadeAddCommand,
+  cascadeRemoveCommand,
+  cascadeDeriveCommand,
+} from '../commands/cascade.js';
 
 // Pure construction only -- no parsing, no process.exit. Split out from index.ts so
 // guided mode (src/tui/guided/commandTree.ts) can introspect the full command tree
@@ -428,6 +448,27 @@ export function buildProgram(): Command {
     .action((opts: { name: string; roles: string }) => workspaceSetRolesCommand(opts));
 
   workspace
+    .command('grant')
+    .description('Grant a workspace-scoped role override to a specific user (overrides their org role for this workspace)')
+    .requiredOption('--workspace <name>', 'Registered workspace name')
+    .requiredOption('--sub <sub>', 'User subject identifier (sub)')
+    .requiredOption('--role <role>', 'Role to grant for this workspace')
+    .action((opts: { workspace: string; sub: string; role: string }) => workspaceGrantCommand(opts));
+
+  workspace
+    .command('revoke')
+    .description('Remove a workspace-scoped role override for a specific user')
+    .requiredOption('--workspace <name>', 'Registered workspace name')
+    .requiredOption('--sub <sub>', 'User subject identifier (sub)')
+    .action((opts: { workspace: string; sub: string }) => workspaceRevokeCommand(opts));
+
+  workspace
+    .command('members')
+    .description('List allowed roles and per-member role overrides for a workspace')
+    .requiredOption('--workspace <name>', 'Registered workspace name')
+    .action((opts: { workspace: string }) => workspaceMembersCommand(opts));
+
+  workspace
     .command('export')
     .description('Export workspace config, notes, and diagrams to a JSON file (index not included)')
     .requiredOption('--name <workspace>', 'Registered workspace name to export')
@@ -440,6 +481,64 @@ export function buildProgram(): Command {
     .requiredOption('--from <path>', 'Path to the export JSON file')
     .option('--name <name>', 'Override the workspace name from the export')
     .action((opts: { from: string; name?: string }) => workspaceImportCommand(opts));
+
+  // ── Knowledge Objects ─────────────────────────────────────────────────────
+
+  const knowledge = program.command('knowledge').description('Manage structured, versioned knowledge objects');
+
+  knowledge
+    .command('create')
+    .description('Create a new knowledge object in draft state')
+    .requiredOption('--title <title>', 'Knowledge object title')
+    .requiredOption('--content <content>', 'Knowledge statement / content')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .option('--tags <tags>', 'Comma-separated tags (e.g. "security,auth")')
+    .action((opts: { title: string; content: string; workspace?: string; tags?: string }) => knowledgeCreateCommand(opts));
+
+  knowledge
+    .command('list')
+    .description('List knowledge objects')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .option('--state <state>', 'Filter by state: draft, active, superseded, archived')
+    .option('--tag <tag>', 'Filter by tag')
+    .action((opts: { workspace?: string; state?: string; tag?: string }) => knowledgeListCommand(opts));
+
+  knowledge
+    .command('promote')
+    .argument('<id>', 'Knowledge object id (full or 8-char prefix)')
+    .description('Promote a draft knowledge object to active')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((id: string, opts: { workspace?: string }) => knowledgePromoteCommand(id, opts));
+
+  knowledge
+    .command('supersede')
+    .argument('<id>', 'Knowledge object id to supersede (full or 8-char prefix)')
+    .description('Mark a knowledge object as superseded by a newer one')
+    .requiredOption('--by <new-id>', 'Id of the knowledge object that replaces this one')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((id: string, opts: { by: string; workspace?: string }) => knowledgeSupersededCommand(id, opts));
+
+  knowledge
+    .command('archive')
+    .argument('<id>', 'Knowledge object id (full or 8-char prefix)')
+    .description('Archive a knowledge object')
+    .option('--reason <reason>', 'Reason for archiving')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((id: string, opts: { reason?: string; workspace?: string }) => knowledgeArchiveCommand(id, opts));
+
+  knowledge
+    .command('flag')
+    .argument('<id>', 'Knowledge object id (full or 8-char prefix)')
+    .description('Toggle the human-review flag on a knowledge object')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((id: string, opts: { workspace?: string }) => knowledgeFlagCommand(id, opts));
+
+  knowledge
+    .command('show')
+    .argument('<id>', 'Knowledge object id (full or 8-char prefix)')
+    .description('Show all fields of a single knowledge object')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((id: string, opts: { workspace?: string }) => knowledgeShowCommand(id, opts));
 
   const service = program.command('service').description('Run the local control-plane service (docs/control-plane.md, Phase 2)');
 
@@ -712,11 +811,13 @@ export function buildProgram(): Command {
 
   auth
     .command('configure')
-    .description('Configure Entra ID SSO for this ctxhub installation')
-    .requiredOption('--tenant-id <id>', 'Azure AD / Entra ID tenant ID')
+    .description('Configure SSO for this ctxhub installation (Entra ID, Okta, Google, or any OIDC provider)')
+    .option('--tenant-id <id>', 'Azure AD / Entra ID tenant ID (required for Entra provider)')
     .requiredOption('--client-id <id>', 'App registration client (application) ID')
     .requiredOption('--client-secret <secret>', 'App registration client secret')
-    .action((opts: { tenantId: string; clientId: string; clientSecret: string }) =>
+    .addOption(new Option('--provider <provider>', 'OIDC provider').choices(['entra', 'okta', 'google', 'generic']).default('entra'))
+    .option('--issuer-url <url>', 'OIDC issuer URL (required for non-Entra providers, e.g. https://accounts.google.com)')
+    .action((opts: { tenantId?: string; clientId: string; clientSecret: string; provider?: string; issuerUrl?: string }) =>
       authConfigureCommand(opts)
     );
 
@@ -880,6 +981,52 @@ export function buildProgram(): Command {
     .description('Send a heartbeat to the local service announcing this instance\'s peerUrl (requires CTXHUB_ORG_ID, CTXHUB_GROUP_ID env vars)')
     .action(() => groupHeartbeatCommand());
 
+  // ── group query ───────────────────────────────────────────────────────────
+
+  group
+    .command('query')
+    .description('Query knowledge from peer orgs within the same corporate group')
+    .requiredOption('--q <query>', 'Knowledge query')
+    .option('--min-confidence <n>', 'Minimum confidence score (0.0–1.0) to include in results')
+    .action((opts: { q: string; minConfidence?: string }) => groupQueryCommand(opts));
+
+  // ── group identity ────────────────────────────────────────────────────────
+
+  const groupIdentity = group.command('identity').description('Manage per-org identity configuration (per-org role overrides for a shared Entra ID tenant)');
+
+  groupIdentity
+    .command('set-default')
+    .description('Set the default role for authenticated members of this org (overrides the global default)')
+    .requiredOption('--group-id <id>', 'Corporate group id')
+    .requiredOption('--org-id <id>', 'Org id')
+    .requiredOption('--role <role>', 'Default ctxhub role for this org')
+    .action((opts: { groupId: string; orgId: string; role: string }) => groupIdentitySetDefaultCommand(opts));
+
+  groupIdentity
+    .command('add-group-role')
+    .description('Map an Entra security group to a ctxhub role within this org (overrides the global group role mapping)')
+    .requiredOption('--group-id <gid>', 'Corporate group id')
+    .requiredOption('--org-id <oid>', 'Org id')
+    .requiredOption('--entra-group <eg>', 'Entra security group object ID')
+    .requiredOption('--role <role>', 'ctxhub role to assign to members of this Entra group in this org')
+    .action((opts: { groupId: string; orgId: string; entraGroup: string; role: string }) => groupIdentityAddGroupRoleCommand(opts));
+
+  groupIdentity
+    .command('add-override')
+    .description('Set a per-user role override within this org (overrides all other role resolution for this user)')
+    .requiredOption('--group-id <gid>', 'Corporate group id')
+    .requiredOption('--org-id <oid>', 'Org id')
+    .requiredOption('--sub <sub>', 'Entra object ID (sub) of the user')
+    .requiredOption('--role <role>', 'ctxhub role to assign to this user in this org')
+    .action((opts: { groupId: string; orgId: string; sub: string; role: string }) => groupIdentityAddOverrideCommand(opts));
+
+  groupIdentity
+    .command('show')
+    .description('Show the current identity configuration for an org')
+    .requiredOption('--group-id <gid>', 'Corporate group id')
+    .requiredOption('--org-id <oid>', 'Org id')
+    .action((opts: { groupId: string; orgId: string }) => groupIdentityShowCommand(opts));
+
   // ── Cloud ─────────────────────────────────────────────────────────────────
 
   const cloud = program.command('cloud').description('Manage ctxhub Cloud sync configuration');
@@ -930,6 +1077,162 @@ export function buildProgram(): Command {
     .argument('<name>', 'Name of the installed blueprint to remove')
     .description('Remove an installed blueprint')
     .action((name: string) => blueprintRemoveCommand(name));
+
+  // ── Machine Tokens ────────────────────────────────────────────────────────
+
+  const machineToken = program.command('machine-token').description('Manage machine tokens for CI/CD pipeline authentication (ctxm_ prefix)');
+
+  machineToken
+    .command('create')
+    .description('Create a new machine token')
+    .requiredOption('--name <name>', 'Human-readable label for the token (e.g. "github-actions")')
+    .option('--role <role>', 'Role to assign (default: machine)', 'machine')
+    .option('--expires-in <days>', 'Token validity in days (default: 365)', '365')
+    .action((opts: { name: string; role?: string; expiresIn?: string }) =>
+      machineTokenCreateCommand(opts)
+    );
+
+  machineToken
+    .command('list')
+    .description('List all machine tokens (never shows raw token values)')
+    .action(() => machineTokenListCommand());
+
+  machineToken
+    .command('revoke')
+    .argument('<id>', 'Token ID (full UUID or first 8 characters)')
+    .description('Revoke a machine token (sets revokedAt; token is no longer valid)')
+    .action((id: string) => machineTokenRevokeCommand(id));
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+
+  program
+    .command('audit')
+    .description('Query the ctxhub audit event log')
+    .option('--actor <sub>', 'Filter by actor sub or email (substring match)')
+    .option('--action <type>', 'Filter by event type (substring match, e.g. "auth.login")')
+    .option('--from <date>', 'Filter events on or after this ISO date')
+    .option('--to <date>', 'Filter events on or before this ISO date')
+    .option('--limit <n>', 'Max entries to return (default: 20)', '20')
+    .option('--format <fmt>', 'Output format: table, json, or csv (default: table)', 'table')
+    .option('--out <file>', 'Write output to a file instead of stdout')
+    .action((opts: { actor?: string; action?: string; from?: string; to?: string; limit?: string; format?: string; out?: string }) =>
+      auditCommand(opts)
+    );
+
+  // ── Topology Graph ────────────────────────────────────────────────────────────
+
+  const topology = program.command('topology').description('Manage the topology graph: repositories, services, and their edges');
+
+  const topoRepo = topology.command('repo').description('Manage topology repositories');
+
+  topoRepo
+    .command('add')
+    .description('Add a repository to the topology graph')
+    .requiredOption('--name <name>', 'Repository name')
+    .option('--url <url>', 'Repository URL')
+    .option('--workspace <id>', 'Linked ctxhub workspace id')
+    .option('--lang <language>', 'Primary language (e.g. TypeScript, Go)')
+    .option('--tags <tags>', 'Comma-separated tags')
+    .action((opts: { name: string; url?: string; workspace?: string; lang?: string; tags?: string }) =>
+      topologyRepoAddCommand(opts)
+    );
+
+  topoRepo
+    .command('list')
+    .description('List all repositories in the topology graph')
+    .action(() => topologyRepoListCommand());
+
+  const topoService = topology.command('service').description('Manage topology services');
+
+  topoService
+    .command('add')
+    .description('Add a service to the topology graph')
+    .requiredOption('--name <name>', 'Service name')
+    .option('--type <type>', 'Service type (api, worker, db, queue, frontend, infra)')
+    .option('--repo <repo-id>', 'Repository id that contains this service')
+    .option('--description <text>', 'Short description')
+    .option('--tags <tags>', 'Comma-separated tags')
+    .action((opts: { name: string; type?: string; repo?: string; description?: string; tags?: string }) =>
+      topologyServiceAddCommand(opts)
+    );
+
+  topoService
+    .command('list')
+    .description('List all services in the topology graph')
+    .action(() => topologyServiceListCommand());
+
+  const topoEdge = topology.command('edge').description('Manage topology edges');
+
+  topoEdge
+    .command('add')
+    .description('Add an edge between two topology nodes')
+    .requiredOption('--from <id>', 'Source node id')
+    .requiredOption('--from-type <type>', 'Source node type (service or repository)')
+    .requiredOption('--to <id>', 'Target node id')
+    .requiredOption('--to-type <type>', 'Target node type (service or repository)')
+    .requiredOption('--type <edge-type>', 'Edge type (depends_on, calls, owns, deployed_with, shares_db)')
+    .option('--description <text>', 'Optional description')
+    .action((opts: { from: string; fromType: string; to: string; toType: string; type: string; description?: string }) =>
+      topologyEdgeAddCommand(opts)
+    );
+
+  topoEdge
+    .command('list')
+    .description('List topology edges')
+    .option('--from <id>', 'Filter to edges from this node id')
+    .action((opts: { from?: string }) => topologyEdgeListCommand(opts));
+
+  topology
+    .command('deps')
+    .argument('<service-id>', 'Service id to trace dependencies from')
+    .description('Show transitive depends_on dependency tree (up to depth 3)')
+    .action((serviceId: string) => topologyDepsCommand(serviceId));
+
+  topology
+    .command('show')
+    .description('Show an ASCII overview of services and their edges')
+    .action(() => topologyShowCommand());
+
+  // ── Cascade Rules ─────────────────────────────────────────────────────────────
+
+  const cascade = program.command('cascade').description('Manage cross-org cascade rules: Captain findings in one org trigger runs in another');
+
+  cascade
+    .command('list')
+    .description('List cascade rules')
+    .option('--org-id <id>', 'Filter by trigger org id')
+    .action((opts: { orgId?: string }) => cascadeListCommand(opts));
+
+  cascade
+    .command('add')
+    .description('Add a manual cascade rule')
+    .requiredOption('--trigger-org <id>', 'Org id where the Captain finding originates')
+    .requiredOption('--target-org <id>', 'Org id where the Captain run should be triggered')
+    .requiredOption('--name <name>', 'Rule name')
+    .option('--tags <tags>', 'Comma-separated tags: only cascade if finding has these tags')
+    .option('--workspace <id>', 'Target workspace id to run Captain in')
+    .action((opts: { triggerOrg: string; targetOrg: string; name: string; tags?: string; workspace?: string }) =>
+      cascadeAddCommand(opts)
+    );
+
+  cascade
+    .command('remove')
+    .argument('<id>', 'Rule id to remove')
+    .description('Remove a cascade rule')
+    .action((id: string) => cascadeRemoveCommand(id));
+
+  cascade
+    .command('derive')
+    .description('Derive cascade rules from topology depends_on edges across orgs')
+    .option('--yes', 'Skip confirmation prompt and save rules')
+    .action((opts: { yes?: boolean }) => cascadeDeriveCommand(opts));
+
+  // ── Status ────────────────────────────────────────────────────────────────
+
+  program
+    .command('status')
+    .description('Print a compact health snapshot: auth, service, workspaces, groups, blueprints, machine tokens')
+    .action(() => statusCommand());
 
   // ── Version ───────────────────────────────────────────────────────────────
 

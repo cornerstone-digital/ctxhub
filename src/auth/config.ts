@@ -57,10 +57,12 @@ export async function loadAuthConfig(): Promise<AuthConfig | null> {
   // If all env vars are present, build from env (use file redirectUri if available, else empty)
   if (allEnvVarsPresent) {
     const oidc: OidcConfig = {
+      provider: fileConfig?.oidc?.provider ?? 'entra',
       tenantId: env.tenantId!,
       clientId: env.clientId!,
       clientSecret: env.clientSecret!,
       redirectUri: fileConfig?.oidc?.redirectUri ?? '',
+      ...(fileConfig?.oidc?.issuerUrl ? { issuerUrl: fileConfig.oidc.issuerUrl } : {}),
     };
     return {
       version: 1,
@@ -79,9 +81,10 @@ export async function loadAuthConfig(): Promise<AuthConfig | null> {
   if (!fileConfig) return null;
 
   const oidc: OidcConfig = {
+    ...(fileConfig.oidc ?? {}),
     tenantId: env.tenantId ?? fileConfig.oidc?.tenantId,
-    clientId: env.clientId ?? fileConfig.oidc?.clientId,
-    clientSecret: env.clientSecret ?? fileConfig.oidc?.clientSecret,
+    clientId: env.clientId ?? fileConfig.oidc?.clientId ?? '',
+    clientSecret: env.clientSecret ?? fileConfig.oidc?.clientSecret ?? '',
     redirectUri: fileConfig.oidc?.redirectUri ?? '',
   };
 
@@ -122,11 +125,42 @@ export async function updateRoleMap(roleMap: RoleMap): Promise<void> {
 
 export async function isAuthConfigured(): Promise<boolean> {
   const config = await loadAuthConfig();
-  return (
-    config !== null &&
-    Boolean(config.oidc?.tenantId) &&
-    Boolean(config.oidc?.clientId) &&
-    Boolean(config.oidc?.clientSecret) &&
-    Boolean(config.jwtSecret)
-  );
+  if (config === null) return false;
+  if (!config.oidc?.clientId) return false;
+  if (!config.oidc?.clientSecret) return false;
+  if (!config.jwtSecret) return false;
+  // For Entra provider (or legacy configs without explicit provider), tenantId is required
+  const provider = config.oidc?.provider;
+  if (!provider || provider === 'entra') {
+    return Boolean(config.oidc?.tenantId);
+  }
+  // For generic/okta/google, issuerUrl is required instead
+  return Boolean(config.oidc?.issuerUrl);
+}
+
+/**
+ * Initialise or update auth config for non-Entra OIDC providers.
+ */
+export async function initAuthConfigGeneric(opts: {
+  provider: 'okta' | 'google' | 'generic';
+  issuerUrl: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}): Promise<AuthConfig> {
+  const existing = await loadAuthConfig();
+  const oidc: OidcConfig = {
+    provider: opts.provider,
+    issuerUrl: opts.issuerUrl,
+    clientId: opts.clientId,
+    clientSecret: opts.clientSecret,
+    redirectUri: opts.redirectUri,
+  };
+  const config: AuthConfig = {
+    version: 1,
+    oidc,
+    jwtSecret: existing?.jwtSecret ?? randomBytes(32).toString('hex'),
+  };
+  await saveAuthConfig(config);
+  return config;
 }

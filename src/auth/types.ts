@@ -2,10 +2,28 @@
 // See: docs/ctxhub_identity_model.docx, docs/trust_model.md
 
 export interface OidcConfig {
-  tenantId: string;
+  provider?: 'entra' | 'okta' | 'google' | 'generic'; // default: 'entra' for backward compat
+  tenantId?: string;      // Entra only (keep for backward compat; required when provider='entra')
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  issuerUrl?: string;     // for 'generic'/'okta'/'google' — full OIDC issuer URL
+}
+
+export interface MachineToken {
+  id: string;           // UUID
+  name: string;         // human label, e.g. "github-actions"
+  hashedToken: string;  // scrypt hash of the raw ctxm_ token
+  roles: string[];      // e.g. ['machine']
+  createdAt: string;    // ISO
+  expiresAt: string;    // ISO (1 year default)
+  lastUsedAt?: string;  // ISO, updated on each use
+  revokedAt?: string;   // ISO, set on revoke
+}
+
+export interface MachineTokenStore {
+  version: 1;
+  tokens: MachineToken[];
 }
 
 /**
