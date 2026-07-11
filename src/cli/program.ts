@@ -65,6 +65,7 @@ import { shareCommand, shareListCommand, shareRevokeCommand } from '../commands/
 import { serviceSetPeerUrlCommand } from '../commands/service.js';
 import { cloudConfigureCommand, cloudStatusCommand, cloudSyncCommand } from '../commands/cloud.js';
 import { demoCommand } from '../commands/demo.js';
+import { blueprintPackCommand, blueprintInstallCommand, blueprintListCommand, blueprintRemoveCommand } from '../commands/blueprint.js';
 
 // Pure construction only -- no parsing, no process.exit. Split out from index.ts so
 // guided mode (src/tui/guided/commandTree.ts) can introspect the full command tree
@@ -901,6 +902,34 @@ export function buildProgram(): Command {
     .option('--workspace <name>', 'Limit sync to a specific workspace (default: all registered workspaces)')
     .option('--dry-run', 'Show how many chunks would be synced without actually syncing')
     .action((opts: { workspace?: string; dryRun?: boolean }) => cloudSyncCommand(opts));
+
+  // ── Blueprint ─────────────────────────────────────────────────────────────
+
+  const blueprint = program.command('blueprint').description('Manage installable packages of captain tasks, personas, and mission templates');
+
+  blueprint
+    .command('pack')
+    .description('Pack a blueprint directory into a versioned .ctxblueprint archive')
+    .option('--dir <path>', 'Directory containing blueprint.yaml (default: current directory)')
+    .option('--out <path>', 'Output path for the archive (default: ./<name>-<version>.ctxblueprint)')
+    .action((opts: { dir?: string; out?: string }) => blueprintPackCommand(opts));
+
+  blueprint
+    .command('install')
+    .argument('<path-or-name>', 'Local .ctxblueprint file path, or registry name (registry not yet available)')
+    .description('Install a blueprint from a local .ctxblueprint archive')
+    .action((target: string) => blueprintInstallCommand(target));
+
+  blueprint
+    .command('list')
+    .description('List installed blueprints')
+    .action(() => blueprintListCommand());
+
+  blueprint
+    .command('remove')
+    .argument('<name>', 'Name of the installed blueprint to remove')
+    .description('Remove an installed blueprint')
+    .action((name: string) => blueprintRemoveCommand(name));
 
   // ── Version ───────────────────────────────────────────────────────────────
 

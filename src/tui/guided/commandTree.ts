@@ -78,6 +78,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   logout: 'Setup',
   auth: 'Setup',
   version: 'Setup',
+  blueprint: 'Setup',
 };
 
 export function extractGuidedCommands(program: Command): GuidedCommand[] {

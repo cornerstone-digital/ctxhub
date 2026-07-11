@@ -201,9 +201,9 @@ Community validates the *product*: is ctxhub useful enough that people who didn'
 
 ### What's left
 
-- [ ] CONTRIBUTING.md — local setup in under 5 minutes; architecture orientation; how to find good first issues; review SLA (no PR sits unreviewed for more than 7 days)
+- [x] CONTRIBUTING.md — local setup in under 5 minutes; architecture orientation; how to find good first issues; review SLA (no PR sits unreviewed for more than 7 days)
 - [ ] Good first issues — 10+ open issues labelled `good first issue` at all times; each has a clear definition of done and pointers to the relevant code
-- [ ] Issue templates — bug report, feature request, blueprint proposal; each with enough structure that triage is fast
+- [x] Issue templates — bug report, feature request, blueprint proposal; each with enough structure that triage is fast
 - [ ] First external PR merged — a code contribution from someone outside the core team reaches main
 - [ ] First community blueprint — a blueprint contributed by a non-core team member, published to the registry
 - [ ] First external Captain task — a Captain task definition contributed by a non-core engineer
@@ -235,8 +235,8 @@ Five of the above items are completed without any direct involvement from the co
 - [x] **Single-tenant deployment package** — Docker Compose + Helm chart (`helm/ctxhub/`); no dependency on ctxhub-managed infrastructure; data residency entirely within the customer's environment; see `docs/deploy/SELF_HOSTED.md`
 - [x] **Audit log** — append-only JSONL; auth events: `auth.login`, `auth.logout`, `auth.token_refresh`, `auth.login_failed`, `auth.unauthorized`; group events: `group.created`, `group.org_added`, `group.org_removed`, `group.sharing_updated`
 - [x] **5-role RBAC enforcement** — owner, admin, member, reader, machine; `ctxhub workspace set-roles` restricts HTTP API access per workspace; role resolution from Entra group claims at login
-- [ ] Security and architecture trust documentation — written statement of the local-first data boundary, what is and isn't transmitted, and the structural basis for the "source code never leaves your machines" guarantee (see Security Architecture Brief)
-- [ ] UK data residency statement — explicit documentation of where data rests in a single-tenant deployment
+- [x] Security and architecture trust documentation — written statement of the local-first data boundary, what is and isn't transmitted, and the structural basis for the "source code never leaves your machines" guarantee (see Security Architecture Brief)
+- [x] UK data residency statement — explicit documentation of where data rests in a single-tenant deployment
 - [x] **Cross-org search trust gating** — `ChunkTrustTier` on indexed chunks; cross-org search already filters to `institutional+` so only explicitly elevated knowledge crosses the org boundary; captain-promoted findings automatically reach `institutional` tier on next index/sync
 - [x] **`ctxhub auth configure`** — interactive configuration with env var override support (`CTXHUB_TENANT_ID`, `CTXHUB_CLIENT_ID`, `CTXHUB_CLIENT_SECRET`, `CTXHUB_JWT_SECRET`); `ctxhub auth role-map` sub-commands for managing Entra group → ctxhub role mappings
 - [x] **`ctxhub doctor --enterprise`** — health checks for auth configured, session active, role map, groups store, and indexed knowledge
@@ -419,10 +419,10 @@ Scope is known; architecture doc not yet written. Build starts when the trigger 
 
 ### What's left
 
-- [ ] Blueprint manifest format — YAML schema defining: name, version, description, included personas, captain tasks, mission templates, industry config, dependencies, and runtime version constraint (`requires.runtime: ">=x.y"`)
-- [ ] Blueprint packager — `ctxhub blueprint pack` produces a versioned `.ctxblueprint` archive from a local directory
+- [x] Blueprint manifest format — YAML schema defining: name, version, description, included personas, captain tasks, mission templates, industry config, dependencies, and runtime version constraint (`requires.runtime: ">=x.y"`)
+- [x] Blueprint packager — `ctxhub blueprint pack` produces a versioned `.ctxblueprint` archive from a local directory
 - [ ] Blueprint registry — hosted registry (public + org-private namespaces); content-addressed storage; semver versioning
-- [ ] CLI install/publish — `ctxhub blueprint install <name>[@version]`, `ctxhub blueprint publish`, `ctxhub blueprint list`, `ctxhub blueprint update`
+- [x] CLI install/publish — `ctxhub blueprint install <name>[@version]`, `ctxhub blueprint publish`, `ctxhub blueprint list`, `ctxhub blueprint remove`
 - [ ] Blueprint Hub web UI — browse public blueprints, search by stack/language/framework, one-click install instructions, version history
 - [ ] Org-private blueprints — blueprints published under an org namespace, only visible to org members; requires Cloud (M6)
 - [ ] Topology-aware blueprints — a blueprint can declare which service types it applies to; Org Graph (M7) maps it onto matching workspaces automatically

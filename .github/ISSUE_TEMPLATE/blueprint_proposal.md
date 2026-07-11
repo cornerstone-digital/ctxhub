@@ -1,36 +1,46 @@
 ---
 name: Blueprint proposal
 about: Propose a new packaged set of personas and Captain tasks for a specific stack or domain
+title: "Blueprint: "
 labels: blueprint
+assignees: ''
 ---
 
-**What stack or domain does this blueprint target?**
+**Blueprint name**
 
-e.g. "Next.js + Prisma", "Python FastAPI", "Kubernetes operators", "fintech compliance"
+e.g. `fintech-compliance`, `nextjs-prisma`, `kubernetes-operators`
 
-**What problem does it solve for someone using ctxhub on this stack?**
+**Target industry / team type**
 
-What would their Captains find? What questions would their personas help with? Why is this stack underserved by existing config?
+Who is this for? e.g. "fintech teams running PSD2/PSD3 compliance", "Node.js backend teams using Fastify", "platform engineering teams managing Kubernetes operators"
 
-**Proposed Captain tasks**
+**Persona and Captain tasks**
 
-List the captain task names and their `query` values — what each one asks overnight.
+What persona(s) and Captain task definitions would this blueprint include? List the task names and their `query` values — what each one asks overnight.
 
 ```yaml
-- name: security-audit
-  query: "Find authentication and authorisation issues in this codebase"
-  schedule: "0 3 * * *"
+personas:
+  - name: security-reviewer
+    description: "Reviews for auth, input validation, and data handling issues"
+
+captainTasks:
+  - name: compliance-audit
+    query: "Find PSD2/PSD3 compliance gaps in payment processing code"
+    schedule: "0 3 * * *"
+  - name: dependency-risk
+    query: "Identify third-party dependencies with known CVEs or abandoned maintenance"
+    schedule: "0 4 * * 1"
 ```
 
-**Proposed personas** *(optional)*
+**Example knowledge sources**
 
-What review persona(s) would accompany these captain tasks?
+What kinds of files or docs would this blueprint help index and surface? e.g. API specs, compliance documentation, architecture diagrams, runbooks.
 
-**Do you want to build this, or are you proposing it for someone else to pick up?**
+**Would you build this?**
 
-- [ ] I'll build it
-- [ ] I'm proposing it for the community
+- [ ] Yes, I will build it and open a PR
+- [ ] I am proposing it for the community to pick up
 
-**Anything else?**
+**Anything else**
 
-Links to relevant docs, frameworks, compliance standards — anything that would help someone build this blueprint well.
+Links to relevant standards, frameworks, or compliance docs. Anything that would help someone build this blueprint well.
