@@ -141,7 +141,7 @@ function NewTaskForm({ onClose }: { onClose: () => void }) {
   )
 }
 
-function PromoteForm({ task, runId, onDone }: { task: string; runId: string; onDone: () => void }) {
+function PromoteForm({ task, runId }: { task: string; runId: string }) {
   const captain = useCaptains().data?.tasks.find(t => t.name === task)
   const { data: reposData } = useWorkspaceRepos(captain?.workspace ?? null)
   const repos = reposData?.repos ?? []
@@ -162,9 +162,12 @@ function PromoteForm({ task, runId, onDone }: { task: string; runId: string; onD
       <button
         disabled={!repo || promote.isPending}
         onClick={() =>
+          // Deliberately doesn't call onDone() here -- it used to collapse the form in the same
+          // tick as setResult(), so the success message (the actual note path) never got a chance
+          // to paint before disappearing. Leave the form open with its result showing; the
+          // "Promote…" toggle above already lets the user collapse it manually once they've seen it.
           void promote.mutateAsync({ name: task, runId, repo }).then(res => {
             setResult(res.notePath)
-            onDone()
           }).catch(err => setResult(`Error: ${(err as Error).message}`))
         }
         className="text-[10px] font-medium rounded-md px-2 py-1 disabled:opacity-40"
@@ -213,7 +216,7 @@ function TaskRuns({ task }: { task: CaptainTask }) {
               </li>
             ))}
           </ul>
-          {promoting === run.runId && <PromoteForm task={task.name} runId={run.runId} onDone={() => setPromoting(null)} />}
+          {promoting === run.runId && <PromoteForm task={task.name} runId={run.runId} />}
         </div>
       ))}
     </div>
