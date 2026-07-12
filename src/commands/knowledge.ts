@@ -6,11 +6,9 @@ import {
   saveKnowledgeStore,
   findKnowledgeObject,
   listKnowledgeObjects,
-  findEdge,
   getEdgesForObject,
   findConcept,
   findConceptByName,
-  getObjectsForConcept,
 } from '../knowledge/store.js';
 import type { KnowledgeEdge, KnowledgeEdgeType, Concept, KnowledgeObject, KnowledgeObjectState } from '../knowledge/types.js';
 import { searchDecisions, formatDecisionResults } from '../knowledge/decisionSearch.js';

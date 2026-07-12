@@ -4,7 +4,6 @@ import type { KnowledgeStore } from './types.js';
 import {
   findEdge,
   getEdgesForObject,
-  findConcept,
   findConceptByName,
   getObjectsForConcept,
 } from './store.js';

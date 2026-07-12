@@ -45,7 +45,7 @@ test('loadKnowledgeStore returns empty store when no file exists', () => {
 });
 
 test('listKnowledgeObjects filters by state correctly', () => {
-  return withTempStorePath(async storePath => {
+  return withTempStorePath(async _storePath => {
     const store: KnowledgeStore = {
       version: 1,
       objects: [
@@ -70,7 +70,7 @@ test('listKnowledgeObjects filters by state correctly', () => {
 });
 
 test('listKnowledgeObjects filters by tag correctly', () => {
-  return withTempStorePath(async storePath => {
+  return withTempStorePath(async _storePath => {
     const store: KnowledgeStore = {
       version: 1,
       objects: [
@@ -92,7 +92,7 @@ test('listKnowledgeObjects filters by tag correctly', () => {
 });
 
 test('findKnowledgeObject returns undefined for unknown id', () => {
-  return withTempStorePath(async storePath => {
+  return withTempStorePath(async _storePath => {
     const store: KnowledgeStore = {
       version: 1,
       objects: [makeKO({ id: 'aaaabbbb-1234-5678-9abc-def012345678' })],
@@ -102,7 +102,7 @@ test('findKnowledgeObject returns undefined for unknown id', () => {
 });
 
 test('findKnowledgeObject finds by full id and prefix', () => {
-  return withTempStorePath(async storePath => {
+  return withTempStorePath(async _storePath => {
     const id = 'aaaabbbb-1234-5678-9abc-def012345678';
     const store: KnowledgeStore = {
       version: 1,

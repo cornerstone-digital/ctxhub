@@ -355,8 +355,10 @@ test('POST /workspaces/:name/review 400s for an unknown persona name', () => {
 });
 
 test('unknown routes 404', () => {
-  return withRunningServer(async baseUrl => {
-    const res = await fetch(`${baseUrl}/nope`);
-    assert.equal(res.status, 404);
-  });
+  return withIsolatedCtxhubHome(() =>
+    withRunningServer(async baseUrl => {
+      const res = await fetch(`${baseUrl}/nope`);
+      assert.equal(res.status, 404);
+    })
+  );
 });

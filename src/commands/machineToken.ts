@@ -4,7 +4,6 @@ import {
   saveMachineTokenStore,
   generateRawToken,
   hashToken,
-  findMachineToken,
 } from '../auth/machineTokenStore.js';
 import { eventBus } from '../events/eventBus.js';
 

@@ -1,7 +1,6 @@
 import { loadWorkspaceConfig } from '../config/config.js';
 import { listWorkspaces } from '../workspaces/registry.js';
 import { loadKnowledgeStore } from './store.js';
-import type { KnowledgeObject } from './types.js';
 
 export interface DecisionSearchResult {
   type: 'knowledge_object' | 'indexed_chunk';

@@ -21,7 +21,7 @@ export async function createGroup(
 
   store.groups.push(group);
   await saveGroupStore(store, storePath);
-  try { eventBus.publish({ type: 'group.created', groupId: group.id, name: group.name, createdBy }); } catch {}
+  try { eventBus.publish({ type: 'group.created', groupId: group.id, name: group.name, createdBy }); } catch { /* best-effort */ }
   return group;
 }
 
@@ -62,7 +62,7 @@ export async function addOrg(
 
   store.orgs.push(org);
   await saveGroupStore(store, storePath);
-  try { eventBus.publish({ type: 'group.org_added', groupId, orgId: org.id, orgName: org.name, tenantId: org.tenantId, addedBy }); } catch {}
+  try { eventBus.publish({ type: 'group.org_added', groupId, orgId: org.id, orgName: org.name, tenantId: org.tenantId, addedBy }); } catch { /* best-effort */ }
   return org;
 }
 
@@ -94,7 +94,7 @@ export async function removeOrg(
   );
 
   await saveGroupStore(store, storePath);
-  try { eventBus.publish({ type: 'group.org_removed', groupId, orgId, removedBy }); } catch {}
+  try { eventBus.publish({ type: 'group.org_removed', groupId, orgId, removedBy }); } catch { /* best-effort */ }
 }
 
 // ── updateSharing ─────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ export async function updateSharing(
            !(p.fromOrgId === toOrgId && p.toOrgId === fromOrgId)
     );
     await saveGroupStore(store, storePath);
-    try { eventBus.publish({ type: 'group.sharing_updated', groupId: fromOrg.groupId, fromOrgId, toOrgId, mode, updatedBy }); } catch {}
+    try { eventBus.publish({ type: 'group.sharing_updated', groupId: fromOrg.groupId, fromOrgId, toOrgId, mode, updatedBy }); } catch { /* best-effort */ }
     // Return a placeholder representing the deleted state
     return { fromOrgId, toOrgId, mode: 'none', updatedAt: now, updatedBy };
   }
@@ -144,7 +144,7 @@ export async function updateSharing(
   }
 
   await saveGroupStore(store, storePath);
-  try { eventBus.publish({ type: 'group.sharing_updated', groupId: fromOrg.groupId, fromOrgId, toOrgId, mode, updatedBy }); } catch {}
+  try { eventBus.publish({ type: 'group.sharing_updated', groupId: fromOrg.groupId, fromOrgId, toOrgId, mode, updatedBy }); } catch { /* best-effort */ }
   return policy;
 }
 

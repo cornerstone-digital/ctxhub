@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { buildEnterpriseChecks, type CheckLine } from './doctorChecks.js';
 import { defaultConfig } from '../config/defaultConfig.js';
 

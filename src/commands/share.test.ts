@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import {
   issueShareToken,
