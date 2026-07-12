@@ -439,10 +439,10 @@ Scope is known; architecture doc not yet written. Build starts when the trigger 
 
 - [x] Blueprint manifest format — YAML schema defining: name, version, description, included personas, captain tasks, mission templates, industry config, dependencies, and runtime version constraint (`requires.runtime: ">=x.y"`)
 - [x] Blueprint packager — `ctxhub blueprint pack` produces a versioned `.ctxblueprint` archive from a local directory
-- [ ] Blueprint registry — hosted registry (public + org-private namespaces); content-addressed storage; semver versioning
-- [x] CLI install/publish — `ctxhub blueprint install <name>[@version]`, `ctxhub blueprint publish`, `ctxhub blueprint list`, `ctxhub blueprint remove`
-- [ ] Blueprint Hub web UI — browse public blueprints, search by stack/language/framework, one-click install instructions, version history
-- [ ] Org-private blueprints — blueprints published under an org namespace, only visible to org members; requires Cloud (M6)
+- [x] Blueprint registry — on the Cloud service (`POST/GET /blueprints`, `.../:name/:version`, `.../:name/:version/download`), content-addressed (sha256), semver-string versioning (no semver comparison library — "latest" is approximated as most-recently-published, documented as a simplification), public + org-private namespaces
+- [x] CLI install/publish — `ctxhub blueprint install <name>[@version]`, `ctxhub blueprint publish`, `ctxhub blueprint list`, `ctxhub blueprint remove` (this had been checked off but `ctxhub blueprint publish` didn't exist anywhere in the codebase, and install printed "Registry not yet available" for any non-local-path target — both now real, verified live end-to-end: publish → install by name → list)
+- [x] Blueprint Hub web UI — browse/search (name, description, tags), one-click install; version history is still just "whatever the registry returns," no dedicated history view yet
+- [x] Org-private blueprints — publish defaults to private (visible only to the publisher's own org); `--public` opts in to visible-to-everyone; enforced server-side and covered by cross-org isolation tests
 - [ ] Topology-aware blueprints — a blueprint can declare which service types it applies to; Org Graph (M7) maps it onto matching workspaces automatically
 - [x] Blueprint composition — a blueprint can declare dependencies on other blueprints; installer resolves the graph (`src/blueprints/resolver.ts`, wired into `ctxhub blueprint install` — handles already-installed deps, local-path deps, missing deps, and circular-dependency detection with topological install order)
 
