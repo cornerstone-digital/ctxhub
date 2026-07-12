@@ -7,6 +7,15 @@ The recurring theme, in the words that prompted this document: **ctxhub doesn't 
 
 **A principle worth stating separately, because it's architectural rather than a feature in its own right:** ctxhub should not have a single primary interface. CLI, Mission Control, Chat, Voice, a Workflow Builder, MCP, the REST API, IDE extensions, mobile, Alexa — each is a different way of interacting with the same underlying engineering operating model, and the platform should be able to evolve independently of any one of them. Several entries below (Voice-Native Mission Control, Mission Builder, Meeting Intelligence) are really instances of this same principle applied to a specific surface, not unrelated ideas.
 
+**Index, grouped for scanning only — not a priority order; the entries themselves stay alphabetical below.**
+
+- **Interaction:** [Meeting Intelligence](#meeting-intelligence) · [Mission Builder / Engineering Workflows](#mission-builder--engineering-workflows) · [Voice-Native Mission Control](#voice-native-mission-control)
+- **Execution & distribution:** [Bring Your Own Fleet](#bring-your-own-fleet) · [Marketplace](#marketplace-captains-workers-policies-workflows)
+- **Knowledge:** [Bring Your Own Knowledge (BYOK)](#bring-your-own-knowledge-byok) · [Bring Your Own Memory](#bring-your-own-memory) · [Bring Your Own Topology](#bring-your-own-topology) · [Engineering Memory (episodic)](#engineering-memory-episodic) · [Knowledge Debt](#knowledge-debt) · [Organisation Learning](#organisation-learning)
+- **Trust & governance:** [Bring Your Own Governance](#bring-your-own-governance) · [Bring Your Own Policies](#bring-your-own-policies) · [Explain Why](#explain-why) · [Recommendation Inbox](#recommendation-inbox) · [Trust Decay](#trust-decay) · [Trust Scores](#trust-scores)
+- **Visualisation & awareness:** [AI Budget Manager](#ai-budget-manager) · [Cognitive Load Map](#cognitive-load-map) · [Context Lens](#context-lens) · [Engineering Health](#engineering-health) · [Engineering Presence (Ambient Intelligence)](#engineering-presence-ambient-intelligence) · [Engineering Replay](#engineering-replay) · [Live Engineering Map](#live-engineering-map) · [Living Organisation](#living-organisation)
+- **Intelligence & reasoning:** [AI Second Opinion](#ai-second-opinion) · [Bring Your Own Models](#bring-your-own-models) · [Capability Graph](#capability-graph) · [Engineering Digital Twin](#engineering-digital-twin) · [Engineering DNA](#engineering-dna) · [Engineering Sandbox](#engineering-sandbox)
+
 ---
 
 ## AI Budget Manager
@@ -75,13 +84,17 @@ Naturally includes an auto-generated daily or weekly digest as its "today" view 
 
 Treating whole *events* — an incident, a migration, a security audit — as first-class objects with their own lifecycle, richer than a single promoted Knowledge Object, so "have we done something like this before?" is answerable. Meaningfully different from M7's Knowledge Graph, which models individual findings, not bounded episodes composed of many findings plus a timeline; would likely want its own schema (`episodes` linking a set of `knowledge_objects` to a time range) rather than overloading the existing KO model.
 
-## Engineering Presence
+## Engineering Presence (Ambient Intelligence)
 
-Mission Control senses what an engineer is currently doing — coding, in a meeting, reviewing a PR, responding to an incident — and adapts automatically: Incident Mode during an incident, Release Mode during a release, the Architecture lens surfacing itself during an architecture review, without anyone switching dashboards by hand. Contextual rather than surveillance — the signal would come from what's already happening in tools ctxhub already integrates with (a PR open, an incident Captain running, a release Job in flight), not from monitoring the person. No existing hook; this is squarely a consumer of everything else in this document (Context Lens for the "which view," Living Organisation for the "feels alive" part) rather than infrastructure of its own — realistically the last thing to build here, not the first.
+Broader than "Mission Control changes mode": Captain senses what an engineer is currently doing — coding, reviewing, deploying, in an incident, in a meeting — without being explicitly told, from signals already available in tools ctxhub integrates with (a PR open, an incident Captain running, a release Job in flight). Contextual rather than surveillance. The mode-switching framing (Incident Mode, Release Mode, the Architecture lens appearing during a review) is one consumer of this signal; others could include which Context Lens is suggested, which recommendations surface first, what Voice-Native Mission Control assumes about intent, and which notifications are worth interrupting for. Treat it as an ambient-awareness primitive several other entries could plug into, not a single feature — which also means it's realistically one of the last things here to build, since it needs several of the others to have something to feed.
 
 ## Engineering Replay
 
 "Incident → replay everything → timeline → agent reasoning → human approvals → knowledge created," aimed at audits. Time Machine (M19) applied specifically to incident review, chaining multiple runs into one timeline — once M19 exists, this reads as a specific view over it (an "incident lens") rather than a separate system. Overlaps with M2's already-built "Mission replay" (click any Captain run for full detail).
+
+## Engineering Sandbox
+
+"Captain, show me what would happen if we upgraded React" — a temporary, simulated workspace where Captain runs dependency analysis, build, tests, architecture checks, security checks, and impact analysis against a hypothetical change, with nothing touching the real workspace, and reports back "safe" or "17 packages would break." A natural combination of Engineering Digital Twin (the simulation idea) and BYOR (a disposable Worker to actually run the checks in) rather than a standalone system — the interesting new part is the "temporary, throwaway, side-effect-free" workspace semantics, which neither of those two ideas currently specifies.
 
 ## Explain Why
 
@@ -140,3 +153,11 @@ Voice as a first-class interaction surface alongside CLI, Mission Control, Chat,
 Staged rather than all-or-nothing: push-to-talk on web and mobile with off-the-shelf speech-to-text is the cheap, reliable starting point; a local wake phrase ("Hey Captain" — see below), a desktop companion, and an Alexa skill for ambient status checks ("any production incidents? has my mission completed?") are further out and each a real, separate integration surface, not a bigger version of the same feature.
 
 **"Hey Captain" is branding, not just a wake word.** The platform's existing vocabulary — Mission Control, Captains, Workers, Missions — already gives it an identity distinct from "an AI assistant." A voice interface that says "Hey Captain" instead of "Hey AI" reinforces that the user is addressing the operating model, not a generic chatbot; worth keeping in mind for any voice work even before wake-word detection itself is real.
+
+---
+
+## Engineering Operating System
+
+Looking across everything above, a consistent pattern emerges: none of these ideas are attempts to replace an existing engineering system. They're different ways of interacting with, extending, or reasoning over the same underlying operating model. Whether through voice, workflows, meetings, knowledge sources, workers, or marketplace integrations, the platform underneath stays the same. The interfaces evolve independently; the engineering operating model is the constant.
+
+That's the thesis this whole document keeps arriving at from different directions, and it's worth stating once, plainly, rather than leaving it implicit in 31 separate entries: **import rather than recreate, orchestrate rather than replace, capture rather than lose, recommend rather than automate, learn rather than repeat.**
