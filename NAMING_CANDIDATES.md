@@ -185,3 +185,5 @@ Three rounds, three very different naming directions (coined words / product-voc
 ## Status: paused
 
 Deliberately sidetracked from product work to chase this — pausing here. **Do not act on a rename until the product is built and has a working test suite** to safely refactor package name, CLI binary, docs, and MCP config keys against.
+
+**Reframing to pick up when this resumes (2026-07-12):** see `docs/platform_runtime_architecture.md`. If ctxhub ends up being one *application* on a shared platform runtime (alongside DealLedger and possibly others) rather than the whole company's identity, this becomes two naming questions instead of one — a domain-neutral platform/runtime name, and a separate product name for the engineering application that "ctxhub" itself could plausibly just keep. All three rounds above optimized for "sounds like a coding/dev tool," which is the wrong target for the platform name specifically if that reframing holds. Don't restart the search from these three rounds' criteria without re-reading that document first.
