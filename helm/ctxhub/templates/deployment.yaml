@@ -29,6 +29,10 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
+            {{- if .Values.offline }}
+            - name: CTXHUB_OFFLINE
+              value: "true"
+            {{- end }}
             - name: CTXHUB_TENANT_ID
               valueFrom:
                 secretKeyRef:

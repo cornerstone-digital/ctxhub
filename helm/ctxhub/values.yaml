@@ -19,6 +19,12 @@ auth:
   clientId: ""
   clientSecret: ""
 
+# Air-gapped deployments: set to true so `ctxhub doctor`'s routine version check never
+# attempts an outbound call to the public npm registry, even one that fails gracefully.
+# A security team monitoring egress on an air-gapped network sees the attempt regardless
+# of whether it times out -- this suppresses it entirely (CTXHUB_OFFLINE env var).
+offline: false
+
 persistence:
   enabled: true
   # storageClass: ""   # Leave empty for cluster default

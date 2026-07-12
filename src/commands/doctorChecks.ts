@@ -147,6 +147,16 @@ export function buildDoctorChecks(config: CtxhubConfig, configPath: string, work
       id: 'version',
       run: async () => {
         const current = getPackageVersion();
+        // `ctxhub doctor` is exactly the command an air-gapped admin runs routinely to check
+        // system health -- it must never attempt an outbound call by default in that context.
+        // The 3s-timeout-then-degrade-gracefully behaviour below hides failures from the user,
+        // but a security team monitoring egress on an air-gapped network sees the attempt
+        // regardless of whether it succeeds. CTXHUB_OFFLINE=1 skips the attempt entirely;
+        // `ctxhub version --check` (an explicit, user-initiated command) is unaffected --
+        // this only gates the automatic check inside `doctor`.
+        if (process.env.CTXHUB_OFFLINE === '1' || process.env.CTXHUB_OFFLINE === 'true') {
+          return [{ status: 'ok', message: `ctxhub v${current} (version check skipped — CTXHUB_OFFLINE set)` }];
+        }
         const latest = await fetchLatestNpmVersion(3_000);
         if (!latest) {
           return [{ status: 'ok', message: `ctxhub v${current} (version check skipped — no network)` }];
