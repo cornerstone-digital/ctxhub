@@ -396,11 +396,13 @@ Architecture is fully designed — see `docs/org_graph_architecture.md`. Build s
 
 ### What's left
 
-- [x] Knowledge Graph schema — `knowledge_objects`, `knowledge_edges`, `concepts`, `knowledge_object_concepts` in Postgres
-- [x] Topology Graph schema — `topology_repositories`, `topology_services`, `topology_edges`
-- [x] Cascade rules — `cascade_rules` table; auto-derived from topology `depends_on` edges (`basis="topology"`); manual rules persist when topology edge removed
-- [x] Knowledge Object lifecycle — draft → active → superseded → archived; `confidence`, `corroborations`, `review_flag` fields
-- [x] Cross-workspace query API — `GET /knowledge?q=&workspace=&state=` with Postgres adjacency list traversal
+**Correction (2026-07-12):** the five items below were checked `[x]` with none of them actually built — `src/cloud/schema.sql` has no `knowledge_objects`, `knowledge_edges`, `concepts`, or `topology_*` tables, and there is no cross-workspace `GET /knowledge` route anywhere in the codebase. Only `docs/org_graph_architecture.md` and the ADRs describing the design exist. Un-checked below; being built for real now.
+
+- [ ] Knowledge Graph schema — `knowledge_objects`, `knowledge_edges`, `concepts`, `knowledge_object_concepts` in Postgres
+- [ ] Topology Graph schema — `topology_repositories`, `topology_services`, `topology_edges`
+- [ ] Cascade rules — `cascade_rules` table; auto-derived from topology `depends_on` edges (`basis="topology"`); manual rules persist when topology edge removed
+- [ ] Knowledge Object lifecycle (Cloud/Postgres) — draft → active → superseded → archived; `confidence`, `corroborations`, `review_flag` fields
+- [ ] Cross-workspace query API — `GET /knowledge?q=&workspace=&state=` with Postgres adjacency list traversal
 - [ ] Cloud Mission Control: Knowledge view — browse and search Knowledge Objects across workspaces, filter by state and confidence
 
 ### Completed in local knowledge store
