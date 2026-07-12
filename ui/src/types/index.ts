@@ -384,3 +384,36 @@ export interface CloudHistory {
   notes: CloudNote[];
   source: 'cloud' | 'local';
 }
+
+// ── Roles ─────────────────────────────────────────────────────────────────────
+
+export type Permission =
+  | 'knowledge:read' | 'knowledge:write' | 'knowledge:promote'
+  | 'workspace:read' | 'workspace:write'
+  | 'group:read' | 'group:write'
+  | 'audit:read'
+  | 'admin:all';
+
+export interface CustomRole {
+  name: string;
+  description?: string;
+  permissions: Permission[];
+  inheritsFrom?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface RolesResponse {
+  builtIn: readonly string[];
+  custom: CustomRole[];
+}
+
+export interface WorkspaceMember {
+  sub: string;
+  role: string;
+}
+
+export interface WorkspaceMembersResponse {
+  allowedRoles: string[];
+  members: WorkspaceMember[];
+}

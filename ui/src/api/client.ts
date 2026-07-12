@@ -22,10 +22,12 @@ import type {
   RepoConfig,
   ReviewerProfile,
   ReviewResult,
+  RolesResponse,
   SharingMode,
   SharingPolicy,
   SkillStatus,
   Workspace,
+  WorkspaceMembersResponse,
   WorkspaceStatus,
 } from '../types'
 import { useFleetStore } from '../store/fleet'
@@ -725,6 +727,45 @@ export function useSyncCloudMutation() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['cloud-status'] })
       void qc.invalidateQueries({ queryKey: ['cloud-history'] })
+    },
+  })
+}
+
+// ── Roles ─────────────────────────────────────────────────────────────────────
+
+export function useRoles() {
+  return useQuery({
+    queryKey: ['roles'],
+    queryFn: () => fetchJson<RolesResponse>('/roles'),
+  })
+}
+
+export function useWorkspaceMembers(workspace: string | null) {
+  return useQuery({
+    queryKey: ['workspace-members', workspace],
+    queryFn: () => fetchJson<WorkspaceMembersResponse>(`/workspaces/${encodeURIComponent(workspace!)}/members`),
+    enabled: workspace !== null,
+  })
+}
+
+export function useGrantMemberRoleMutation(workspace: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ sub, role }: { sub: string; role: string }) =>
+      postJson<{ sub: string; role: string }>(`/workspaces/${encodeURIComponent(workspace)}/members`, { sub, role }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workspace-members', workspace] })
+    },
+  })
+}
+
+export function useRevokeMemberRoleMutation(workspace: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (sub: string) =>
+      deleteJson<{ revoked: boolean }>(`/workspaces/${encodeURIComponent(workspace)}/members/${encodeURIComponent(sub)}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workspace-members', workspace] })
     },
   })
 }

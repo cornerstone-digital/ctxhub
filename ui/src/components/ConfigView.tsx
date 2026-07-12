@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Hexagon, ChevronDown, X, RefreshCw } from 'lucide-react'
 import {
   useWorkspaces,
@@ -8,6 +8,10 @@ import {
   useRemoveRepoMutation,
   useUpsertExecutionProfileMutation,
   useRemoveExecutionProfileMutation,
+  useRoles,
+  useWorkspaceMembers,
+  useGrantMemberRoleMutation,
+  useRevokeMemberRoleMutation,
 } from '../api/client'
 import type { LlmAgentName } from '../types'
 
@@ -188,6 +192,101 @@ function ExecutionProfilesSection({ workspace }: { workspace: string }) {
   )
 }
 
+function MembersSection({ workspace }: { workspace: string }) {
+  const { data: members } = useWorkspaceMembers(workspace)
+  const { data: roles } = useRoles()
+  const grant = useGrantMemberRoleMutation(workspace)
+  const revoke = useRevokeMemberRoleMutation(workspace)
+  const [sub, setSub] = useState('')
+  const [role, setRole] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const roleOptions = useMemo(
+    () => [...(roles?.builtIn ?? []), ...(roles?.custom.map(r => r.name) ?? [])],
+    [roles]
+  )
+  useEffect(() => {
+    if (role === '' && roleOptions.length > 0) setRole(roleOptions[0])
+  }, [role, roleOptions])
+
+  const submit = async () => {
+    setError(null)
+    if (!sub.trim()) {
+      setError('sub is required')
+      return
+    }
+    try {
+      await grant.mutateAsync({ sub: sub.trim(), role })
+      setSub('')
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  return (
+    <div className="rounded-lg p-4 mb-4" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <SectionHeader
+        title="Member Roles"
+        subtitle="Per-workspace role override by Entra sub. Custom roles (ctxhub role create) are resolved to the built-in role they inherit from for access checks."
+      />
+      <div className="space-y-1.5 mb-3">
+        {members?.members.map(m => (
+          <div key={m.sub} className="flex items-center gap-2 px-3 py-2 rounded-md" style={{ background: 'var(--bg-elevated)' }}>
+            <span className="text-xs font-mono flex-1 truncate" style={{ color: 'var(--text-primary)' }}>
+              {m.sub}
+            </span>
+            <span
+              className="text-[11px] px-1.5 py-0.5 rounded"
+              style={{
+                color: (roles?.builtIn as string[] | undefined)?.includes(m.role) ? 'var(--text-secondary)' : 'var(--accent)',
+              }}
+            >
+              {m.role}
+            </span>
+            <button onClick={() => void revoke.mutateAsync(m.sub)} style={{ color: 'var(--text-muted)' }}>
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+        {members?.members.length === 0 && (
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            No role overrides — everyone uses their global role.
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          value={sub}
+          onChange={e => setSub(e.target.value)}
+          placeholder="Entra sub (or user identifier)"
+          className="text-xs rounded-md px-2 py-1.5 flex-1"
+          style={fieldStyle()}
+        />
+        <select value={role} onChange={e => setRole(e.target.value)} className="text-xs rounded-md px-2 py-1.5" style={fieldStyle()}>
+          {roleOptions.map(r => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => void submit()}
+          disabled={grant.isPending}
+          className="text-xs font-medium rounded-md px-3 py-1.5 disabled:opacity-50"
+          style={{ background: 'var(--accent)', color: 'white' }}
+        >
+          Grant
+        </button>
+      </div>
+      {error && (
+        <p className="text-xs mt-1" style={{ color: 'var(--health-error)' }}>
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function LineListEditor({ label, value, onSave }: { label: string; value: string[]; onSave: (lines: string[]) => void }) {
   const [text, setText] = useState(value.join('\n'))
   const [dirty, setDirty] = useState(false)
@@ -300,6 +399,7 @@ export function ConfigView() {
         <>
           <ReposSection workspace={workspace} />
           <ExecutionProfilesSection workspace={workspace} />
+          <MembersSection workspace={workspace} />
           <SettingsSection workspace={workspace} />
         </>
       ) : (
