@@ -544,7 +544,7 @@ When this milestone completes: **Proceed / Pause / Pivot** — based on whether 
 
 ## Future Horizons
 
-*Milestones M11–M16 are known destinations, not scheduled work. Architecture will be designed when the trigger fires. Until then, each milestone is defined only by its promise, trigger, hypothesis, expected learnings, and exit condition. No implementation detail until the trigger is observed.*
+*Milestones M11–M17 are known destinations, not scheduled work. Architecture will be designed when the trigger fires. Until then, each milestone is defined only by its promise, trigger, hypothesis, expected learnings, and exit condition. No implementation detail until the trigger is observed. (M17 is an exception in one respect: its architecture doc already exists — `docs/monorepo_architecture.md` — because it's a direct extension of M7's Topology Graph, which is already built. Its numbering doesn't imply it comes after M11–M16 in priority; a trigger on this one could plausibly fire before several of the others.)*
 
 ---
 
@@ -680,6 +680,31 @@ This is not a product milestone. It is the original mission, realised at full sc
 ### Exit condition
 
 An engineering organisation that has been running ctxhub for five years makes better architectural decisions, with more confidence and less waste, than it did on day one — and can demonstrate the improvement through its own knowledge graph.
+
+---
+
+## Milestone 17 — Monorepo Support *(trigger: manual topology registration (`POST /topology/*`, M7) is a friction point a real org has actually hit on a monorepo)*
+
+**The promise:** "If your repository already understands its own topology, ctxhub should understand it too."
+
+Architecture is fully designed — see `docs/monorepo_architecture.md`. ctxhub treats monorepos as first-class citizens: it understands projects, packages, applications, libraries, services, ownership boundaries, and dependency relationships by integrating with the workspace tooling a repository already uses (Nx, Turborepo, Bazel, Rush, pnpm/Yarn Workspaces, Lerna), rather than inferring structure from source code alone. A `WorkspaceAdapter` abstraction produces one canonical graph regardless of which tool produced it; Mission Control, Captains, and the Organisation Graph never care which adapter was used. This is a direct extension of M7's Engineering Topology Graph — `topology_edges.basis` already distinguishes `"inferred"` from `"manual"` for exactly this reason.
+
+**Hypothesis:** Monorepo tooling already contains curated engineering knowledge (dependency graphs, ownership, boundaries) that's expensive to rebuild from source analysis but cheap to read directly — and organisations running ctxhub on a real monorepo will hit the limits of manual topology registration before organisations on simpler repo layouts do.
+
+### We expect to learn
+
+- Which monorepo tool is actually the first blocker — Nx, Turborepo, Bazel, or a JS workspace manager? Not guessable in advance, which is why no adapter is built until one is.
+- Does affected-project incremental indexing meaningfully change re-index latency, or is ctxhub's existing indexing already fast enough that it doesn't matter?
+- Do engineers actually use topology-derived impact queries ("if I change X, what's affected?"), or is per-project search sufficient once the graph exists?
+- Is tool-native ownership metadata (CODEOWNERS, Nx tags, etc.) reliable enough in real repos to drive anything beyond display?
+
+### Exit condition
+
+An engineer on a real Nx (or equivalent) monorepo runs a ctxhub Captain that correctly scopes itself to the affected projects for a change, without any manual topology configuration — the Topology Graph populated itself from the monorepo tool's own graph.
+
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether topology-derived queries (impact analysis, affected-project scoping) become a routine part of how engineers use ctxhub, or whether the manual M7 topology API was already sufficient and this added integration surface without adding proportionate value.
 
 ---
 
