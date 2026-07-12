@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type {
   AgentToken,
+  BlueprintHubListResponse,
+  BlueprintInstallResult,
   CaptainRunRecord,
   CaptainTask,
   CloudHistory,
@@ -766,6 +768,28 @@ export function useRevokeMemberRoleMutation(workspace: string) {
       deleteJson<{ revoked: boolean }>(`/workspaces/${encodeURIComponent(workspace)}/members/${encodeURIComponent(sub)}`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['workspace-members', workspace] })
+    },
+  })
+}
+
+// ── Blueprint Hub ─────────────────────────────────────────────────────────────
+
+export function useBlueprintHub(query: string) {
+  const qs = query ? `?q=${encodeURIComponent(query)}` : ''
+  return useQuery({
+    queryKey: ['blueprint-hub', query],
+    queryFn: () => fetchJson<BlueprintHubListResponse>(`/blueprints/hub${qs}`),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useInstallBlueprintMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (target: string) =>
+      postJson<BlueprintInstallResult>('/blueprints/hub/install', { target }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['blueprint-hub'] })
     },
   })
 }

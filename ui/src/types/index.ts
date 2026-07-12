@@ -417,3 +417,28 @@ export interface WorkspaceMembersResponse {
   allowedRoles: string[];
   members: WorkspaceMember[];
 }
+
+// ── Blueprint Hub ─────────────────────────────────────────────────────────────
+
+export interface BlueprintRecord {
+  name: string;
+  version: string;
+  description: string;
+  author?: string;
+  tags?: string[];
+  orgId: string | null;
+  publishedBy: string;
+  publishedAt: string;
+  archiveHash: string;
+  archiveSize: number;
+}
+
+export interface BlueprintHubListResponse {
+  blueprints: BlueprintRecord[];
+  configured: boolean;
+}
+
+export interface BlueprintInstallResult {
+  installed: { name: string; version: string; installedAt: string; path: string };
+  depOrder: string[];
+}
