@@ -71,6 +71,30 @@ COMMENT ON COLUMN members.role IS 'ctxhub role: owner | admin | member | viewer.
 CREATE INDEX idx_members_org_id    ON members (org_id);
 CREATE INDEX idx_members_entra_sub ON members (entra_sub);
 
+-- ── machines ──────────────────────────────────────────────────────────────────
+-- Cloud-side mirror of a self-hosted instance's machine tokens (src/auth/machineTokenStore.ts).
+-- One row per `ctxm_`-prefixed token issued by `ctxhub machine-token create`; lets Cloud
+-- authenticate and audit sync traffic from a specific self-hosted machine.
+
+CREATE TABLE machines (
+    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id         UUID        NOT NULL REFERENCES organisations (id) ON DELETE CASCADE,
+    name           TEXT        NOT NULL,                     -- human label, e.g. "github-actions"
+    hashed_token   TEXT        NOT NULL UNIQUE,               -- scrypt hash; format matches machineTokenStore.ts
+    roles          TEXT[]      NOT NULL DEFAULT ARRAY['machine'],
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at     TIMESTAMPTZ NOT NULL,
+    last_used_at   TIMESTAMPTZ,
+    revoked_at     TIMESTAMPTZ
+);
+
+COMMENT ON TABLE  machines IS 'Cloud-side record of self-hosted machine tokens; mirrors machineTokenStore.ts.';
+COMMENT ON COLUMN machines.hashed_token IS 'scrypt hash of the raw ctxm_ token; same format as the local JSON store.';
+COMMENT ON COLUMN machines.roles IS 'ctxhub roles granted to this machine, e.g. {machine}.';
+
+CREATE INDEX idx_machines_org_id ON machines (org_id);
+CREATE INDEX idx_machines_expires_at ON machines (expires_at);
+
 -- ── chunks ────────────────────────────────────────────────────────────────────
 -- Promoted knowledge chunks synced from self-hosted instances.
 -- Only chunks at trust tier institutional or canonical are synced (ADR-009).
