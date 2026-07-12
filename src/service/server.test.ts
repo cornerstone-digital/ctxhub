@@ -231,6 +231,59 @@ test('execution profiles: upsert, read back via config, and remove', () => {
   );
 });
 
+test('workspace members: grant, list, and revoke a role, including a custom role name', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('members-ws', async baseUrl => {
+      const emptyList = await (await fetch(`${baseUrl}/workspaces/members-ws/members`)).json();
+      assert.deepEqual(emptyList.members, []);
+
+      const grantRes = await fetch(`${baseUrl}/workspaces/members-ws/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sub: 'user-1', role: 'admin' })
+      });
+      assert.equal(grantRes.status, 200);
+
+      // A custom role name is accepted here too -- resolveToBuiltInRole (customRoleStore.ts)
+      // is what makes this actually affect access, not this route.
+      await fetch(`${baseUrl}/workspaces/members-ws/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sub: 'user-2', role: 'reviewer' })
+      });
+
+      const listRes = await fetch(`${baseUrl}/workspaces/members-ws/members`);
+      const list = await listRes.json();
+      assert.deepEqual(
+        list.members.sort((a: { sub: string }, b: { sub: string }) => a.sub.localeCompare(b.sub)),
+        [{ sub: 'user-1', role: 'admin' }, { sub: 'user-2', role: 'reviewer' }]
+      );
+
+      const revokeRes = await fetch(`${baseUrl}/workspaces/members-ws/members/user-1`, { method: 'DELETE' });
+      assert.equal(revokeRes.status, 200);
+      assert.deepEqual(await revokeRes.json(), { revoked: true });
+
+      const revokeMissingRes = await fetch(`${baseUrl}/workspaces/members-ws/members/ghost`, { method: 'DELETE' });
+      assert.deepEqual(await revokeMissingRes.json(), { revoked: false });
+
+      const finalList = await (await fetch(`${baseUrl}/workspaces/members-ws/members`)).json();
+      assert.deepEqual(finalList.members, [{ sub: 'user-2', role: 'reviewer' }]);
+    })
+  );
+});
+
+test('GET /roles returns built-in roles and any custom roles', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('roles-ws', async baseUrl => {
+      const res = await fetch(`${baseUrl}/roles`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.builtIn, ['owner', 'admin', 'member', 'reader', 'machine']);
+      assert.deepEqual(body.custom, []);
+    })
+  );
+});
+
 test('skills: status reports nothing installed, install writes real files, status reflects it', () => {
   return withIsolatedCtxhubHome(() =>
     withRegisteredWorkspace('skills-ws', async baseUrl => {

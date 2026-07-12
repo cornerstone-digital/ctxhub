@@ -84,3 +84,31 @@ export function resolvePermissions(roleName: string, store: CustomRoleStore): Pe
   }
   return merged;
 }
+
+const BUILTIN_ROLE_NAMES = new Set(Object.keys(BUILTIN_ROLE_PERMISSIONS));
+
+/**
+ * Resolve a role name to the nearest built-in role for coarse-grained, role-string-based
+ * access checks (workspace `allowedRoles`, `hasRole()`). Every enforcement path in the
+ * codebase checks role *names* against a fixed list of built-ins -- none of it is
+ * permission-aware. Without this, assigning a custom role to someone had no actual effect
+ * on what they could do: `resolvePermissions()` existed and was tested, but nothing in
+ * server.ts's route guards ever called it.
+ *
+ * Built-in names resolve to themselves. Custom roles resolve via `inheritsFrom` (one level,
+ * matching resolvePermissions' own inheritance depth) -- falls back to 'reader' (the lowest
+ * non-machine privilege) if the role is unknown or has no inheritance chain, so an
+ * unrecognized role name fails closed rather than granting unintended access.
+ */
+export function resolveToBuiltInRole(roleName: string, store: CustomRoleStore): string {
+  if (BUILTIN_ROLE_NAMES.has(roleName)) return roleName;
+
+  const customRole = findCustomRole(store, roleName);
+  if (!customRole?.inheritsFrom) return 'reader';
+  if (BUILTIN_ROLE_NAMES.has(customRole.inheritsFrom)) return customRole.inheritsFrom;
+
+  // One level of custom-to-custom inheritance, matching resolvePermissions' own depth.
+  const parent = findCustomRole(store, customRole.inheritsFrom);
+  if (parent && BUILTIN_ROLE_NAMES.has(parent.inheritsFrom ?? '')) return parent.inheritsFrom!;
+  return 'reader';
+}

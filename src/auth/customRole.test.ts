@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { findCustomRole, resolvePermissions } from './customRoleStore.js';
+import { findCustomRole, resolvePermissions, resolveToBuiltInRole } from './customRoleStore.js';
 import type { CustomRoleStore } from './customRoles.js';
 
 function makeStore(roles: CustomRoleStore['roles'] = []): CustomRoleStore {
@@ -77,6 +77,41 @@ describe('resolvePermissions', () => {
     const store = makeStore();
     const perms = resolvePermissions('nonexistent', store);
     assert.equal(perms.length, 0);
+  });
+});
+
+describe('resolveToBuiltInRole', () => {
+  it('built-in role names resolve to themselves', () => {
+    const store = makeStore();
+    assert.equal(resolveToBuiltInRole('admin', store), 'admin');
+    assert.equal(resolveToBuiltInRole('reader', store), 'reader');
+  });
+
+  it('custom role resolves to the built-in it inherits from', () => {
+    const store = makeStore([
+      { name: 'auditor', permissions: ['audit:read'], inheritsFrom: 'member', createdAt: new Date().toISOString(), createdBy: 'test' },
+    ]);
+    assert.equal(resolveToBuiltInRole('auditor', store), 'member');
+  });
+
+  it('resolves one level of custom-to-custom inheritance to the underlying built-in', () => {
+    const store = makeStore([
+      { name: 'base-reviewer', permissions: ['knowledge:read'], inheritsFrom: 'admin', createdAt: new Date().toISOString(), createdBy: 'test' },
+      { name: 'senior-reviewer', permissions: ['audit:read'], inheritsFrom: 'base-reviewer', createdAt: new Date().toISOString(), createdBy: 'test' },
+    ]);
+    assert.equal(resolveToBuiltInRole('senior-reviewer', store), 'admin');
+  });
+
+  it('falls back to reader for a custom role with no inheritance chain', () => {
+    const store = makeStore([
+      { name: 'standalone', permissions: ['knowledge:read'], createdAt: new Date().toISOString(), createdBy: 'test' },
+    ]);
+    assert.equal(resolveToBuiltInRole('standalone', store), 'reader');
+  });
+
+  it('falls back to reader for a completely unknown role name (fails closed)', () => {
+    const store = makeStore();
+    assert.equal(resolveToBuiltInRole('nonexistent', store), 'reader');
   });
 });
 

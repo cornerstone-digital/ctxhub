@@ -347,7 +347,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
           // Check memberOverrides first — a workspace-scoped role override replaces the global role for this check
           const memberOverrides = wsConfig.workspace.memberOverrides;
           const overrideRole = memberOverrides?.[principal.sub];
-          const effectiveRoles = overrideRole ? [overrideRole] : principal.roles;
+          // overrideRole may name a custom role (see `ctxhub role create`) -- resolve it to
+          // the built-in role it inherits from so it actually affects this check. Without
+          // this, assigning a custom role to a member had no real effect on access.
+          const { loadCustomRoleStore, resolveToBuiltInRole } = await import('../auth/customRoleStore.js');
+          const resolvedOverrideRole = overrideRole
+            ? resolveToBuiltInRole(overrideRole, await loadCustomRoleStore())
+            : undefined;
+          const effectiveRoles = resolvedOverrideRole ? [resolvedOverrideRole] : principal.roles;
           const hasAccess = effectiveRoles.some(r => allowedRoles.includes(r));
           if (!hasAccess) {
             sendJson(res, 403, { error: 'forbidden', hint: 'Your role does not permit access to this workspace' });
@@ -413,6 +420,37 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const profileDeleteMatch = /^\/workspaces\/([^/]+)\/execution-profiles\/([^/]+)$/.exec(url.pathname);
   if (req.method === 'DELETE' && profileDeleteMatch) {
     await handleRemoveExecutionProfile(res, decodeURIComponent(profileDeleteMatch[1]), decodeURIComponent(profileDeleteMatch[2]));
+    return;
+  }
+
+  // ── Workspace member role assignment ──────────────────────────────────────
+  const membersMatch = /^\/workspaces\/([^/]+)\/members$/.exec(url.pathname);
+  if (req.method === 'GET' && membersMatch) {
+    await handleWorkspaceMembersList(res, decodeURIComponent(membersMatch[1]));
+    return;
+  }
+  if (req.method === 'POST' && membersMatch) {
+    if (!hasRole(authOutcome.principal, 'admin')) {
+      sendJson(res, 403, { error: 'forbidden', hint: 'Admin or owner role required to grant workspace roles' });
+      return;
+    }
+    await handleWorkspaceMemberGrant(req, res, decodeURIComponent(membersMatch[1]));
+    return;
+  }
+
+  const memberDeleteMatch = /^\/workspaces\/([^/]+)\/members\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && memberDeleteMatch) {
+    if (!hasRole(authOutcome.principal, 'admin')) {
+      sendJson(res, 403, { error: 'forbidden', hint: 'Admin or owner role required to revoke workspace roles' });
+      return;
+    }
+    await handleWorkspaceMemberRevoke(res, decodeURIComponent(memberDeleteMatch[1]), decodeURIComponent(memberDeleteMatch[2]));
+    return;
+  }
+
+  // ── Custom roles (read-only over HTTP; mutation is CLI-only via `ctxhub role`) ──────────
+  if (req.method === 'GET' && url.pathname === '/roles') {
+    await handleRolesList(res);
     return;
   }
 
@@ -901,6 +939,60 @@ async function handlePatchConfig(req: http.IncomingMessage, res: http.ServerResp
 
   await saveConfig(updated, workspaceRoot);
   sendJson(res, 200, updated);
+}
+
+// ── Workspace member role assignment ────────────────────────────────────────
+// HTTP surface over the same memberOverrides mechanism as `ctxhub workspace
+// grant/revoke/members` (commands/workspace.ts) -- kept as thin wrappers around the same
+// config file writes rather than a separate store, so the CLI and Mission Control never
+// disagree about who has what role.
+
+async function handleWorkspaceMembersList(res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+  const { config } = await loadWorkspaceConfig(workspace.path);
+  sendJson(res, 200, {
+    allowedRoles: config.workspace.allowedRoles ?? [],
+    members: Object.entries(config.workspace.memberOverrides ?? {}).map(([sub, role]) => ({ sub, role })),
+  });
+}
+
+async function handleWorkspaceMemberGrant(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const body = (await readJsonBody(req)) as { sub?: string; role?: string };
+  if (!body.sub?.trim() || !body.role?.trim()) {
+    sendJson(res, 400, { error: 'sub and role are required' });
+    return;
+  }
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  config.workspace.memberOverrides = { ...(config.workspace.memberOverrides ?? {}), [body.sub.trim()]: body.role.trim() };
+  await saveConfig(config, workspaceRoot);
+  sendJson(res, 200, { sub: body.sub.trim(), role: body.role.trim() });
+}
+
+async function handleWorkspaceMemberRevoke(res: http.ServerResponse, name: string, sub: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const { config, workspaceRoot } = await loadWorkspaceConfig(workspace.path);
+  const overrides = { ...(config.workspace.memberOverrides ?? {}) };
+  const existed = sub in overrides;
+  delete overrides[sub];
+  config.workspace.memberOverrides = Object.keys(overrides).length ? overrides : undefined;
+  await saveConfig(config, workspaceRoot);
+  sendJson(res, 200, { revoked: existed });
+}
+
+// ── Custom roles (read) ──────────────────────────────────────────────────────
+
+async function handleRolesList(res: http.ServerResponse): Promise<void> {
+  const { loadCustomRoleStore } = await import('../auth/customRoleStore.js');
+  const { VALID_ROLES } = await import('../auth/roles.js');
+  const store = await loadCustomRoleStore();
+  sendJson(res, 200, { builtIn: VALID_ROLES, custom: store.roles });
 }
 
 async function handleAddRepo(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
