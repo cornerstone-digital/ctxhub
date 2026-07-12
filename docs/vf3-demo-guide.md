@@ -141,13 +141,16 @@ No separate user database."
 
 **Promote a key document:**
 
-Take the chunk ID from `adr-001-database.md` (found during setup, or grab it now):
+Take the chunk ID from `adr-002-auth.md` — the JWT/OIDC decision, which ties directly
+into the SSO story you just walked through. (`adr-001-database.md` and the deploy
+runbook are already promoted by `ctxhub demo` setup, so promoting either of those live
+would be a no-op — pick the auth ADR instead, since it's still unverified.)
 
 ```bash
 ctxhub chunk list --min-tier unverified
 ```
 
-Copy the ID for the ADR chunk, then:
+Copy the ID for the ADR-002 chunk, then:
 
 ```bash
 ctxhub chunk promote <chunk-id> --tier institutional --reason "Core architecture decision — approved for cross-org sharing" --by "demo"
@@ -338,7 +341,7 @@ $ ctxhub demo
   ✓ Registered workspace "ctxhub-demo"
 
 Indexing demo workspace...
-  ✓ Indexed 12 chunk(s) from 6 files
+  ✓ Indexed 42 chunk(s) from 6 files
 
 ── Demo workspace ready ──────────────────────────────────
 

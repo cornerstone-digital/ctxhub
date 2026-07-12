@@ -16,6 +16,7 @@ import { loadWorkspaceConfig } from '../config/config.js';
 import type { CtxhubConfig } from '../config/types.js';
 import type { IndexedDocument } from '../config/types.js';
 import { defaultCtxhubIgnoreContent } from '../indexing/ctxhubignore.js';
+import { runGit, isGitInstalled } from '../git/git.js';
 
 const DEMO_WORKSPACE_NAME = 'ctxhub-demo';
 
@@ -328,6 +329,25 @@ export async function demoCommand(opts: { workspace?: string; force?: boolean } 
   await writeText(path.join(demoRoot, '.ctxhubignore'), defaultCtxhubIgnoreContent());
   console.log(chalk.green('  ✓ Wrote .ctxhubignore'));
 
+  // ── Git init the demo repo ───────────────────────────────────────────────
+  // `demo-docs` is registered with path "." (demoRoot itself). Without a real git repo
+  // here, `ctxhub repo hook demo-docs` (the Act 3 webhook demo step) fails outright, and
+  // freshness/staleness checks never resolve a commit. Best-effort: a broken demo repo
+  // shouldn't abort the whole scaffold, just degrade those two things gracefully.
+  if (await isGitInstalled()) {
+    try {
+      await runGit(['init'], demoRoot);
+      await runGit(['add', '-A'], demoRoot);
+      await runGit(
+        ['-c', 'user.email=demo@ctxhub.local', '-c', 'user.name=ctxhub demo', 'commit', '-m', 'Initial demo workspace'],
+        demoRoot
+      );
+      console.log(chalk.green('  ✓ Initialised demo-docs as a git repo'));
+    } catch {
+      console.log(chalk.yellow('  ⚠ Could not git-init demo-docs — `ctxhub repo hook demo-docs` won\'t work'));
+    }
+  }
+
   // ── Write workspace config ───────────────────────────────────────────────
   const config: CtxhubConfig = {
     version: 1,
@@ -387,8 +407,7 @@ export async function demoCommand(opts: { workspace?: string; force?: boolean } 
 
   // ── Index the workspace ──────────────────────────────────────────────────
   console.log(chalk.bold('\nIndexing demo workspace...'));
-  const indexResult = await indexWorkspace(demoRoot, true);
-  console.log(chalk.green(`  ✓ Indexed ${indexResult.indexed} chunk(s) from ${DEMO_DOCS.length} files`));
+  await indexWorkspace(demoRoot, true);
 
   // ── Promote two chunks to institutional tier ─────────────────────────────
   const { config: loadedConfig, workspaceRoot } = await loadWorkspaceConfig(demoRoot);
@@ -400,6 +419,7 @@ export async function demoCommand(opts: { workspace?: string; force?: boolean } 
   );
 
   const allChunks = await index.recent(10_000);
+  console.log(chalk.green(`  ✓ Indexed ${allChunks.length} chunk(s) from ${DEMO_DOCS.length} files`));
 
   const TARGET_FILES = [
     'docs/decisions/adr-001-database.md',
@@ -430,7 +450,7 @@ export async function demoCommand(opts: { workspace?: string; force?: boolean } 
   console.log(`  Workspace:  ${chalk.cyan(workspaceName)}`);
   console.log(`  Path:       ${chalk.gray(demoRoot)}`);
   console.log(`  Files:      ${chalk.white(String(DEMO_DOCS.length))} markdown documents`);
-  console.log(`  Chunks:     ${chalk.white(String(indexResult.indexed))} indexed`);
+  console.log(`  Chunks:     ${chalk.white(String(allChunks.length))} indexed`);
   console.log(`  Promotions: ${chalk.blue(String(promotions))} chunk(s) elevated to institutional tier`);
 
   console.log('');
