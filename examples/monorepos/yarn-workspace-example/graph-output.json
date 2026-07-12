@@ -1,0 +1,14 @@
+[
+  {
+    "location": ".",
+    "name": "yarn-workspace-example"
+  },
+  {
+    "location": "packages/billing-service",
+    "name": "@example/billing-service"
+  },
+  {
+    "location": "packages/core",
+    "name": "@example/core"
+  }
+]

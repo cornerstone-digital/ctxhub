@@ -1,0 +1,8 @@
+filegroup(
+    name = "billing-service",
+    srcs = [
+        "index.js",
+        "//packages/core:core",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,180 @@
+{
+  "graph": {
+    "nodes": {
+      "@org/billing-service": {
+        "name": "@org/billing-service",
+        "type": "lib",
+        "data": {
+          "root": "packages/billing-service",
+          "targets": {
+            "typecheck": {
+              "dependsOn": [
+                "^typecheck"
+              ],
+              "cache": true,
+              "inputs": [
+                "{projectRoot}/package.json",
+                "{workspaceRoot}/tsconfig.base.json",
+                "{projectRoot}/tsconfig.json",
+                "{projectRoot}/tsconfig.lib.json",
+                "{projectRoot}/src/**/*.ts",
+                {
+                  "dependentTasksOutputFiles": "**/*.{d.ts,d.cts,d.mts,tsbuildinfo}",
+                  "transitive": true
+                },
+                {
+                  "fileset": "{projectRoot}/**/*.{d.ts,d.cts,d.mts}",
+                  "dependencies": true
+                }
+              ],
+              "outputs": [
+                "{projectRoot}/tsconfig.tsbuildinfo",
+                "{projectRoot}/dist/**/*.{d.ts,d.cts,d.mts}",
+                "{projectRoot}/dist/**/*.{d.ts,d.cts,d.mts}.map",
+                "{projectRoot}/dist/tsconfig.lib.tsbuildinfo"
+              ],
+              "syncGenerators": [
+                "@nx/js:typescript-sync"
+              ],
+              "metadata": {
+                "technologies": [
+                  "typescript"
+                ],
+                "description": "Runs type-checking for the project.",
+                "help": {
+                  "command": "npx tsc --build --help",
+                  "example": {
+                    "args": [
+                      "--force"
+                    ]
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "options": {
+                "cwd": "packages/billing-service",
+                "command": "tsc --build tsconfig.json --emitDeclarationOnly"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "@org/billing-service",
+          "tags": [
+            "npm:private"
+          ],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@org/billing-service",
+              "packageVersion": "0.0.1",
+              "packageExports": {
+                ".": {
+                  "types": "./src/index.ts",
+                  "import": "./src/index.ts",
+                  "default": "./src/index.ts"
+                },
+                "./package.json": "./package.json"
+              },
+              "packageMain": "./src/index.ts",
+              "isInPackageManagerWorkspaces": true
+            }
+          },
+          "implicitDependencies": []
+        }
+      },
+      "@org/core": {
+        "name": "@org/core",
+        "type": "lib",
+        "data": {
+          "root": "packages/core",
+          "targets": {
+            "typecheck": {
+              "dependsOn": [
+                "^typecheck"
+              ],
+              "cache": true,
+              "inputs": [
+                "{projectRoot}/package.json",
+                "{workspaceRoot}/tsconfig.base.json",
+                "{projectRoot}/tsconfig.json",
+                "{projectRoot}/tsconfig.lib.json",
+                "{projectRoot}/src/**/*.ts",
+                {
+                  "dependentTasksOutputFiles": "**/*.{d.ts,d.cts,d.mts,tsbuildinfo}",
+                  "transitive": true
+                },
+                {
+                  "fileset": "{projectRoot}/**/*.{d.ts,d.cts,d.mts}",
+                  "dependencies": true
+                }
+              ],
+              "outputs": [
+                "{projectRoot}/tsconfig.tsbuildinfo",
+                "{projectRoot}/dist/**/*.{d.ts,d.cts,d.mts}",
+                "{projectRoot}/dist/**/*.{d.ts,d.cts,d.mts}.map",
+                "{projectRoot}/dist/tsconfig.lib.tsbuildinfo"
+              ],
+              "syncGenerators": [
+                "@nx/js:typescript-sync"
+              ],
+              "metadata": {
+                "technologies": [
+                  "typescript"
+                ],
+                "description": "Runs type-checking for the project.",
+                "help": {
+                  "command": "npx tsc --build --help",
+                  "example": {
+                    "args": [
+                      "--force"
+                    ]
+                  }
+                }
+              },
+              "executor": "nx:run-commands",
+              "options": {
+                "cwd": "packages/core",
+                "command": "tsc --build tsconfig.json --emitDeclarationOnly"
+              },
+              "configurations": {},
+              "parallelism": true
+            }
+          },
+          "name": "@org/core",
+          "tags": [
+            "npm:private"
+          ],
+          "metadata": {
+            "targetGroups": {},
+            "js": {
+              "packageName": "@org/core",
+              "packageVersion": "0.0.1",
+              "packageExports": {
+                ".": {
+                  "types": "./src/index.ts",
+                  "import": "./src/index.ts",
+                  "default": "./src/index.ts"
+                },
+                "./package.json": "./package.json"
+              },
+              "packageMain": "./src/index.ts",
+              "isInPackageManagerWorkspaces": true
+            }
+          },
+          "implicitDependencies": []
+        }
+      }
+    },
+    "dependencies": {
+      "@org/billing-service": [
+        {
+          "source": "@org/billing-service",
+          "target": "@org/core",
+          "type": "static"
+        }
+      ],
+      "@org/core": []
+    }
+  }
+}

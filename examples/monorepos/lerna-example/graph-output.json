@@ -1,0 +1,6 @@
+{
+  "@example/billing-service": [
+    "@example/core"
+  ],
+  "@example/core": []
+}

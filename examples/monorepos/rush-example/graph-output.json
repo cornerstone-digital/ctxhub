@@ -1,0 +1,20 @@
+{
+  "projects": [
+    {
+      "name": "@example/billing-service",
+      "version": "1.0.0",
+      "path": "packages/billing-service",
+      "fullPath": "./packages/billing-service",
+      "shouldPublish": false,
+      "tags": []
+    },
+    {
+      "name": "@example/core",
+      "version": "1.0.0",
+      "path": "packages/core",
+      "fullPath": "./packages/core",
+      "shouldPublish": false,
+      "tags": []
+    }
+  ]
+}

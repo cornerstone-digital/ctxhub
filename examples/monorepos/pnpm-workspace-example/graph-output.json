@@ -1,0 +1,27 @@
+[
+  {
+    "name": "pnpm-workspace-example",
+    "version": "1.0.0",
+    "path": ".",
+    "private": true
+  },
+  {
+    "name": "@example/billing-service",
+    "version": "1.0.0",
+    "path": "./packages/billing-service",
+    "private": true,
+    "dependencies": {
+      "@example/core": {
+        "from": "@example/core",
+        "version": "link:../core",
+        "path": "./packages/core"
+      }
+    }
+  },
+  {
+    "name": "@example/core",
+    "version": "1.0.0",
+    "path": "./packages/core",
+    "private": true
+  }
+]

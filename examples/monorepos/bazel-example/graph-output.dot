@@ -1,0 +1,10 @@
+digraph mygraph {
+  node [shape=box];
+  "//packages/billing-service:billing-service"
+  "//packages/billing-service:billing-service" -> "//packages/billing-service:index.js"
+  "//packages/billing-service:billing-service" -> "//packages/core:core"
+  "//packages/core:core"
+  "//packages/core:core" -> "//packages/core:index.js"
+  "//packages/core:index.js"
+  "//packages/billing-service:index.js"
+}
