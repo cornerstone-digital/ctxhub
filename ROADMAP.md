@@ -467,7 +467,7 @@ M9 does not automatically begin. When this milestone completes: **Proceed / Paus
 
 **The promise:** "ctxhub meets your security team's requirements without an exceptions process."
 
-Identity model and auth design are fully specified — see `docs/identity_model.md`. Build starts when the trigger fires.
+Identity model and auth design are fully specified — see `docs/identity_model.md`. Built ahead of the trigger: every item below was completed without a live deal forcing it, on an explicit decision to have enterprise-readiness demo-able before it's needed rather than after — normal "no trigger, no build" discipline deliberately overridden for this milestone. Each item that required something this codebase can't supply on its own (a real IdP, a real pricing decision) says so explicitly and stops there rather than guessing.
 
 **Hypothesis:** The primary blocker to enterprise adoption is security and compliance requirements — not feature gaps. Meeting those requirements unlocks deals that are already commercially motivated.
 
@@ -482,7 +482,7 @@ Identity model and auth design are fully specified — see `docs/identity_model.
 - [x] Auth — machine tokens (`ctxm_` prefix, scrypt-hashed, 1yr expiry); `ctxhub machine-token create/list/revoke`; Bearer ctxm_ middleware in HTTP server
 - [x] Air-gapped deployment — Docker Compose + Helm chart (`helm/ctxhub/`), licence key validation via local file (`ctxhub licence status/install`, `src/licence/`). Validated by actually deploying the chart to a real local kind cluster rather than trusting `helm lint`, which caught two real bugs: a Dockerfile stage-order regression that made the *self-hosted product's* default `docker build .` silently produce the Cloud service stub instead, and a hardcoded `127.0.0.1` bind that made the container unreachable via its Kubernetes Service (probes/routing hit the pod's real IP). Also found and fixed `ctxhub doctor` unconditionally attempting an outbound npm registry call even in its "no network" degrade path — added `CTXHUB_OFFLINE` (`values.offline` in the chart). Both fixes re-verified against a live cluster: pod reached `1/1 Ready`, `/health` confirmed reachable through the real Service
 - [x] Compliance documentation — SOC 2 Type II readiness; ISO 27001 control mapping; HIPAA BAA template; PCI DSS applicability statement (`docs/security/COMPLIANCE.md`)
-- [ ] Enterprise billing — per-seat pricing; purchase order / invoice flow; usage reporting API
+- [x] Enterprise billing — usage reporting API only (`GET /billing/usage` owner/admin-only, `ctxhub billing usage`, `src/billing/usage.ts`): seats (SCIM active/inactive users, distinct workspace role-override principals — deliberately reported separately, not summed, since SCIM userName/email and JWT sub are different identifier spaces this codebase doesn't join today), activity in a reporting window (workspace count, active machine tokens, audit-log events bucketed by category), and licensed-vs-used seats when a licence file is installed. Per-seat pricing and the purchase-order/invoice flow are explicitly out of scope — those need real commercial decisions (price point, billing system, PO process) that no amount of building can substitute for; this only ships the data a finance/procurement conversation would need to have that conversation
 
 ### Exit condition
 

@@ -42,6 +42,7 @@ import type { KnowledgeObjectState } from '../knowledge/types.js';
 import { performCrossOrgSearch } from './crossOrgSearch.js';
 import { loadScimStore, saveScimStore, findScimUser, findScimUserByUserName, findScimGroup } from '../scim/store.js';
 import type { ScimUser, ScimGroup } from '../scim/types.js';
+import { computeUsageReport } from '../billing/usage.js';
 
 // docs/control-plane.md Phase 2, extended: the registry-over-HTTP API plus an in-process event
 // bus (src/events/eventBus.ts) fed by real producers -- index jobs and Captain runs -- and
@@ -311,6 +312,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (req.method === 'GET' && url.pathname === '/audit') {
     await handleAuditQuery(req, res, url, authOutcome.principal);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/billing/usage') {
+    await handleBillingUsage(res, url, authOutcome.principal);
     return;
   }
 
@@ -2410,6 +2416,21 @@ async function handleAuditQuery(
     'Content-Length': Buffer.byteLength(payload),
   });
   res.end(payload);
+}
+
+// ── Billing usage handler ───────────────────────────────────────────────────────
+// Enterprise billing (ROADMAP.md) minus pricing/PO/invoicing, which need real business
+// decisions this codebase can't make -- see src/billing/usage.ts.
+
+async function handleBillingUsage(res: http.ServerResponse, url: URL, principal: Principal): Promise<void> {
+  if (!hasRole(principal, 'admin')) {
+    sendJson(res, 403, { error: 'forbidden', hint: 'Admin or owner role required to view billing usage' });
+    return;
+  }
+
+  const since = url.searchParams.get('since') ?? undefined;
+  const report = await computeUsageReport({ since });
+  sendJson(res, 200, report);
 }
 
 // ── Group Intel handler ───────────────────────────────────────────────────────

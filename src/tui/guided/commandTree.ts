@@ -87,6 +87,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   cascade: 'Search & Context',
   role: 'Setup',
   licence: 'Setup',
+  billing: 'Setup',
 };
 
 export function extractGuidedCommands(program: Command): GuidedCommand[] {

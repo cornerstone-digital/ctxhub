@@ -112,6 +112,7 @@ import {
   licenceStatusCommand,
   licenceInstallCommand,
 } from '../commands/licence.js';
+import { billingUsageCommand, type BillingUsageOptions } from '../commands/billing.js';
 
 // Pure construction only -- no parsing, no process.exit. Split out from index.ts so
 // guided mode (src/tui/guided/commandTree.ts) can introspect the full command tree
@@ -1377,6 +1378,17 @@ export function buildProgram(): Command {
     .description('Install a licence file (validates before copying to ~/.ctxhub/licence.json)')
     .requiredOption('--file <path>', 'Path to the licence JSON file')
     .action((opts: { file: string }) => licenceInstallCommand(opts));
+
+  // ── Billing ───────────────────────────────────────────────────────────────
+
+  const billing = program.command('billing').description('Enterprise usage reporting (not pricing/invoicing)');
+
+  billing
+    .command('usage')
+    .description('Report seats and activity for this instance — the code-only piece of enterprise billing')
+    .option('--since <iso>', 'Report activity since this ISO timestamp (default: 30 days ago)')
+    .option('--format <format>', 'Output format: table or json', 'table')
+    .action((opts: BillingUsageOptions) => billingUsageCommand(opts));
 
   // ── Status ────────────────────────────────────────────────────────────────
 
