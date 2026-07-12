@@ -4,7 +4,9 @@ import { getCtxhubHome, listWorkspaces } from '../workspaces/registry.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 import { loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
-import { getSyncConfig, syncToCloud } from '../cloud/sync.js';
+import { getSyncConfig, syncToCloud, syncRunsToCloud } from '../cloud/sync.js';
+import { loadCaptainTasks } from '../captains/tasks.js';
+import { listCaptainRuns } from '../captains/runner.js';
 
 // ── Cloud config file ─────────────────────────────────────────────────────────
 
@@ -179,6 +181,24 @@ export async function cloudSyncCommand(opts: { workspace?: string; dryRun?: bool
 
   const synced = result.synced ?? 0;
   console.log(chalk.green(`✓ Synced ${synced} chunk${synced !== 1 ? 's' : ''}`));
+
+  // Best-effort: also push each target workspace's recent Captain run history, same as the
+  // HTTP `POST /cloud/sync` route (see server.ts's handleCloudSync). A failure here doesn't
+  // fail the command -- chunk sync above already succeeded and is the primary contract.
+  try {
+    const { tasks } = await loadCaptainTasks();
+    let runsSynced = 0;
+    for (const ws of targets) {
+      const wsTasks = tasks.filter(t => t.workspace === ws.name);
+      const runs = (await Promise.all(wsTasks.map(t => listCaptainRuns(t.name, { limit: 50 })))).flatMap(r => r.records);
+      if (runs.length === 0) continue;
+      await syncRunsToCloud(syncConfig, ws.name, runs);
+      runsSynced += runs.length;
+    }
+    if (runsSynced > 0) console.log(chalk.green(`✓ Synced ${runsSynced} captain run${runsSynced !== 1 ? 's' : ''}`));
+  } catch (error) {
+    console.log(chalk.yellow(`Captain run sync skipped: ${error instanceof Error ? error.message : String(error)}`));
+  }
 
   // Update the cloud config with the new sync timestamp
   await saveCloudConfig({

@@ -1941,7 +1941,7 @@ async function handlePeerList(res: http.ServerResponse): Promise<void> {
 async function handleCloudSync(res: http.ServerResponse): Promise<void> {
   try {
     const { loadCloudConfig } = await import('../commands/cloud.js');
-    const { getSyncConfig, syncToCloud } = await import('../cloud/sync.js');
+    const { getSyncConfig, syncToCloud, syncRunsToCloud } = await import('../cloud/sync.js');
 
     const cloudConfig = await loadCloudConfig();
     if (!cloudConfig) {
@@ -1979,6 +1979,31 @@ async function handleCloudSync(res: http.ServerResponse): Promise<void> {
 
     const result = await syncToCloud(syncConfig, allChunks);
 
+    // Best-effort: also push recent Captain run history so Mission Control's Cloud panel
+    // (GET /cloud/history) has real data. Runs are workspace-scoped on Cloud's side, so this
+    // pushes each workspace's runs separately rather than one combined batch. Failures here
+    // never fail the whole sync -- chunk sync succeeding is the primary contract of this route.
+    const runSyncErrors: string[] = [];
+    try {
+      const { tasks } = await loadCaptainTasks();
+      const runsByWorkspace = new Map<string, Awaited<ReturnType<typeof listCaptainRuns>>['records']>();
+      for (const task of tasks) {
+        const { records } = await listCaptainRuns(task.name, { limit: 50 });
+        const existing = runsByWorkspace.get(task.workspace) ?? [];
+        runsByWorkspace.set(task.workspace, [...existing, ...records]);
+      }
+      for (const [workspaceId, runs] of runsByWorkspace) {
+        if (runs.length === 0) continue;
+        try {
+          await syncRunsToCloud(syncConfig, workspaceId, runs);
+        } catch (error) {
+          runSyncErrors.push(`${workspaceId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    } catch {
+      // No captain tasks configured, or tasks store unreadable -- not fatal to chunk sync.
+    }
+
     // Update lastSyncAt in the cloud config file
     if (!result.skipped && (result.synced ?? 0) > 0) {
       const { saveCloudConfig } = await import('../commands/cloud.js');
@@ -1991,7 +2016,7 @@ async function handleCloudSync(res: http.ServerResponse): Promise<void> {
 
     sendJson(res, 200, {
       synced: result.synced ?? 0,
-      errors: result.errors ?? [],
+      errors: [...(result.errors ?? []), ...runSyncErrors],
       skipped: result.skipped ?? false,
     });
   } catch (error) {

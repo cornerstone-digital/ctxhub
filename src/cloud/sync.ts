@@ -10,6 +10,7 @@
  */
 
 import type { IndexedDocument } from '../config/types.js';
+import type { CaptainRunRecord } from '../captains/runner.js';
 
 // ── Protocol types ────────────────────────────────────────────────────────────
 
@@ -169,4 +170,61 @@ export async function syncToCloud(
       errors: [msg],
     };
   }
+}
+
+// ── syncRunsToCloud ───────────────────────────────────────────────────────────
+
+/**
+ * Push Captain run history to Cloud's `POST /sync/runs` so `GET /cloud/history` (Mission
+ * Control's Cloud panel) has real data instead of always being empty. Added alongside the
+ * Local DX work -- before this, `/sync/runs` existed and was tested in isolation but nothing
+ * on the self-hosted side ever called it.
+ *
+ * `CaptainRunRecord` has no explicit status/completedAt/promotedCount -- `listCaptainRuns`
+ * only ever returns runs that finished successfully (failures throw before being persisted,
+ * see runner.ts), so status is always 'completed' here. `findingsCount` is approximated from
+ * citation count; `promotedCount` isn't tracked per-run today and is always 0 -- promotion
+ * status lives on the promoted note's frontmatter, not the run record.
+ */
+export async function syncRunsToCloud(
+  config: SyncConfig,
+  workspaceId: string,
+  runs: CaptainRunRecord[],
+): Promise<{ accepted: number } | { skipped: true; reason: string }> {
+  if (!config.endpoint) {
+    return { skipped: true, reason: 'cloud sync not configured' };
+  }
+  if (runs.length === 0) {
+    return { skipped: true, reason: 'no captain runs to sync' };
+  }
+
+  const payload = {
+    workspaceId,
+    runs: runs.map(r => ({
+      id: r.runId,
+      taskName: r.task,
+      startedAt: r.startedAt,
+      status: 'completed' as const,
+      findingsCount: r.result.citations.length,
+      promotedCount: 0,
+    })),
+  };
+
+  const res = await fetch(`${config.endpoint}/sync/runs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`Cloud API returned ${res.status} for /sync/runs: ${text}`);
+  }
+
+  const result = await res.json() as { accepted?: number };
+  return { accepted: result.accepted ?? runs.length };
 }

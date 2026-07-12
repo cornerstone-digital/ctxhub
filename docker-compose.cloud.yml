@@ -1,0 +1,56 @@
+# Local DX for the ctxhub Cloud stack -- NOT for production deployment.
+#
+# Brings up a real (ephemeral) Postgres and the Cloud service stub together so the full
+# loop -- self-hosted ctxhub instance -> sync -> Cloud -> Mission Control's Cloud/Groups
+# panels -- can be exercised end-to-end on a laptop, with no real cloud account, Entra
+# tenant, or hosting decision required.
+#
+# The Cloud service (src/cloud/service.ts) does not read from Postgres yet -- it's still
+# an in-memory store (see serve.ts's doc comment). Postgres is included here so
+# schema.sql / db.ts can be exercised against a real instance (see
+# src/cloud/db.integration.test.ts) and so this compose file is the natural place to wire
+# real persistence into once that work happens -- not because the Cloud service uses it today.
+#
+# Usage:
+#   docker compose -f docker-compose.cloud.yml up -d
+#   scripts/demo-cloud.sh          # runs the full local demo against it
+
+services:
+  cloud-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: local-dev-only
+      POSTGRES_DB: ctxhub_cloud
+    ports:
+      - "15432:5432"
+    volumes:
+      - cloud-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cloud-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cloud
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      # Local DX only -- pick a real secret for anything beyond a laptop demo.
+      - CLOUD_ADMIN_KEY=local-dev-admin-key
+    depends_on:
+      cloud-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  cloud-postgres-data:
