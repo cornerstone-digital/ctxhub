@@ -30,6 +30,13 @@ Do not write an ADR for implementation details, library choices below the archit
 | [ADR-011](ADR-011-llm-execution-always-local.md) | LLM execution runs locally in MVP; Cloud execution is a later explicit opt-in | Accepted |
 | [ADR-012](ADR-012-rbac-minimalism.md) | RBAC minimalism: five roles, no custom roles in MVP or Team tier | Accepted |
 | [ADR-013](ADR-013-build-only-when-trigger-fires.md) | Later phases are built only when their trigger condition fires | Accepted |
+| [ADR-014](ADR-014-auth-oidc-pkce.md) | Use OpenID Connect with PKCE for enterprise authentication | Accepted |
+| [ADR-015](ADR-015-corporate-groups.md) | Corporate Groups as the multi-entity sharing model | Accepted |
+| [ADR-016](ADR-016-trust-tiers.md) | Five-tier trust model for knowledge promotion | Accepted |
+| [ADR-017](ADR-017-cloud-sync.md) | Cloud sync as one-way push of promoted knowledge | Accepted |
+| [ADR-018](ADR-018-scim-provisioning.md) | SCIM 2.0 user provisioning | Accepted |
+| [ADR-019](ADR-019-knowledge-object-lifecycle.md) | Knowledge Object lifecycle | Accepted |
+| [ADR-020](ADR-020-evidence-sources-not-repositories.md) | Evidence Sources, not Repositories, are the workspace's root concept | Accepted |
 
 ## Template
 
