@@ -15,6 +15,8 @@ import { ReviewView } from './components/ReviewView'
 import { JobsView } from './components/JobsView'
 import { EvalView } from './components/EvalView'
 import { TimelineView } from './components/TimelineView'
+import { GroupsView } from './components/GroupsView'
+import { CloudView } from './components/CloudView'
 
 function ResizeHandleH() {
   return (
@@ -72,6 +74,8 @@ export default function App() {
               {activeView === 'review' && <ReviewView />}
               {activeView === 'config' && <ConfigView />}
               {activeView === 'skills' && <SkillsPersonasView />}
+              {activeView === 'groups' && <GroupsView />}
+              {activeView === 'cloud' && <CloudView />}
             </Panel>
             <ResizeHandleV />
             <Panel defaultSize={22} minSize={10} maxSize={45} style={{ display: 'flex', flexDirection: 'column' }}>

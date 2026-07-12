@@ -304,3 +304,83 @@ export interface ActivityEvent {
   // to show full metadata, not just the human-readable summary text.
   raw?: CtxhubEventEnvelope;
 }
+
+// ── Corporate Groups ─────────────────────────────────────────────────────────
+
+export type SharingMode = 'none' | 'read' | 'bidirectional';
+export type TrustTier = 'observer' | 'participant' | 'trusted';
+
+export interface CorporateGroup {
+  id: string;
+  name: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface GroupOrg {
+  id: string;
+  groupId: string;
+  name: string;
+  tenantId: string;
+  trustTier: TrustTier;
+  peerUrl?: string;
+  lastSeen?: string;
+  registeredAt?: string;
+  addedAt: string;
+  addedBy: string;
+}
+
+export interface SharingPolicy {
+  fromOrgId: string;
+  toOrgId: string;
+  mode: SharingMode;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface GroupListResponse {
+  groups: CorporateGroup[];
+  orgs: GroupOrg[];
+  sharingPolicies: SharingPolicy[];
+}
+
+// ── Cloud ─────────────────────────────────────────────────────────────────────
+
+export interface CloudStatus {
+  configured: boolean;
+  endpoint?: string;
+  lastSyncAt?: string | null;
+  chunksSynced?: number;
+  chunksAvailable?: number;
+}
+
+export interface CloudCaptainRun {
+  id: string;
+  orgId: string;
+  workspaceId: string;
+  taskName: string;
+  startedAt: string;
+  completedAt?: string;
+  status: 'running' | 'completed' | 'failed';
+  findingsCount: number;
+  promotedCount: number;
+  syncedAt: string;
+}
+
+export interface CloudNote {
+  id: string;
+  orgId: string;
+  workspaceId: string;
+  title: string;
+  content: string;
+  promotedAt: string;
+  promotedBy: string;
+  trustTier: string;
+  syncedAt: string;
+}
+
+export interface CloudHistory {
+  runs: CloudCaptainRun[];
+  notes: CloudNote[];
+  source: 'cloud' | 'local';
+}

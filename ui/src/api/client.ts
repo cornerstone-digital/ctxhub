@@ -4,11 +4,14 @@ import type {
   AgentToken,
   CaptainRunRecord,
   CaptainTask,
+  CloudHistory,
+  CloudStatus,
   CtxhubConfig,
   CtxhubEventEnvelope,
   EvalRunResult,
   ExecutionProfile,
   ExplainResult,
+  GroupListResponse,
   IndexJobState,
   JobDefinition,
   JobRun,
@@ -19,6 +22,8 @@ import type {
   RepoConfig,
   ReviewerProfile,
   ReviewResult,
+  SharingMode,
+  SharingPolicy,
   SkillStatus,
   Workspace,
   WorkspaceStatus,
@@ -666,6 +671,60 @@ export function useSetActiveProfileMutation() {
     },
     onSuccess: (_data, { workspace }) => {
       void qc.invalidateQueries({ queryKey: ['active-profile', workspace] })
+    },
+  })
+}
+
+// ── Corporate Groups ─────────────────────────────────────────────────────────
+
+export function useGroups() {
+  return useQuery({
+    queryKey: ['groups'],
+    queryFn: () => fetchJson<GroupListResponse>('/groups'),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useUpdateSharingMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ groupId, fromOrgId, toOrgId, mode }: { groupId: string; fromOrgId: string; toOrgId: string; mode: SharingMode }) =>
+      patchJson<{ policy: SharingPolicy }>(`/groups/${encodeURIComponent(groupId)}/sharing`, { fromOrgId, toOrgId, mode }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['groups'] })
+    },
+  })
+}
+
+// ── Cloud ─────────────────────────────────────────────────────────────────────
+
+export function useCloudStatus() {
+  return useQuery({
+    queryKey: ['cloud-status'],
+    queryFn: () => fetchJson<CloudStatus>('/cloud/status'),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useCloudHistory(opts: { limit?: number; type?: string } = {}) {
+  const params = new URLSearchParams()
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.type) params.set('type', opts.type)
+  const qs = params.toString()
+  return useQuery({
+    queryKey: ['cloud-history', qs],
+    queryFn: () => fetchJson<CloudHistory>(`/cloud/history${qs ? `?${qs}` : ''}`),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useSyncCloudMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => postJson<{ synced: number; errors?: string[] }>('/cloud/sync'),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['cloud-status'] })
+      void qc.invalidateQueries({ queryKey: ['cloud-history'] })
     },
   })
 }
