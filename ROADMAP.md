@@ -284,7 +284,7 @@ When the pilot begins: **Proceed / Pause / Pivot** — based on whether the hypo
 - [x] **Cross-org knowledge sharing data model** — `SharingPolicy` with `fromOrgId`, `toOrgId`, and `mode` (`none` | `read` | `bidirectional`); `TrustTier` per org (`observer` | `participant` | `trusted`); `canSearchCrossOrg` and `resolveOrgForUser` query helpers
 - [x] **Cross-org search stub** — `POST /workspaces/:name/chat?cross-org=true` resolves the caller's org, identifies permitted peer orgs via sharing policies, logs the fan-out intent, and returns local results annotated with `sourceOrg` and `crossOrgEnabled: false`; actual HTTP fan-out to peer instances is the next step (see below)
 - [x] **Group audit events** — `group.created`, `group.org_added`, `group.org_removed`, `group.sharing_updated` emitted to the event bus (fire-and-forget) from all mutating group operations
-- [x] **Groups panel in Mission Control** — sidebar nav item; fetches `GET /groups`; renders each group with its orgs (name, tenantId, trust tier) and a sharing matrix (read / bidirectional / none per org pair)
+- [x] **Groups panel in Mission Control** — sidebar nav item; fetches `GET /groups`; renders each group with its orgs (name, tenantId, trust tier) and a sharing matrix (read / bidirectional / none per org pair) (this had been checked off with no actual UI behind it — the backend routes existed but `ui/src/components/GroupsView.tsx` and the sidebar nav item did not; built and verified 2026-07-12)
 - [x] **Chunk trust tier field** — `ChunkTrustTier` (`unverified` → `reviewed` → `promoted` → `institutional` → `canonical`) on every indexed chunk; `meetsMinTrustTier()` helper; cross-org search filters to `institutional+` automatically; indexer reads `trust-tier:` frontmatter to set tier at index time
 - [x] **Captain approval → institutional tier** — `ctxhub captain promote` writes `trust-tier: institutional` into the promoted note's frontmatter; on next index/sync the chunk is automatically eligible for cross-org search without manual intervention
 - [x] **`ctxhub chunk promote`** — manual tier elevation for workspace admins; supports `institutional` and `canonical` targets; records `promotedAt`, `promotedBy`, and optional `--reason`; `ctxhub chunk list --min-tier <tier>` shows all chunks at or above the specified tier
@@ -332,7 +332,7 @@ Architecture is fully designed — see `docs/cloud_architecture.md` and `docs/id
 - [x] M6 Cloud: sync protocol stub (`src/cloud/sync.ts`, `ctxhub sync --to-cloud`)
 - [x] M6 Cloud: `ctxhub cloud configure` / `ctxhub cloud status` — manage `~/.ctxhub/cloud.json`
 - [x] CHANGELOG.md — Keep a Changelog format, all releases documented from v0.1.0 through v0.5.0
-- [x] Mission Control Cloud panel — Cloud nav item, sync status card, Sync Now button calling `POST /cloud/sync`, recently synced chunks list
+- [x] Mission Control Cloud panel — Cloud nav item, sync status card (endpoint, last sync, chunks synced/available), Sync Now button calling `POST /cloud/sync`, and a history browser (runs/notes, filterable) backed by `GET /cloud/history` rather than the originally-described chunks list (same underlying "what did Cloud recently see" idea, closer to what `/cloud/history` actually returns) (this had also been checked off with no UI behind it — built and verified 2026-07-12, see `ui/src/components/CloudView.tsx`)
 - [x] `POST /cloud/sync` server route — admin-required; loads promoted chunks; calls syncToCloud; returns `{ synced, errors }`
 - [x] `GET /cloud/status` server route — returns configured, endpoint (masked), lastSyncAt, chunksSynced, chunksAvailable
 - [x] MCP `cloud_sync` tool — triggers sync of institutional/canonical chunks from current workspace
@@ -341,11 +341,11 @@ Architecture is fully designed — see `docs/cloud_architecture.md` and `docs/id
 - [x] `ctxhub cloud sync` — standalone manual command; `--workspace` and `--dry-run` flags
 
 **Still needed:**
-- [ ] Organisation and member identity — `organisations`, `members`, `workspaces`, `machines` tables in Postgres (schema designed; service not deployed)
+- [x] Organisation and member identity — `organisations`, `members`, `workspaces`, `machines` tables in Postgres (added the missing `machines` table to `src/cloud/schema.sql`; query helpers in `src/cloud/db.ts`; validated by applying the schema and round-tripping all four tables against a real ephemeral Postgres 17 container — `src/cloud/db.integration.test.ts`, skipped by default, run with `DATABASE_URL` set. Not yet tested against a real Railway/production instance, concurrent load, or an existing populated database — service still not deployed)
 - [x] Auth — machine tokens (`ctxm_` prefix, scrypt-hashed, 1yr expiry); `ctxhub machine-token create/list/revoke`; Bearer ctxm_ middleware in HTTP server
 - [x] Cloud sync API — `POST /sync` endpoint on the Cloud service (stub client in place; `src/cloud/service.ts`)
 - [x] Cloud event ingestion API — `POST /sync/events`, `POST /sync/runs`, `POST /sync/notes`, `GET /sync/history` (routes implemented and tested in `src/cloud/service.ts`; service not deployed)
-- [ ] Cloud Mission Control — historical captain runs and promoted notes across all workspaces, read-only
+- [x] Cloud Mission Control — historical captain runs and promoted notes across all workspaces, read-only (`ui/src/components/CloudView.tsx`, backed by the already-implemented `GET /cloud/history` → Cloud service `GET /sync/history`; the Cloud service itself is still an in-memory stub, so this is validated against that stub only — needs testing against a real deployed instance with real cross-workspace data volume)
 - [x] 5-role RBAC enforcement — owner, admin, member, reader, machine
 
 ### Exit condition
