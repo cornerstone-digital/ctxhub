@@ -5,7 +5,13 @@ A shopping list, not a priority order. Every idea below came out of the same bra
 
 The recurring theme, in the words that prompted this document: **ctxhub doesn't replace existing systems — it registers them, understands them, and orchestrates them.** Most entries below are a variation on that pattern applied to a new surface (knowledge sources, policy, models, memory, governance, meetings). Each entry notes what it would connect to in the current codebase, where that's known — not as a ranking, just as a pointer for whoever picks it up next.
 
+**A principle worth stating separately, because it's architectural rather than a feature in its own right:** ctxhub should not have a single primary interface. CLI, Mission Control, Chat, Voice, a Workflow Builder, MCP, the REST API, IDE extensions, mobile, Alexa — each is a different way of interacting with the same underlying engineering operating model, and the platform should be able to evolve independently of any one of them. Several entries below (Voice-Native Mission Control, Mission Builder, Meeting Intelligence) are really instances of this same principle applied to a specific surface, not unrelated ideas.
+
 ---
+
+## AI Budget Manager
+
+Reframes AI spend as engineering ROI instead of a token count: not "we spent 50 million tokens" but "we spent £200 and saved £6,000." The Usage view already tracks tokens returned/saved per tool — this is the same underlying data, presented as a cost/value statement instead of a token count. Needs a real cost-per-token figure per model/provider to be honest, which the current usage-stats model doesn't track (see `src/utils/usageStats.ts` — no cost field yet, only token counts).
 
 ## AI Second Opinion
 
@@ -47,6 +53,10 @@ Not org/team ownership (already tracked via topology `owned_by` edges, M7) but w
 
 Visualising overloaded teams, overloaded services, and knowledge bottlenecks (Team Topologies-flavoured). Wants Capability Graph above to exist first — otherwise there's nothing to visualise beyond raw topology node degree.
 
+## Context Lens
+
+Every screen in Mission Control viewed through a chosen perspective — repository, team, organisation, corporate group, incident, sprint, capability — with the same underlying data reshaped around whichever lens is active, rather than separate screens per perspective. A UI/query-layer idea more than a new data model: the Org Graph (M7) already has most of these as real dimensions (workspace, org, group), so this is largely about building one filtering mechanism that every view respects, instead of each view inventing its own ad hoc filters.
+
 ## Engineering Digital Twin
 
 "What happens if we archive Service X?" / "If this library changes, what breaks?" / "Who owns the blast radius?" — simulation over the Org Graph rather than just observation. A step beyond M10's Engineering Intelligence (which observes and recommends) into modelling a hypothetical change before it happens. Closest existing hook: M17's `affectedProjects()`/impact-query phase answers "what's affected by a real change," which is adjacent to but short of "what would be affected by a hypothetical one."
@@ -55,13 +65,19 @@ Visualising overloaded teams, overloaded services, and knowledge bottlenecks (Te
 
 Captain recommendations calibrated to an org's own historical patterns ("this doesn't match how you've built things before") rather than generic best practice. Implies mining the Knowledge Graph for *style*, not just facts — a materially different and harder inference problem than anything M7–M10 currently do.
 
-## Engineering Journal
+## Engineering Health
 
-An auto-generated daily or weekly digest ("3 new Knowledge Objects, 2 architecture decisions, 5 recommendations accepted"). Mostly a query-and-formatting layer over data M7/M10 already produce, rather than new infrastructure.
+A GitHub-contribution-graph-style dashboard for organisational learning instead of commits: Knowledge Capture Rate, Recommendations Accepted, Trust growth, Knowledge reuse, AI spend saved, engineering hours saved — squares on a calendar, coloured by activity, but the activity is learning rather than code. Distinct from the Usage view (which tracks token/cost mechanics) — this is the outcome layer on top: what the organisation *got* from that activity, not what it cost.
+
+Naturally includes an auto-generated daily or weekly digest as its "today" view — "+4 Knowledge Objects, +2 architecture decisions, +17 recommendations accepted, engineering health +3%." Mostly a query-and-formatting layer over data M7/M10 already produce, rather than new infrastructure; the real design work is picking metrics that are genuinely load-bearing signals rather than vanity counters.
 
 ## Engineering Memory (episodic)
 
 Treating whole *events* — an incident, a migration, a security audit — as first-class objects with their own lifecycle, richer than a single promoted Knowledge Object, so "have we done something like this before?" is answerable. Meaningfully different from M7's Knowledge Graph, which models individual findings, not bounded episodes composed of many findings plus a timeline; would likely want its own schema (`episodes` linking a set of `knowledge_objects` to a time range) rather than overloading the existing KO model.
+
+## Engineering Presence
+
+Mission Control senses what an engineer is currently doing — coding, in a meeting, reviewing a PR, responding to an incident — and adapts automatically: Incident Mode during an incident, Release Mode during a release, the Architecture lens surfacing itself during an architecture review, without anyone switching dashboards by hand. Contextual rather than surveillance — the signal would come from what's already happening in tools ctxhub already integrates with (a PR open, an incident Captain running, a release Job in flight), not from monitoring the person. No existing hook; this is squarely a consumer of everything else in this document (Context Lens for the "which view," Living Organisation for the "feels alive" part) rather than infrastructure of its own — realistically the last thing to build here, not the first.
 
 ## Engineering Replay
 
@@ -79,13 +95,19 @@ The technical-debt framing applied to documentation gaps — undocumented servic
 
 A live, FlightRadar-style view of repositories → packages → teams → workers → incidents → Captains → knowledge → recommendations. `docs/org_graph_architecture.md` §8 (Mission Control Graph View — force-directed, topology + knowledge layers) already specs the visual design; this is that view plus M18's worker registry and M10's intelligence layer, rendered as one live dashboard once all three exist.
 
+## Living Organisation
+
+Broader than Live Engineering Map above: not one graph view, but Mission Control feeling alive everywhere — Workers joining, Captains running, knowledge getting promoted, trust changing, approvals waiting, all surfacing as a live activity feed (closer to GitHub Actions meets a Slack activity stream than a static dashboard). Live Engineering Map is the spatial/topology version of this; Living Organisation is the temporal/activity version — the event bus (`src/events/eventBus.ts`) already carries every one of these events in real time, so the gap is presentation, not data.
+
 ## Marketplace (Captains, Workers, Policies, Workflows)
 
 Installable Workers-as-plugins (Datadog Worker, Terraform Worker, Snowflake Worker) and, more broadly, installable Captains/Policies/Blueprints/Personas/org templates. M11's existing Marketplace milestone, revisited for a wider set of asset types than blueprints alone, informed by M18's "workers become plugins" framing.
 
-## Meeting Companion ("Engineering Copilot Mode")
+## Meeting Intelligence
 
-Captain joins a call (with consent), and afterwards proposes a meeting summary, ADRs worth drafting, Knowledge Objects worth promoting, ownership changes detected, and follow-up Missions. The one idea here that starts from zero rather than extending something that exists — no current ctxhub subsystem touches audio/transcription, meeting-platform integration, or real-time consent/privacy handling. A multi-quarter bet if picked up, not an incremental feature.
+Deliberately not called "Meeting Companion" — that undersells it as another note-taker. Captain joins a call (with consent), and afterwards proposes real organisational state changes: a meeting summary, ADRs worth drafting, Knowledge Objects worth promoting, ownership changes detected, and follow-up Missions. The output is updates to Knowledge, Ownership, Missions, and ADRs, not a transcript — the same "ephemeral conversation becomes durable organisational knowledge" idea the rest of this document keeps returning to, applied to the one source ctxhub currently has zero visibility into.
+
+The one idea here that starts from zero rather than extending something that exists — no current ctxhub subsystem touches audio/transcription, meeting-platform integration, or real-time consent/privacy handling. A multi-quarter bet if picked up, not an incremental feature.
 
 ## Mission Builder / Engineering Workflows
 
@@ -110,3 +132,11 @@ An explicit, time-based extension of the existing confidence model — [ADR-008]
 ## Trust Scores
 
 Extending confidence/trust beyond Knowledge Objects (already scored per ADR-008) to Workers, Captains, Blueprints, Policies, and Recommendations, so a recommendation can be "high confidence AND high trust" as two distinct axes. Not a new system — the existing [Trust Model](trust_model.md) hierarchy and ADR-008's "organisational signal, not model-generated" principle, applied to more entity types. Open question: whether one trust model genuinely generalises across such different entities, since a Worker's trust and a Knowledge Object's confidence are earned very differently.
+
+## Voice-Native Mission Control
+
+Voice as a first-class interaction surface alongside CLI, Mission Control, Chat, and MCP — not dictation, but letting an engineer think out loud and have ctxhub convert that into structured engineering work. The worked example from the brainstorm: *"Hey Captain, I'm worried yesterday's auth refactor might affect mobile clients — check the dependency graph, look for previous incidents, run the Architecture Captain and tell me if I should be concerned."* Mission Control responds with interpreted intent, affected systems, existing knowledge, proposed actions, estimated cost, and required approvals — voice proposes, a human still approves, exactly like every other recommendation surface in this platform. Nothing here overrides M10's non-autonomous principle; it's a new way to *ask*, not a new way to *act*.
+
+Staged rather than all-or-nothing: push-to-talk on web and mobile with off-the-shelf speech-to-text is the cheap, reliable starting point; a local wake phrase ("Hey Captain" — see below), a desktop companion, and an Alexa skill for ambient status checks ("any production incidents? has my mission completed?") are further out and each a real, separate integration surface, not a bigger version of the same feature.
+
+**"Hey Captain" is branding, not just a wake word.** The platform's existing vocabulary — Mission Control, Captains, Workers, Missions — already gives it an identity distinct from "an AI assistant." A voice interface that says "Hey Captain" instead of "Hey AI" reinforces that the user is addressing the operating model, not a generic chatbot; worth keeping in mind for any voice work even before wake-word detection itself is real.
