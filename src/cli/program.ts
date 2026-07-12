@@ -68,6 +68,7 @@ import {
   roleMapAddGroupCommand,
   roleMapRemoveGroupCommand,
   roleMapSetDefaultCommand,
+  type AuthConfigureOptions,
 } from '../commands/auth.js';
 import { VALID_ROLES } from '../auth/roles.js';
 import { jobAddCommand, jobListCommand, jobRemoveCommand, jobRunCommand, jobRunsCommand } from '../commands/job.js';
@@ -903,15 +904,18 @@ export function buildProgram(): Command {
 
   auth
     .command('configure')
-    .description('Configure SSO for this ctxhub installation (Entra ID, Okta, Google, or any OIDC provider)')
+    .description('Configure SSO for this ctxhub installation (Entra ID, Okta, Google, any OIDC provider, or SAML 2.0)')
     .option('--tenant-id <id>', 'Azure AD / Entra ID tenant ID (required for Entra provider)')
-    .requiredOption('--client-id <id>', 'App registration client (application) ID')
-    .requiredOption('--client-secret <secret>', 'App registration client secret')
-    .addOption(new Option('--provider <provider>', 'OIDC provider').choices(['entra', 'okta', 'google', 'generic']).default('entra'))
-    .option('--issuer-url <url>', 'OIDC issuer URL (required for non-Entra providers, e.g. https://accounts.google.com)')
-    .action((opts: { tenantId?: string; clientId: string; clientSecret: string; provider?: string; issuerUrl?: string }) =>
-      authConfigureCommand(opts)
-    );
+    .option('--client-id <id>', 'App registration client (application) ID (OIDC providers)')
+    .option('--client-secret <secret>', 'App registration client secret (OIDC providers)')
+    .addOption(new Option('--provider <provider>', 'Auth provider').choices(['entra', 'okta', 'google', 'generic', 'saml']).default('entra'))
+    .option('--issuer-url <url>', 'OIDC issuer URL (required for non-Entra OIDC providers, e.g. https://accounts.google.com)')
+    .option('--idp-entry-point <url>', 'SAML: IdP SSO URL (required for --provider saml)')
+    .option('--idp-issuer <issuer>', 'SAML: IdP entity ID (required for --provider saml)')
+    .option('--idp-cert <cert>', 'SAML: IdP X.509 signing certificate, PEM or base64 body only (required for --provider saml)')
+    .option('--sp-entity-id <id>', 'SAML: this SP\'s own entity ID, registered with the IdP (required for --provider saml)')
+    .option('--callback-url <url>', 'SAML: ACS URL (default: local CLI callback, matching how OIDC login works; set to a deployed instance\'s /auth/saml/acs for IdP-initiated SSO)')
+    .action((opts: AuthConfigureOptions) => authConfigureCommand(opts));
 
   auth
     .command('status')

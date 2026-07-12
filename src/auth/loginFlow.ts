@@ -39,6 +39,9 @@ export async function refreshSession(): Promise<Principal | null> {
   const tokens = await loadTokens();
 
   if (!config || !tokens) return null;
+  // SAML sessions have no refresh-token equivalent usable from a headless local flow --
+  // the user re-runs `ctxhub login`, same as any other expired-session case.
+  if (!tokens.entraTokens) return null;
 
   try {
     const discovery = await discoverOidc(config.oidc);

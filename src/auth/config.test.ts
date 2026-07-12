@@ -156,3 +156,40 @@ describe('isAuthConfigured — env vars', () => {
     });
   });
 });
+
+// Regression: isAuthConfigured() originally only ever checked config.oidc.clientId/
+// clientSecret -- a SAML-only config (initSamlAuthConfig writes empty-string OIDC
+// placeholders, since AuthConfig.oidc is required regardless of protocol) always failed
+// this check, so `ctxhub login` reported "Auth not configured" immediately after a
+// successful `ctxhub auth configure --provider saml`. Caught by actually running the CLI
+// login flow end to end against a real IdP, not by a unit test -- added here so it can't
+// regress silently again.
+describe('isAuthConfigured — SAML', () => {
+  const samlConfig: AuthConfig = {
+    version: 1,
+    protocol: 'saml',
+    oidc: { clientId: '', clientSecret: '', redirectUri: '' },
+    saml: {
+      idpEntryPoint: 'https://idp.example.com/sso',
+      idpIssuer: 'https://idp.example.com/metadata',
+      idpCert: 'MIIC...fake-cert-body',
+      spEntityId: 'https://ctxhub.example.com/saml/metadata',
+      callbackUrl: 'https://ctxhub.example.com/auth/saml/acs',
+    },
+    jwtSecret: 'file-jwt-secret-value-hex-encoded',
+  };
+
+  it('returns true for a complete SAML config despite empty OIDC placeholders', async () => {
+    await withTempHome(async () => {
+      await saveAuthConfig(samlConfig);
+      assert.equal(await isAuthConfigured(), true);
+    });
+  });
+
+  it('returns false when a required SAML field is missing', async () => {
+    await withTempHome(async () => {
+      await saveAuthConfig({ ...samlConfig, saml: { ...samlConfig.saml!, idpCert: '' } });
+      assert.equal(await isAuthConfigured(), false);
+    });
+  });
+});

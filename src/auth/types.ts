@@ -106,7 +106,13 @@ export interface StoredUser {
 
 export interface StoredTokens {
   version: 1;
-  entraTokens: StoredEntraTokens;
+  /** Present for OIDC sessions; absent for SAML (see samlSession below). */
+  entraTokens?: StoredEntraTokens;
+  /** Present for SAML sessions. SAML has no standard refresh-token equivalent usable from a
+   * headless local CLI flow (silent re-auth normally relies on the IdP's own browser session
+   * via a hidden iframe redirect) -- refreshSession() returns null for these and the user
+   * re-runs `ctxhub login`, same as any other expired-session case. */
+  samlSession?: { sessionIndex?: string; expiresAt: string };
   ctxhubToken: StoredCtxhubToken;
   user: StoredUser;
 }

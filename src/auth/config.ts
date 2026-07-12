@@ -2,7 +2,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { getCtxhubHome } from '../workspaces/registry.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
-import type { AuthConfig, OidcConfig, RoleMap } from './types.js';
+import type { AuthConfig, OidcConfig, RoleMap, SamlConfig } from './types.js';
 
 export function getAuthConfigPath(): string {
   return path.join(getCtxhubHome(), 'auth.json');
@@ -107,7 +107,26 @@ export async function initAuthConfig(oidc: OidcConfig): Promise<AuthConfig> {
   const existing = await loadAuthConfig();
   const config: AuthConfig = {
     version: 1,
+    protocol: 'oidc',
     oidc,
+    jwtSecret: existing?.jwtSecret ?? randomBytes(32).toString('hex'),
+  };
+  await saveAuthConfig(config);
+  return config;
+}
+
+/**
+ * AuthConfig.oidc is required regardless of protocol (see its doc comment in types.ts) to
+ * avoid touching every existing OIDC-only caller -- these placeholder values are never read
+ * when protocol is 'saml'.
+ */
+export async function initSamlAuthConfig(saml: SamlConfig): Promise<AuthConfig> {
+  const existing = await loadAuthConfig();
+  const config: AuthConfig = {
+    version: 1,
+    protocol: 'saml',
+    oidc: { clientId: '', clientSecret: '', redirectUri: '' },
+    saml,
     jwtSecret: existing?.jwtSecret ?? randomBytes(32).toString('hex'),
   };
   await saveAuthConfig(config);
@@ -126,9 +145,15 @@ export async function updateRoleMap(roleMap: RoleMap): Promise<void> {
 export async function isAuthConfigured(): Promise<boolean> {
   const config = await loadAuthConfig();
   if (config === null) return false;
+  if (!config.jwtSecret) return false;
+
+  if (config.protocol === 'saml') {
+    const saml = config.saml;
+    return Boolean(saml?.idpEntryPoint && saml.idpIssuer && saml.idpCert && saml.spEntityId && saml.callbackUrl);
+  }
+
   if (!config.oidc?.clientId) return false;
   if (!config.oidc?.clientSecret) return false;
-  if (!config.jwtSecret) return false;
   // For Entra provider (or legacy configs without explicit provider), tenantId is required
   const provider = config.oidc?.provider;
   if (!provider || provider === 'entra') {
@@ -158,6 +183,7 @@ export async function initAuthConfigGeneric(opts: {
   };
   const config: AuthConfig = {
     version: 1,
+    protocol: 'oidc',
     oidc,
     jwtSecret: existing?.jwtSecret ?? randomBytes(32).toString('hex'),
   };

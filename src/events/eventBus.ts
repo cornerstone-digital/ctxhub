@@ -31,7 +31,7 @@ export type CtxhubEvent =
   | { type: 'job.completed';      jobId: string; job: string }
   | { type: 'job.failed';         jobId: string; job: string; error: string }
   // ── Auth ───────────────────────────────────────────────────────────────────
-  | { type: 'auth.login'; sub: string; email: string; name: string; roles: string[]; provider: 'entra' }
+  | { type: 'auth.login'; sub: string; email: string; name: string; roles: string[]; provider: 'entra' | 'okta' | 'google' | 'generic' | 'saml' }
   | { type: 'auth.logout'; sub: string; email: string }
   | { type: 'auth.token_refresh'; sub: string; email: string }
   | { type: 'auth.login_failed'; error: string }

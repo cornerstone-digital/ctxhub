@@ -1,7 +1,8 @@
-import { initAuthConfig, initAuthConfigGeneric, loadAuthConfig, isAuthConfigured, updateRoleMap } from '../auth/config.js';
+import { initAuthConfig, initAuthConfigGeneric, initSamlAuthConfig, loadAuthConfig, isAuthConfigured, updateRoleMap } from '../auth/config.js';
 import { loadTokens, clearTokens } from '../auth/store.js';
 import { runLoginFlow } from '../auth/loginFlow.js';
 import { REDIRECT_URI } from '../auth/loginFlow.js';
+import { SAML_CALLBACK_PORT, SAML_CALLBACK_PATH, runSamlLoginFlow } from '../auth/samlLoginFlow.js';
 import { isValidRole, VALID_ROLES } from '../auth/roles.js';
 import { eventBus } from '../events/eventBus.js';
 import type { RoleMap } from '../auth/types.js';
@@ -10,14 +11,29 @@ import { resolveOrgForUser } from '../groups/groups.js';
 
 export interface AuthConfigureOptions {
   tenantId?: string;
-  clientId: string;
-  clientSecret: string;
+  clientId?: string;
+  clientSecret?: string;
   provider?: string;
   issuerUrl?: string;
+  idpEntryPoint?: string;
+  idpIssuer?: string;
+  idpCert?: string;
+  spEntityId?: string;
+  callbackUrl?: string;
 }
 
 export async function authConfigureCommand(opts: AuthConfigureOptions): Promise<void> {
   const provider = opts.provider ?? 'entra';
+
+  if (provider === 'saml') {
+    await samlAuthConfigureCommand(opts);
+    return;
+  }
+
+  if (!opts.clientId || !opts.clientSecret) {
+    console.error('--client-id and --client-secret are required for OIDC providers');
+    process.exit(1);
+  }
 
   if (provider !== 'entra' && !opts.issuerUrl) {
     console.error(`--issuer-url is required for provider "${provider}"`);
@@ -85,6 +101,39 @@ export async function authConfigureCommand(opts: AuthConfigureOptions): Promise<
   }
 }
 
+async function samlAuthConfigureCommand(opts: AuthConfigureOptions): Promise<void> {
+  const missing = ['idpEntryPoint', 'idpIssuer', 'idpCert', 'spEntityId'].filter(k => !opts[k as keyof AuthConfigureOptions]);
+  if (missing.length > 0) {
+    console.error(`Missing required SAML options: ${missing.map(k => `--${k.replace(/([A-Z])/g, '-$1').toLowerCase()}`).join(', ')}`);
+    process.exit(1);
+  }
+
+  // Defaults to the same local CLI-callback pattern OIDC uses (ctxhub login opens a browser,
+  // a temp local server acts as the ACS). For IdP-initiated SSO against a real deployment
+  // instead, pass --callback-url pointing at that deployment's /auth/saml/acs.
+  const callbackUrl = opts.callbackUrl ?? `http://localhost:${SAML_CALLBACK_PORT}${SAML_CALLBACK_PATH}`;
+
+  const config = await initSamlAuthConfig({
+    idpEntryPoint: opts.idpEntryPoint!,
+    idpIssuer: opts.idpIssuer!,
+    idpCert: opts.idpCert!,
+    spEntityId: opts.spEntityId!,
+    callbackUrl,
+  });
+
+  console.log('✓ Auth configured (SAML)');
+  console.log(`  IdP entry point: ${config.saml!.idpEntryPoint}`);
+  console.log(`  IdP issuer:      ${config.saml!.idpIssuer}`);
+  console.log(`  SP entity ID:    ${config.saml!.spEntityId}`);
+  console.log(`  ACS/callback:    ${config.saml!.callbackUrl}`);
+  console.log('');
+  console.log('Register the SP entity ID and ACS URL above with your IdP, and confirm your IdP');
+  console.log('signs assertions (not necessarily the outer response) with the certificate you');
+  console.log('provided as --idp-cert.');
+  console.log('');
+  console.log('Then run: ctxhub login');
+}
+
 export async function authStatusCommand(): Promise<void> {
   const configured = await isAuthConfigured();
 
@@ -100,15 +149,21 @@ export async function authStatusCommand(): Promise<void> {
   const config = await loadAuthConfig();
   const tokens = await loadTokens();
 
-  const providerLabel = config!.oidc.provider ?? 'entra';
-  console.log(`Auth:    configured (${providerLabel})`);
-  if (config!.oidc.tenantId) {
-    console.log(`Tenant:  ${config!.oidc.tenantId}`);
+  if (config!.protocol === 'saml') {
+    console.log('Auth:    configured (saml)');
+    console.log(`IdP:     ${config!.saml!.idpIssuer}`);
+    console.log(`SP:      ${config!.saml!.spEntityId}`);
+  } else {
+    const providerLabel = config!.oidc.provider ?? 'entra';
+    console.log(`Auth:    configured (${providerLabel})`);
+    if (config!.oidc.tenantId) {
+      console.log(`Tenant:  ${config!.oidc.tenantId}`);
+    }
+    if (config!.oidc.issuerUrl) {
+      console.log(`Issuer:  ${config!.oidc.issuerUrl}`);
+    }
+    console.log(`Client:  ${config!.oidc.clientId}`);
   }
-  if (config!.oidc.issuerUrl) {
-    console.log(`Issuer:  ${config!.oidc.issuerUrl}`);
-  }
-  console.log(`Client:  ${config!.oidc.clientId}`);
   console.log('');
 
   if (!tokens) {
@@ -184,8 +239,10 @@ export async function loginCommand(): Promise<void> {
     process.exit(1);
   }
 
+  const config = await loadAuthConfig();
+
   try {
-    const principal = await runLoginFlow();
+    const principal = config?.protocol === 'saml' ? await runSamlLoginFlow() : await runLoginFlow();
     console.log(`\n✓ Signed in as ${principal.name} <${principal.email}>`);
   } catch (err) {
     console.error(`\nLogin failed: ${err instanceof Error ? err.message : String(err)}`);
