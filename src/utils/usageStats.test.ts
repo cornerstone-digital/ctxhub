@@ -71,4 +71,49 @@ test('summarizeUsageStats handles no recorded usage without dividing by zero', (
   assert.equal(summary.totalCalls, 0);
   assert.equal(summary.savingsPercent, 0);
   assert.deepEqual(summary.tools, []);
+  assert.deepEqual(summary.daily, []);
+});
+
+test('recordToolUsage buckets today\'s usage under daily, keyed by tool', () => {
+  return withStatsPath(async statsPath => {
+    await recordToolUsage(statsPath, 'search', 50, 400);
+    await recordToolUsage(statsPath, 'open_chunk', 10, 100);
+
+    const stats = await readUsageStats(statsPath);
+    const today = new Date().toISOString().slice(0, 10);
+    assert.ok(stats?.daily?.[today]);
+    assert.equal(stats!.daily![today].search.tokensReturned, 50);
+    assert.equal(stats!.daily![today].open_chunk.tokensReturned, 10);
+  });
+});
+
+test('summarizeUsageStats produces a chronological daily series across tools', () => {
+  const summary = summarizeUsageStats({
+    since: '2026-01-01T00:00:00.000Z',
+    lastUpdated: '2026-01-02T00:00:00.000Z',
+    tools: {},
+    daily: {
+      '2026-01-02': { search: { calls: 2, tokensReturned: 40, tokensBaseline: 400 } },
+      '2026-01-01': {
+        search: { calls: 1, tokensReturned: 20, tokensBaseline: 200 },
+        open_chunk: { calls: 1, tokensReturned: 10, tokensBaseline: 100 }
+      }
+    }
+  });
+
+  assert.equal(summary.daily.length, 2);
+  assert.equal(summary.daily[0].date, '2026-01-01');
+  assert.equal(summary.daily[0].calls, 2);
+  assert.equal(summary.daily[0].tokensSaved, 270);
+  assert.equal(summary.daily[1].date, '2026-01-02');
+  assert.equal(summary.daily[1].tokensSaved, 360);
+});
+
+test('summarizeUsageStats returns an empty daily series for stats recorded before the field existed', () => {
+  const summary = summarizeUsageStats({
+    since: '2026-01-01T00:00:00.000Z',
+    lastUpdated: '2026-01-01T00:00:00.000Z',
+    tools: { search: { calls: 1, tokensReturned: 10, tokensBaseline: 100 } }
+  });
+  assert.deepEqual(summary.daily, []);
 });

@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import { pathExists, readText, writeText } from './fs.js';
 
 export type ToolUsage = { calls: number; tokensReturned: number; tokensBaseline: number };
-export type UsageStats = { since: string; lastUpdated: string; tools: Record<string, ToolUsage> };
+export type UsageStats = {
+  since: string;
+  lastUpdated: string;
+  tools: Record<string, ToolUsage>;
+  /** Per-day breakdown (YYYY-MM-DD, UTC), tool -> usage, for time-series views. Optional and
+   * additive -- stats files written before this field existed still load fine (see readUsageStats). */
+  daily?: Record<string, Record<string, ToolUsage>>;
+};
 
 type StatFn = (path: string) => { size: number };
 
@@ -28,13 +35,24 @@ export function estimateBaselineTokensFromFileSizes(absolutePaths: Array<string 
 // write concurrently against the same workspace -- acceptable for a directional metric.
 export async function recordToolUsage(statsPath: string, tool: string, tokensReturned: number, tokensBaseline: number): Promise<void> {
   try {
-    const stats = (await readUsageStats(statsPath)) ?? { since: new Date().toISOString(), lastUpdated: '', tools: {} };
+    const stats = (await readUsageStats(statsPath)) ?? { since: new Date().toISOString(), lastUpdated: '', tools: {}, daily: {} };
     const existing = stats.tools[tool] ?? { calls: 0, tokensReturned: 0, tokensBaseline: 0 };
     stats.tools[tool] = {
       calls: existing.calls + 1,
       tokensReturned: existing.tokensReturned + tokensReturned,
       tokensBaseline: existing.tokensBaseline + tokensBaseline
     };
+
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD, UTC
+    stats.daily ??= {};
+    stats.daily[today] ??= {};
+    const existingToday = stats.daily[today][tool] ?? { calls: 0, tokensReturned: 0, tokensBaseline: 0 };
+    stats.daily[today][tool] = {
+      calls: existingToday.calls + 1,
+      tokensReturned: existingToday.tokensReturned + tokensReturned,
+      tokensBaseline: existingToday.tokensBaseline + tokensBaseline
+    };
+
     stats.lastUpdated = new Date().toISOString();
     await writeText(statsPath, JSON.stringify(stats, null, 2));
   } catch {
@@ -51,6 +69,8 @@ export async function readUsageStats(statsPath: string): Promise<UsageStats | un
   }
 }
 
+export type DailyUsage = { date: string } & ToolUsage & { tokensSaved: number };
+
 export type UsageSummary = {
   since?: string;
   lastUpdated?: string;
@@ -60,6 +80,9 @@ export type UsageSummary = {
   tokensSaved: number;
   savingsPercent: number;
   tools: Array<{ tool: string } & ToolUsage & { tokensSaved: number }>;
+  /** Chronological (oldest first), one entry per day that has recorded usage. Empty for stats
+   * recorded before the `daily` field existed -- there's no way to retroactively bucket those. */
+  daily: DailyUsage[];
 };
 
 export function summarizeUsageStats(stats: UsageStats | undefined): UsageSummary {
@@ -72,6 +95,21 @@ export function summarizeUsageStats(stats: UsageStats | undefined): UsageSummary
   const tokensBaseline = tools.reduce((sum, t) => sum + t.tokensBaseline, 0);
   const tokensSaved = tokensBaseline - tokensReturned;
 
+  const daily = Object.entries(stats?.daily ?? {})
+    .map(([date, byTool]) => {
+      const usages = Object.values(byTool);
+      const dayReturned = usages.reduce((sum, u) => sum + u.tokensReturned, 0);
+      const dayBaseline = usages.reduce((sum, u) => sum + u.tokensBaseline, 0);
+      return {
+        date,
+        calls: usages.reduce((sum, u) => sum + u.calls, 0),
+        tokensReturned: dayReturned,
+        tokensBaseline: dayBaseline,
+        tokensSaved: dayBaseline - dayReturned
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   return {
     since: stats?.since,
     lastUpdated: stats?.lastUpdated,
@@ -80,6 +118,7 @@ export function summarizeUsageStats(stats: UsageStats | undefined): UsageSummary
     tokensBaseline,
     tokensSaved,
     savingsPercent: tokensBaseline > 0 ? Math.round((tokensSaved / tokensBaseline) * 1000) / 10 : 0,
-    tools
+    tools,
+    daily
   };
 }

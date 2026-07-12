@@ -11,6 +11,7 @@ import type {
   CloudKnowledgeObject,
   OrgKnowledgeQueryResponse,
   OrgKnowledgeObjectResponse,
+  UsageSummary,
   CtxhubConfig,
   CtxhubEventEnvelope,
   EvalRunResult,
@@ -828,5 +829,16 @@ export function useOrgKnowledgeObject(id: string | null) {
     queryKey: ['org-knowledge-object', id],
     queryFn: () => fetchJson<OrgKnowledgeObjectResponse>(`/cloud/knowledge/${encodeURIComponent(id!)}`),
     enabled: id !== null,
+  })
+}
+
+// ── Usage stats ─────────────────────────────────────────────────────────────
+
+export function useUsageStats(name: string | null) {
+  return useQuery({
+    queryKey: ['usage-stats', name],
+    queryFn: () => fetchJson<UsageSummary>(`/workspaces/${encodeURIComponent(name!)}/usage-stats`),
+    enabled: name !== null,
+    refetchInterval: 30_000,
   })
 }

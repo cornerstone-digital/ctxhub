@@ -490,3 +490,33 @@ export interface OrgKnowledgeObjectResponse {
   object: CloudKnowledgeObject;
   edges: CloudKnowledgeEdge[];
 }
+
+// ── Usage stats ─────────────────────────────────────────────────────────────
+
+export interface ToolUsage {
+  calls: number;
+  tokensReturned: number;
+  tokensBaseline: number;
+}
+
+export interface ToolUsageSummary extends ToolUsage {
+  tool: string;
+  tokensSaved: number;
+}
+
+export interface DailyUsage extends ToolUsage {
+  date: string;
+  tokensSaved: number;
+}
+
+export interface UsageSummary {
+  since?: string;
+  lastUpdated?: string;
+  totalCalls: number;
+  tokensReturned: number;
+  tokensBaseline: number;
+  tokensSaved: number;
+  savingsPercent: number;
+  tools: ToolUsageSummary[];
+  daily: DailyUsage[];
+}

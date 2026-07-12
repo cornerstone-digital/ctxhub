@@ -515,6 +515,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  const usageStatsMatch = /^\/workspaces\/([^/]+)\/usage-stats$/.exec(url.pathname);
+  if (req.method === 'GET' && usageStatsMatch) {
+    await handleUsageStats(res, decodeURIComponent(usageStatsMatch[1]));
+    return;
+  }
+
   const knowledgeGraphMatch = /^\/workspaces\/([^/]+)\/knowledge-graph$/.exec(url.pathname);
   if (req.method === 'GET' && knowledgeGraphMatch) {
     await handleKnowledgeGraph(res, decodeURIComponent(knowledgeGraphMatch[1]));
@@ -1346,6 +1352,16 @@ async function handleSyncPersonas(req: http.IncomingMessage, res: http.ServerRes
   } catch (error) {
     sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
   }
+}
+
+async function handleUsageStats(res: http.ServerResponse, name: string): Promise<void> {
+  const workspace = await findExistingWorkspace(res, name);
+  if (!workspace) return;
+
+  const { readUsageStats, summarizeUsageStats } = await import('../utils/usageStats.js');
+  const { STATS_PATH } = await import('../config/config.js');
+  const stats = await readUsageStats(join(workspace.path, STATS_PATH));
+  sendJson(res, 200, summarizeUsageStats(stats));
 }
 
 async function handleKnowledgeGraph(res: http.ServerResponse, name: string): Promise<void> {

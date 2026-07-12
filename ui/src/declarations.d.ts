@@ -34,6 +34,7 @@ declare module 'lucide-react' {
   export const Users: LucideIcon
   export const X: LucideIcon
   export const XCircle: LucideIcon
+  export const Zap: LucideIcon
   export const ZoomIn: LucideIcon
   export const ZoomOut: LucideIcon
 }

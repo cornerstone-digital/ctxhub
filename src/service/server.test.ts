@@ -125,6 +125,50 @@ test('GET /workspaces/:name/config returns the full workspace config', () => {
   );
 });
 
+test('GET /workspaces/:name/usage-stats returns a zeroed summary when nothing has been recorded yet', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('usage-empty-ws', async baseUrl => {
+      const res = await fetch(`${baseUrl}/workspaces/usage-empty-ws/usage-stats`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.totalCalls, 0);
+      assert.deepEqual(body.tools, []);
+      assert.deepEqual(body.daily, []);
+    })
+  );
+});
+
+test('GET /workspaces/:name/usage-stats reflects real recorded usage, including the daily series', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRegisteredWorkspace('usage-ws', async (baseUrl, workspaceDir) => {
+      const { recordToolUsage } = await import('../utils/usageStats.js');
+      const { STATS_PATH } = await import('../config/config.js');
+      const path = await import('node:path');
+      const statsPath = path.join(workspaceDir, STATS_PATH);
+      await recordToolUsage(statsPath, 'search', 50, 400);
+      await recordToolUsage(statsPath, 'search', 30, 200);
+
+      const res = await fetch(`${baseUrl}/workspaces/usage-ws/usage-stats`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.totalCalls, 2);
+      assert.equal(body.tokensSaved, 520);
+      assert.equal(body.tools[0].tool, 'search');
+      assert.equal(body.daily.length, 1);
+      assert.equal(body.daily[0].tokensReturned, 80);
+    })
+  );
+});
+
+test('GET /workspaces/:name/usage-stats 404s for an unregistered workspace', () => {
+  return withIsolatedCtxhubHome(() =>
+    withRunningServer(async baseUrl => {
+      const res = await fetch(`${baseUrl}/workspaces/nonexistent/usage-stats`);
+      assert.equal(res.status, 404);
+    })
+  );
+});
+
 test('PATCH /workspaces/:name/config merges knowledge/privacy/llm without touching other sections', () => {
   return withIsolatedCtxhubHome(() =>
     withRegisteredWorkspace('patch-ws', async baseUrl => {
