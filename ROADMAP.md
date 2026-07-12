@@ -435,7 +435,7 @@ Scope is known; architecture doc not yet written. Build starts when the trigger 
 - [ ] Blueprint Hub web UI — browse public blueprints, search by stack/language/framework, one-click install instructions, version history
 - [ ] Org-private blueprints — blueprints published under an org namespace, only visible to org members; requires Cloud (M6)
 - [ ] Topology-aware blueprints — a blueprint can declare which service types it applies to; Org Graph (M7) maps it onto matching workspaces automatically
-- [ ] Blueprint composition — a blueprint can declare dependencies on other blueprints; installer resolves the graph
+- [x] Blueprint composition — a blueprint can declare dependencies on other blueprints; installer resolves the graph (`src/blueprints/resolver.ts`, wired into `ctxhub blueprint install` — handles already-installed deps, local-path deps, missing deps, and circular-dependency detection with topological install order)
 
 ### Exit condition
 
@@ -468,7 +468,7 @@ Identity model and auth design are fully specified — see `docs/identity_model.
 - [ ] SAML 2.0 — SP-initiated and IdP-initiated flows; signed assertions; attribute mapping; metadata endpoint
 - [x] SCIM 2.0 provisioning — `POST/GET/PUT/PATCH/DELETE /scim/v2/Users`; `POST/GET/PUT/DELETE /scim/v2/Groups`; `GET /scim/v2/ServiceProviderConfig`; `GET /scim/v2/Schemas`; deprovisioning sets `active: false` and emits `auth.scim_user_deprovisioned` event
 - [x] Per-workspace RBAC — workspace-scoped roles layered over org roles; permission evaluation checks org role then workspace override
-- [ ] Custom role creation — named roles with configurable permission sets; role assignment UI; role inheritance
+- [ ] Custom role creation — named roles with configurable permission sets and inheritance are done (`ctxhub role create/list/show`, `src/auth/customRoles.ts` + `customRoleStore.ts`, `resolvePermissions()` walks `inheritsFrom`); still missing the role *assignment* UI — assigning a custom role to a member is CLI-only today, no Mission Control surface for it
 - [x] Audit log — append-only, structured JSON; query API (date range, actor, action); export to JSON/CSV; owner + admin access only (`GET /audit`, `ctxhub audit`)
 - [x] Auth — machine tokens (`ctxm_` prefix, scrypt-hashed, 1yr expiry); `ctxhub machine-token create/list/revoke`; Bearer ctxm_ middleware in HTTP server
 - [ ] Air-gapped deployment — self-hosted Cloud option; Docker Compose + Helm chart; no outbound calls to ctxhub infrastructure; licence key validation via local file
