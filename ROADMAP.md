@@ -544,7 +544,7 @@ When this milestone completes: **Proceed / Pause / Pivot** — based on whether 
 
 ## Future Horizons
 
-*Milestones M11–M18 are known destinations, not scheduled work. Architecture will be designed when the trigger fires. Until then, each milestone is defined only by its promise, trigger, hypothesis, expected learnings, and exit condition. No implementation detail until the trigger is observed. (M17 and M18 are exceptions in one respect: their architecture docs already exist — `docs/monorepo_architecture.md` and `docs/distributed_workers_architecture.md` — because both extend systems that are already built (M7's Topology Graph; the machine-token auth model, Trust Model, and Corporate Groups, respectively). Their numbering doesn't imply either comes after M11–M16 in priority; a trigger on either could plausibly fire before several of the others.)*
+*Milestones M11–M19 are known destinations, not scheduled work. Architecture will be designed when the trigger fires. Until then, each milestone is defined only by its promise, trigger, hypothesis, expected learnings, and exit condition. No implementation detail until the trigger is observed. (M17 and M18 are exceptions in one respect: their architecture docs already exist — `docs/monorepo_architecture.md` and `docs/distributed_workers_architecture.md` — because both extend systems that are already built (M7's Topology Graph; the machine-token auth model, Trust Model, and Corporate Groups, respectively). M19 (Time Machine) similarly needs no new storage model — it's a query layer over data M7/ADR-008/the audit log already record. None of the three's numbering implies it comes after M11–M16 in priority; a trigger on any of them could plausibly fire before several of the others. See also `docs/future_primitives_brainstorm.md` for a wider, less-refined set of ideas in the same space, not yet promoted to numbered milestones.)*
 
 ---
 
@@ -732,6 +732,31 @@ An engineering org registers a worker running somewhere other than a developer's
 ### Review gate
 
 When this milestone completes: **Proceed / Pause / Pivot** — based on whether distributed workers become how enterprise orgs actually run Captains against their real infrastructure, or whether the security/complexity cost of a worker registry outweighs what local-only execution already provided.
+
+---
+
+## Milestone 19 — Engineering Time Machine *(trigger: an org asks a question the Org Graph can already answer in principle but has no query surface for — "what did we know about X on date Y?")*
+
+**The promise:** "Show me everything we knew about payments on March 14th. Not the repository — the organisation."
+
+Every piece of data this milestone needs already exists and is already append-only or timestamped: Knowledge Objects carry `promotedAt`/`archivedAt`/state transitions and a confidence value that only ever changes in response to a recorded event (corroboration, contradiction, reaffirmation — [ADR-008](adr/ADR-008-confidence-is-organisational.md)); the audit log (`audit_log` table, `events.jsonl` locally) is append-only by construction; Captain run history is already persisted. Nothing here requires a new storage model — it requires a query layer that reconstructs organisational state *as of* a point in time from data that's already being recorded, plus a UI that makes "replay" a first-class way to look at Mission Control instead of only ever seeing the current state.
+
+**Hypothesis:** Engineers and engineering leaders don't just want to know what the organisation believes *now* — they want to ask why a belief changed, when trust in something degraded, and what was known before a decision was made. That's a fundamentally different question from search, and no existing tool answers it well because most systems don't keep the history to answer it from.
+
+### We expect to learn
+
+- Do people actually ask "what did we know then" questions, or is this a compelling demo that doesn't reflect a real workflow?
+- Is point-in-time reconstruction (state *as of* a date) more valuable than change-based queries ("show me everything that changed about payments this quarter")?
+- Does replay need to reconstruct AI reasoning (the actual Captain run that produced a finding), or is the promoted Knowledge Object's provenance metadata enough?
+- Is this most valuable for incident postmortems, onboarding, or audit/compliance — and does the answer change which UI surface it deserves?
+
+### Exit condition
+
+An engineer or engineering leader asks Mission Control a point-in-time question about a real topic ("what did we know about X on date Y, and why did that change") and gets a real, evidence-backed answer reconstructed from the Org Graph's own history — not a document someone happened to write.
+
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether point-in-time/replay queries become a genuinely distinctive reason people choose ctxhub, or whether "what do we know right now" (already served by M7's cross-workspace query) turns out to satisfy nearly every real question people actually have.
 
 ---
 
