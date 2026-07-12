@@ -31,6 +31,18 @@ Configurable approval chains (principal engineer sign-off, security review, arch
 
 Overlaps significantly with **Bring Your Own Policies** above — both are "let the org encode their own process rather than assuming ctxhub's." Worth merging into a single governance/policy milestone once either is closer to real, rather than building two overlapping systems.
 
+### Mission Builder / Engineering Workflows
+
+A drag-and-drop, executable workflow builder — superficially like n8n, but for composing an engineering operating model rather than passing generic JSON between automation steps. Its native nodes would be ctxhub concepts: repositories, Captains, Workers, Missions, Knowledge Search, Promotion, Blueprints, Organisation Graph queries, dependency/impact analysis, trust and policy checks, human review, approvals, and external systems such as GitHub, Datadog, Jira, and Slack. A PR workflow might run dependency impact analysis, invoke the Architecture Captain, route low-trust findings to the owning team's principal engineer, promote accepted findings, and create an ADR.
+
+The defensible difference is that every node can reason over shared platform context — Knowledge Objects, the Organisation Graph, identity and ownership, trust, corporate groups, policies, Workers, and Mission state — rather than treating the world as untyped payloads. This could make the Organisation Graph executable: find affected services, run the appropriate Captain, generate recommendations, notify their owners, request evidence or approval, and remember the outcome. Human gates should be first-class workflow semantics (approve, reject, request evidence, escalate), consistent with M10's non-autonomous recommendation principle, rather than merely another integration node.
+
+Workflows should be Git-backed, versioned, reviewable, and deployable through the same PR process engineering teams already use. Mission Control would expose live run states (running, waiting for approval, blocked, retrying, failed, completed), while the event history would support replay of every node, model interaction, approval, timing, and resulting Knowledge Object. Complete flows could become installable Blueprints — for example, a reusable incident-response playbook — connecting this idea naturally to M11's Marketplace.
+
+The builder should be bidirectional rather than canvas-only: users can describe a workflow in natural language and receive an editable graph, then drag nodes or ask the system to explain, validate, or refactor the result. “Mission Builder” is the strongest working name because it extends Mission Control's existing language and frames the canvas as another interface to the same engine alongside the CLI, REST API, MCP, Captains, and Workers.
+
+This depends on several roadmap pieces becoming real enough to compose — especially M7's Org Graph, M10's Engineering Intelligence and approval boundary, M11's Marketplace, M17's impact analysis, M18's Workers, and M19's event history. Before promotion to a numbered milestone it needs a deliberately narrow first vertical slice and answers to execution semantics: durable state, retries and idempotency, secrets, permissions, version migration, failure recovery, and whether flows orchestrate existing Missions or replace their current execution model.
+
 ## Extensions of milestones that already exist
 
 ### Bring Your Own Topology (extends M17 Monorepo Support)
@@ -73,4 +85,41 @@ This is the most genuinely novel idea in this list that *doesn't* cleanly map on
 
 ### Bring Your Own Models
 
-Mission Control not caring which model a Captain uses (Claude, GPT, Gemini, Llama, Bedrock, OpenRouter, Azure OpenAI, local Ollama) — "Personas decide" — is already the actual design: personas configure which agent/model runs a given task, not a hardcoded model choice threaded through the platform. Confirmed already-true rather than a gap; no roadmap entry needed unless a specific provider integration is missing (that would be a normal feature request, not a new primitive).
+Mission Control not caring which model a Captain uses (Claude, GPT, Gemini, Llama, Bedrock, OpenRouter, Azure OpenAI, local Ollama) — "Personas decide" — is already the actual design: personas configure which agent/model runs a given task, not a hardcoded model choice threaded through the platform. Confirmed already-true rather than a gap; no roadmap entry needed unless a specific provider integration is missing (that would be a normal feature request, not a new primitive). Now further along than "already true": `config.llm.fallbackProfiles` (added alongside the demo-recording work) tries an ordered list of Execution Profiles and records every attempt — real infrastructure for "try another model when the first one fails," one step short of the AI Second Opinion idea below (running several models *concurrently* for consensus rather than *sequentially* for fallback).
+
+## From a second brainstorming pass (ChatGPT, `ChatGPT-Brainstorming-Convo.txt`, 2026-07-12)
+
+34 more ideas, organised by the five recurring primitives that pass's own analysis converged on — a genuinely useful compression, reused here rather than re-derived. Several duplicate what's already above under different names (noted inline, not re-explained); only the material that's actually new to this document gets real treatment.
+
+**Already covered elsewhere — not re-litigated here:** BYOR (→ M18), Time Machine / "Flight Recorder" replay (→ M19), Engineering Digital Twin / Organisation Simulation (→ above), Engineering Workflow Builder / "Mission Builder" (→ above), Capability/Engineering/Captain Marketplace (→ above, extends M11), Trust Scores (→ above, extends the Trust Model), Learning Loops (→ this is just Observe → Understand → Recommend → Approve → Remember, M10's own already-stated loop, restated).
+
+### Identity: Capability Graph
+
+Beyond org/team ownership (already tracked via topology `owned_by` edges, M7): who has expertise in what, who mentors whom, where succession risk sits. A genuinely different graph from "who owns this service" — it's "who *understands* this service, and is that knowledge concentrated in one person." No existing hook; would need a new node/edge type on top of the Identity model, and a real question about where this data comes from (self-reported? inferred from promoted-finding authorship? both are weak signals on their own).
+
+### Knowledge: Engineering Memory (episodic) and Knowledge Debt
+
+Two distinct ideas worth keeping separate:
+- **Episodic memory** — treating whole *events* (an incident, a migration, a security audit) as first-class objects with their own lifecycle, richer than a single promoted Knowledge Object, so "have we done something like this before?" is answerable. Meaningfully different from M7's Knowledge Graph, which models individual findings, not bounded episodes composed of many findings plus a timeline. Worth a proper design pass, not a bolt-on — probably wants its own schema (`episodes` linking to a set of `knowledge_objects` and a time range) rather than overloading the existing KO model.
+- **Knowledge Debt** — the technical-debt framing applied to documentation gaps (undocumented services, stale ADRs, missing runbooks). This is almost entirely a *query* over data M7 already has (KO staleness, `review_flag`, topology nodes with zero associated KOs) — closer to a report than a new primitive. Cheapest of this whole batch to eventually build, if a real trigger shows up.
+
+### Trust: Trust Decay and Engineering DNA
+
+- **Trust Decay** — an explicit, time-based extension of the existing confidence model (ADR-008 already has confidence *decreasing* on file changes or contradiction; this adds *pure elapsed time since last review* as a third decay input). Small, concrete, and worth folding directly into ADR-008's model whenever M7's confidence logic gets its next real revision — doesn't need a separate milestone.
+- **Engineering DNA** — Captain recommendations calibrated to an org's own historical patterns ("this doesn't match how you've built things before") rather than generic best practice. This is a real capability gap, not just a UI idea — it implies mining the Knowledge Graph for *style*, not just facts, which is a materially different (and harder) inference problem than anything M7–M10 currently do. Flag as genuinely hard, not just unbuilt.
+
+### Execution: none new
+
+Everything under "Execution" in the source (BYOR, Workflow Builder, Missions) already has a home above.
+
+### Learning: Engineering Journal, Recommendation Inbox, AI Second Opinion, Explain Why, Cognitive Load Map
+
+- **Engineering Journal** — an auto-generated daily/weekly digest ("3 new Knowledge Objects, 2 architecture decisions, 5 recommendations accepted"). Almost entirely a query + formatting layer over data M7/M10 already produce; the honest scope is "a scheduled report," not new infrastructure.
+- **Recommendation Inbox** — recommendations accumulate for review rather than interrupting (GitHub-notifications style). Directly depends on M10's "recommendations, always human-gated" surface existing first — an inbox needs something to put in it.
+- **AI Second Opinion** — run a recommendation past a second model concurrently and show consensus vs. single-model confidence as two distinct numbers. Meaningfully different from the fallback routing that now exists (sequential, for *reliability*) — this is parallel, for *calibration*. Real infra question: doubles LLM cost per recommendation, so this wants to be opt-in per recommendation type, not a blanket default.
+- **Explain Why** — a one-click breakdown of a recommendation's evidence/trust/policy/dependency chain. This is arguably not a new feature so much as a UI investment in surfacing data ctxhub already computes (citations, confidence, provenance) but doesn't currently present as a single coherent "why" view. Cheapest genuinely-useful item in this whole document.
+- **Cognitive Load Map** — visualising overloaded teams/services/knowledge bottlenecks (Team Topologies-flavoured). Depends on the Capability Graph (above) existing first to have anything real to visualise beyond topology node degree.
+
+### The moonshot: Meeting Companion ("Engineering Copilot Mode")
+
+Captain joins a call (with consent), and afterwards proposes: a meeting summary, ADRs worth drafting, Knowledge Objects worth promoting, ownership changes detected, follow-up Missions. Explicitly called out by the source material as the one idea with "I don't know how we lived without this" potential, and it's worth taking that seriously — every other idea in this document extends something ctxhub already does; this one captures knowledge from a source (live conversation) the platform currently has zero visibility into at all. That also makes it the least-grounded idea here: no existing ctxhub subsystem touches audio/transcription, meeting-platform integration, or real-time consent/privacy handling, so unlike everything else above, this genuinely starts from zero rather than extending existing infrastructure. Worth keeping on the list specifically *because* it's ambitious, not despite it — but it's a multi-quarter bet, not a natural next milestone.
