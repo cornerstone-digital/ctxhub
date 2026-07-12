@@ -32,6 +32,8 @@ export type ExplainResult = {
   // Present only when LLM synthesis was skipped or failed (disabled, no agent, timeout, error) --
   // absent entirely when synthesis succeeded or was never attempted (no evidence to synthesize from).
   llmNotice?: string;
+  llmRoute?: string;
+  llmAttempts?: Array<{ route: string; ok: boolean; reason?: string; detail?: string }>;
 };
 
 export async function explainCommand(
@@ -91,7 +93,7 @@ export async function createExplainResult(
   // override below entirely, calling its configured gateway instead -- runAgentPromptFnForProfile
   // picks the right function once, up front, so the rest of this call site doesn't need to branch.
   const executionOverride = profile && profile.runtime !== 'direct-api' ? { agent: profile.runtime, model: profile.model } : {};
-  const { answer, llmNotice } = await resolveAnswer(
+  const { answer, llmNotice, llmRoute, llmAttempts } = await resolveAnswer(
     query,
     evidence,
     effectiveConfig,
@@ -112,7 +114,9 @@ export async function createExplainResult(
       notes: stale.map(item => `${item.ref} may be stale: ${item.repo}:${item.path}`)
     },
     suggestedReadingOrder: pack.suggestedReadingOrder,
-    ...(llmNotice ? { llmNotice } : {})
+    ...(llmNotice ? { llmNotice } : {}),
+    ...(llmRoute ? { llmRoute } : {}),
+    ...(llmAttempts?.length ? { llmAttempts } : {}),
   };
 }
 
@@ -123,15 +127,38 @@ async function resolveAnswer(
   runAgentPromptFn: (config: CtxhubConfig, prompt: string, opts?: { agent?: CtxhubConfig['llm']['agent']; model?: string }) => Promise<RunAgentResult>,
   preamble = '',
   executionOverride: { agent?: CtxhubConfig['llm']['agent']; model?: string } = {}
-): Promise<{ answer: string[]; llmNotice?: string }> {
+): Promise<{ answer: string[]; llmNotice?: string; llmRoute?: string; llmAttempts?: Array<{ route: string; ok: boolean; reason?: string; detail?: string }> }> {
   if (!evidence.length) {
     return { answer: buildAnswerLines(evidence) };
   }
 
-  const result = await runAgentPromptFn(config, buildLlmPrompt(query, evidence, preamble), executionOverride);
-  if (result.ok) {
-    const lines = result.text.split('\n').map(line => line.trim()).filter(Boolean);
-    return { answer: lines.length ? lines : buildAnswerLines(evidence) };
+  const prompt = buildLlmPrompt(query, evidence, preamble);
+  const primaryRoute = executionOverride.agent ?? config.llm.agent ?? 'auto-detect';
+  const attempts: Array<{ route: string; ok: boolean; reason?: string; detail?: string }> = [];
+  const routes: Array<{ name: string; run: typeof runAgentPromptFn; override: typeof executionOverride }> = [
+    { name: String(primaryRoute), run: runAgentPromptFn, override: executionOverride },
+  ];
+  for (const profileName of config.llm.fallbackProfiles ?? []) {
+    const profile = resolveExecutionProfile(config, profileName);
+    if (!profile) {
+      attempts.push({ route: profileName, ok: false, reason: 'profile-not-found' });
+      continue;
+    }
+    routes.push({
+      name: profileName,
+      run: runAgentPromptFnForProfile(profile),
+      override: profile.runtime === 'direct-api' ? {} : { agent: profile.runtime, model: profile.model },
+    });
+  }
+
+  let result: RunAgentResult = { ok: false, reason: 'no-agent-available' };
+  for (const route of routes) {
+    result = await route.run(config, prompt, route.override);
+    attempts.push({ route: route.name, ok: result.ok, ...(!result.ok ? { reason: result.reason, ...(result.detail ? { detail: result.detail } : {}) } : {}) });
+    if (result.ok) {
+      const lines = result.text.split('\n').map(line => line.trim()).filter(Boolean);
+      return { answer: lines.length ? lines : buildAnswerLines(evidence), llmRoute: route.name, llmAttempts: attempts };
+    }
   }
 
   const llmNotice =
@@ -139,7 +166,7 @@ async function resolveAnswer(
       ? llmDisabledNotice('answer synthesis')
       : `LLM-backed answer synthesis was unavailable (${result.reason}); showing the evidence scaffold instead.`;
 
-  return { answer: buildAnswerLines(evidence), llmNotice };
+  return { answer: buildAnswerLines(evidence), llmNotice, llmAttempts: attempts };
 }
 
 function buildLlmPrompt(query: string, evidence: ExplainEvidence[], preamble = ''): string {

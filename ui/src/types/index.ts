@@ -141,6 +141,8 @@ export interface ExplainResult {
   citations: Array<{ ref: string; repo: string; path: string; title?: string }>;
   freshness: unknown;
   llmNotice?: string;
+  llmRoute?: string;
+  llmAttempts?: Array<{ route: string; ok: boolean; reason?: string; detail?: string }>;
 }
 
 export interface ChatMessage {
@@ -148,6 +150,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   citations?: ExplainResult['citations'];
+  llmRoute?: string;
+  llmAttempts?: ExplainResult['llmAttempts'];
   timestamp: Date;
   // The workspace this message was actually asked against -- kept on the message itself, not
   // read from the currently-selected chat workspace, so a citation click still jumps to the right

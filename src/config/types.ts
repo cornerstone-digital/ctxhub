@@ -46,6 +46,8 @@ export type CtxhubConfig = {
     enabled: boolean;
     agent?: LlmAgentName;
     timeoutMs: number;
+    /** Ordered Execution Profile names to try when the primary route fails. */
+    fallbackProfiles?: string[];
   };
   // docs/control-plane.md Phase 4: binds a persona to a specific harness + model, so a workspace
   // with more than one configured agent CLI can say *which* one a given persona should run under,

@@ -133,7 +133,7 @@ export function buildProgram(): Command {
 
   program
     .command('demo')
-    .description('Scaffold a complete demo workspace with sample docs, indexed chunks, and institutional-tier promotions')
+    .description('Scaffold a repeatable, fully seeded Mission Control demo workspace')
     .option('--workspace <name>', 'Demo workspace name', 'ctxhub-demo')
     .option('-f, --force', 'Overwrite an existing demo workspace')
     .action((opts: { workspace?: string; force?: boolean }) => demoCommand(opts));

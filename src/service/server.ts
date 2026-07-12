@@ -1536,7 +1536,8 @@ async function handleWorkspaceChat(req: http.IncomingMessage, res: http.ServerRe
     return;
   }
 
-  const result = await createExplainResult(query.trim(), 8, workspace.path);
+  const { config } = await loadWorkspaceConfig(workspace.path);
+  const result = await createExplainResult(query.trim(), 8, workspace.path, { profile: config.activeProfile });
 
   // ── Cross-org search fan-out ─────────────────────────────────────────────
   const crossOrg = url.searchParams.get('cross-org') === 'true';

@@ -185,6 +185,11 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           })}
         </div>
       )}
+      {msg.role === 'assistant' && msg.llmRoute && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--accent)', background: 'var(--accent-dim)' }}>
+          via {msg.llmRoute}{(msg.llmAttempts?.length ?? 0) > 1 ? ` · ${msg.llmAttempts!.length - 1} fallback` : ''}
+        </span>
+      )}
       <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
         {msg.timestamp.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
       </span>
@@ -235,6 +240,8 @@ export function ChatPanel() {
         role: 'assistant',
         content: answer || 'No answer returned.',
         citations: result.citations,
+        llmRoute: result.llmRoute,
+        llmAttempts: result.llmAttempts,
         timestamp: new Date(),
         workspace: chatWorkspace,
       }

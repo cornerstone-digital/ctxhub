@@ -218,9 +218,23 @@ llm:
   enabled: false      # set true to enable
   agent: claude       # auto-detects claude/codex/copilot/cursor on PATH if unset
   timeoutMs: 120000
+  # Optional ordered failover through named Execution Profiles. Failures and the winning
+  # route are returned with synthesized answers and surfaced in Mission Control Chat.
+  fallbackProfiles: [codex-backup, openrouter-backup]
+
+executionProfiles:
+  codex-backup:
+    runtime: codex
+    model: gpt-5.1-codex
+  openrouter-backup:
+    runtime: direct-api
+    model: anthropic/claude-sonnet-4
+    gateway:
+      baseUrl: https://openrouter.ai/api/v1
+      apiKeyEnv: OPENROUTER_API_KEY
 ```
 
-All LLM-backed features are **off by default**, **evidence-grounded** (built from context packs, diffs, architecture graphs — never free-floating model knowledge), and **graceful fallback** (always fall back to the non-LLM behaviour when disabled or timed out).
+All LLM-backed features are **off by default** and **evidence-grounded** (built from context packs, diffs, architecture graphs — never free-floating model knowledge). Answer synthesis tries its explicitly configured routes in order, records every attempt, and falls back to the non-LLM evidence scaffold only after the chain is exhausted. An explicitly configured primary agent is never silently replaced unless `fallbackProfiles` opts into that behaviour.
 
 | Feature | Command | Without LLM |
 |---|---|---|

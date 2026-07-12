@@ -21,9 +21,26 @@ Read the whole thing before the meeting. Run the setup steps the day before.
 ctxhub demo
 ```
 
-This creates `~/.ctxhub/demo-workspace/` with six realistic technical documentation files
-(architecture overview, onboarding guide, two ADRs, two runbooks), indexes everything,
-and promotes two chunks to institutional tier. Takes about 10 seconds.
+This creates `~/.ctxhub/demo-workspace/` with six realistic technical documentation files,
+indexes them, promotes two chunks, and seeds Mission Control with a connected demo scenario:
+knowledge objects, Captain tasks and completed runs, organisation sharing, custom roles, a
+multi-step job, timeline events, and 14 days of usage data. It makes no external model calls.
+Use `ctxhub demo --force` to reset the demo-owned records before a repeatable Playwright or
+promo-video run; unrelated records in the global stores are preserved. Takes about 10 seconds.
+
+To record the scripted 90-second Mission Control promo in an isolated environment:
+
+```bash
+npm run demo:record
+```
+
+The recorder requires an authenticated `codex` CLI on `PATH`; it enables Codex only inside its
+disposable workspace and fails if Chat falls back to retrieval-only output. The finished
+1920×1080 WebM is written to `docs/videos/mission-control-promo.webm`. Use
+`npm run demo:record:smoke` to exercise the complete route at accelerated pacing without
+waiting for the full recording. Smoke output is written separately to
+`docs/videos/mission-control-promo-smoke.webm` and may use the evidence fallback when every
+configured LLM route is unavailable; it never overwrites the production promo.
 
 Verify the workspace is registered:
 

@@ -37,6 +37,8 @@
     "ctxhub": "tsx src/index.ts",
     "test": "node --import tsx --test 'src/**/*.test.ts' 'src/**/*.test.tsx'",
     "test:e2e": "npm run build && npm --prefix ui run test:e2e",
+    "demo:record": "npm run build && npm --prefix ui run demo:record",
+    "demo:record:smoke": "npm run build && PROMO_PACE=0.02 PROMO_ALLOW_LLM_FALLBACK=1 npm --prefix ui run demo:record",
     "lint": "eslint .",
     "prepack": "npm run build",
     "prepare": "husky"

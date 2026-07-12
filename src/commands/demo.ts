@@ -17,6 +17,7 @@ import type { CtxhubConfig } from '../config/types.js';
 import type { IndexedDocument } from '../config/types.js';
 import { defaultCtxhubIgnoreContent } from '../indexing/ctxhubignore.js';
 import { runGit, isGitInstalled } from '../git/git.js';
+import { seedDemoFeatureData } from '../demo/seed.js';
 
 const DEMO_WORKSPACE_NAME = 'ctxhub-demo';
 
@@ -445,6 +446,9 @@ export async function demoCommand(opts: { workspace?: string; force?: boolean } 
     promotions++;
   }
 
+  const featureSeed = await seedDemoFeatureData(workspaceName, demoRoot);
+  console.log(chalk.green(`  ✓ Seeded ${featureSeed.knowledgeObjects} knowledge objects, ${featureSeed.captains} Captains, and ${featureSeed.events} timeline events`));
+
   // ── Summary ──────────────────────────────────────────────────────────────
   console.log(chalk.bold('\n── Demo workspace ready ──────────────────────────────────\n'));
   console.log(`  Workspace:  ${chalk.cyan(workspaceName)}`);
@@ -452,6 +456,7 @@ export async function demoCommand(opts: { workspace?: string; force?: boolean } 
   console.log(`  Files:      ${chalk.white(String(DEMO_DOCS.length))} markdown documents`);
   console.log(`  Chunks:     ${chalk.white(String(allChunks.length))} indexed`);
   console.log(`  Promotions: ${chalk.blue(String(promotions))} chunk(s) elevated to institutional tier`);
+  console.log(`  Features:   ${chalk.white(`${featureSeed.captains} Captains · ${featureSeed.captainRuns} runs · ${featureSeed.knowledgeObjects} knowledge objects · ${featureSeed.jobs} workflow`)}`);
 
   console.log('');
   console.log(chalk.dim('Files created:'));

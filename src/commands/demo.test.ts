@@ -7,6 +7,14 @@ import { demoCommand } from './demo.js';
 import { loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
 import { isGitRepo } from '../git/git.js';
+import { loadKnowledgeStore } from '../knowledge/store.js';
+import { loadCaptainTasks } from '../captains/tasks.js';
+import { listCaptainRuns } from '../captains/runner.js';
+import { loadGroupStore } from '../groups/store.js';
+import { readEventLog } from '../events/eventLog.js';
+import { readUsageStats } from '../utils/usageStats.js';
+import { saveCaptainTasks } from '../captains/tasks.js';
+import { saveGroupStore } from '../groups/store.js';
 
 async function withIsolatedHome(run: (home: string) => Promise<void>) {
   const home = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-demo-cmd-'));
@@ -43,5 +51,28 @@ test('demoCommand initialises demo-docs as a git repo so `repo hook` works', () 
 
     const demoRoot = path.join(home, 'demo-workspace');
     assert.equal(await isGitRepo(demoRoot), true);
+  });
+});
+
+test('demoCommand seeds a repeatable, populated Mission Control scenario', () => {
+  return withIsolatedHome(async home => {
+    await saveCaptainTasks({ version: 1, tasks: [{ name: 'user-task', workspace: 'somewhere-else', query: 'Preserve me' }] });
+    await saveGroupStore({ version: 1, groups: [{ id: 'user-group', name: 'User Group', createdAt: new Date().toISOString(), createdBy: 'user' }], orgs: [], sharingPolicies: [] });
+    await demoCommand();
+    const demoRoot = path.join(home, 'demo-workspace');
+    const knowledge = await loadKnowledgeStore('ctxhub-demo');
+    assert.equal(knowledge.objects.length, 4);
+    assert.ok(knowledge.edges.length > 0);
+    assert.equal((await loadCaptainTasks()).tasks.length, 4);
+    assert.equal((await listCaptainRuns('architecture-review')).total, 1);
+    assert.equal((await loadGroupStore()).orgs.length, 3);
+    assert.ok((await loadGroupStore()).groups.some(group => group.id === 'user-group'));
+    assert.equal((await readEventLog({ limit: 100 })).length, 6);
+    assert.equal(Object.keys((await readUsageStats(path.join(demoRoot, '.ctxhub', 'stats.json')))?.daily ?? {}).length, 14);
+
+    await demoCommand({ force: true });
+    assert.equal((await loadKnowledgeStore('ctxhub-demo')).objects.length, 4);
+    assert.equal((await listCaptainRuns('architecture-review')).total, 1);
+    assert.ok((await loadCaptainTasks()).tasks.some(task => task.name === 'user-task'));
   });
 });
