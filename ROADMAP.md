@@ -544,7 +544,7 @@ When this milestone completes: **Proceed / Pause / Pivot** — based on whether 
 
 ## Future Horizons
 
-*Milestones M11–M17 are known destinations, not scheduled work. Architecture will be designed when the trigger fires. Until then, each milestone is defined only by its promise, trigger, hypothesis, expected learnings, and exit condition. No implementation detail until the trigger is observed. (M17 is an exception in one respect: its architecture doc already exists — `docs/monorepo_architecture.md` — because it's a direct extension of M7's Topology Graph, which is already built. Its numbering doesn't imply it comes after M11–M16 in priority; a trigger on this one could plausibly fire before several of the others.)*
+*Milestones M11–M18 are known destinations, not scheduled work. Architecture will be designed when the trigger fires. Until then, each milestone is defined only by its promise, trigger, hypothesis, expected learnings, and exit condition. No implementation detail until the trigger is observed. (M17 and M18 are exceptions in one respect: their architecture docs already exist — `docs/monorepo_architecture.md` and `docs/distributed_workers_architecture.md` — because both extend systems that are already built (M7's Topology Graph; the machine-token auth model, Trust Model, and Corporate Groups, respectively). Their numbering doesn't imply either comes after M11–M16 in priority; a trigger on either could plausibly fire before several of the others.)*
 
 ---
 
@@ -707,6 +707,31 @@ An engineer on a real Nx (or equivalent) monorepo runs a ctxhub Captain that cor
 ### Review gate
 
 When this milestone completes: **Proceed / Pause / Pivot** — based on whether topology-derived queries (impact analysis, affected-project scoping) become a routine part of how engineers use ctxhub, or whether the manual M7 topology API was already sufficient and this added integration surface without adding proportionate value.
+
+---
+
+## Milestone 18 — Distributed Workers (Bring Your Own Runtime) *(trigger: Captain execution needs to happen somewhere other than the single machine running `ctxhub service` — most likely CI first)*
+
+**The promise:** "Run AI where your infrastructure already lives."
+
+Architecture is fully designed — see `docs/distributed_workers_architecture.md`. Mission Control can dispatch work to registered execution environments (a laptop, a GitHub Actions runner, a Kubernetes pod, an on-prem server) instead of centralising every credential, integration, and piece of infrastructure access in Cloud. A **runtime** is the execution environment; a **worker** is a process inside it that can run jobs (a Captain, an MCP server, or a plain credentialed executor with no AI in the loop at all); a **job** is parameters in, evidence out. Deliberately not called "Bring Your Own Agent" — the primitive being registered is compute with local trust, not intelligence, and several existing workers may run zero AI processes.
+
+**Hypothesis:** Instead of centralising credentials for every system a Captain might need to touch (Datadog, Terraform, internal tooling), dispatching the job to wherever that credential already lives is both more secure (Mission Control never holds it) and unlocks integrations that would otherwise require ctxhub Cloud to become a direct integration partner with every one of those systems.
+
+### We expect to learn
+
+- Is CI (GitHub Actions runners) actually the first real demand, or developer laptops wanting to offload long-running Captain jobs?
+- Does capability-based routing (`worker.capabilities: [datadog, kubectl, ...]`) stay simple as capability lists grow, or does it need a richer constraint language sooner than expected?
+- Do organisations trust worker-reported evidence without additional verification, or does every worker-produced finding need the same human-promotion gate local Captain runs already require?
+- Does the CI-runner mental model (register, heartbeat, dispatch, disposable) actually fit, or does a worker behave differently enough from a CI runner that the analogy breaks down?
+
+### Exit condition
+
+An engineering org registers a worker running somewhere other than a developer's own machine — a GitHub Actions runner is the most likely first case — and a real Captain job dispatched to it produces a promoted Knowledge Object with full provenance, without Mission Control ever holding a credential that worker used.
+
+### Review gate
+
+When this milestone completes: **Proceed / Pause / Pivot** — based on whether distributed workers become how enterprise orgs actually run Captains against their real infrastructure, or whether the security/complexity cost of a worker registry outweighs what local-only execution already provided.
 
 ---
 
