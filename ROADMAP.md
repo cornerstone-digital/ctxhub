@@ -344,7 +344,7 @@ Architecture is fully designed — see `docs/cloud_architecture.md` and `docs/id
 - [ ] Organisation and member identity — `organisations`, `members`, `workspaces`, `machines` tables in Postgres (schema designed; service not deployed)
 - [x] Auth — machine tokens (`ctxm_` prefix, scrypt-hashed, 1yr expiry); `ctxhub machine-token create/list/revoke`; Bearer ctxm_ middleware in HTTP server
 - [x] Cloud sync API — `POST /sync` endpoint on the Cloud service (stub client in place; `src/cloud/service.ts`)
-- [ ] Cloud event ingestion API — `POST /sync/events`, `POST /sync/runs`, `POST /sync/notes`
+- [x] Cloud event ingestion API — `POST /sync/events`, `POST /sync/runs`, `POST /sync/notes`, `GET /sync/history` (routes implemented and tested in `src/cloud/service.ts`; service not deployed)
 - [ ] Cloud Mission Control — historical captain runs and promoted notes across all workspaces, read-only
 - [x] 5-role RBAC enforcement — owner, admin, member, reader, machine
 
