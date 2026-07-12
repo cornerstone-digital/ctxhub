@@ -321,7 +321,16 @@ Architecture is fully designed — see `docs/cloud_architecture.md` and `docs/id
 
 **Hypothesis:** Teams that coordinate multiple ctxhub instances want a shared Mission Control — not just better documentation or manual conventions.
 
+**2026-07-12 — building ahead of remaining triggers, deliberately.** From here through the rest of this roadmap, items are being built without waiting for their stated trigger to fire: known enterprise-deal requirements, prioritised so the demo story (not just the individual features) is ready. Trigger conditions stay documented as the original rationale for *when this would have been prioritised absent a deal*, not as a gate anymore. Local DX (below) is deliberately first, so everything after it can actually be demoed end-to-end as it's built.
+
 ### What's left
+
+**Local DX (done):** exercise the full self-hosted → Cloud → Mission Control loop with no real cloud account, Entra tenant, or hosting decision required. See [`docs/deploy/LOCAL_DX.md`](../docs/deploy/LOCAL_DX.md).
+- [x] `docker-compose.cloud.yml` — real Postgres + the Cloud service together; separate from the production `docker-compose.yml` (self-hosted, real Entra credentials)
+- [x] `CLOUD_ADMIN_KEY` bootstrap + `src/cloud/serve.ts` standalone entrypoint — before this, the Cloud service could only be exercised inside tests; there was no way to seed the admin key needed to create the first org
+- [x] `scripts/demo-cloud.sh` — one-command demo: register org → scaffold workspace → run Captain → sync chunks + run history → verify via a raw `GET /sync/history` call, not just trusting CLI output
+- [x] Captain run history actually reaches Cloud — `POST /sync/runs`/`POST /sync/notes` existed and were tested in isolation but nothing on the self-hosted side ever called them; Mission Control's Cloud panel would always have shown empty. Wired into both `POST /cloud/sync` and `ctxhub cloud sync`.
+- [x] Fixed an orgId-spoofing gap found by actually running the demo end-to-end: `/sync`, `/sync/events`, `/sync/runs`, `/sync/notes` trusted a client-supplied `orgId` instead of resolving it from the API key; `GET /sync/history`'s `?orgId=` param had the same issue on the read side. All four now resolve from the API key only.
 
 **Foundations in place (done):**
 - [x] `ctxhub share` — one-time signed context pack sharing (`GET /share/:token`, `ctxhub share create/list/revoke`)
