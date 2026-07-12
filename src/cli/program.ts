@@ -21,7 +21,22 @@ import { handoffCommand } from '../commands/handoff.js';
 import { reviewCommand } from '../commands/review.js';
 import { personasInitCommand, personasSyncCommand, SUPPORTED_PERSONA_SYNC_AGENTS } from '../commands/personas.js';
 import { workspaceExportCommand, workspaceGrantCommand, workspaceImportCommand, workspaceListCommand, workspaceMembersCommand, workspaceRegisterCommand, workspaceRemoveCommand, workspaceRevokeCommand, workspaceSetRolesCommand } from '../commands/workspace.js';
-import { knowledgeArchiveCommand, knowledgeCreateCommand, knowledgeFlagCommand, knowledgeListCommand, knowledgePromoteCommand, knowledgeShowCommand, knowledgeSupersededCommand } from '../commands/knowledge.js';
+import {
+  knowledgeArchiveCommand,
+  knowledgeCreateCommand,
+  knowledgeFlagCommand,
+  knowledgeListCommand,
+  knowledgePromoteCommand,
+  knowledgeShowCommand,
+  knowledgeSupersededCommand,
+  knowledgeSearchCommand,
+  knowledgeVelocityCommand,
+  knowledgeEdgeAddCommand,
+  knowledgeEdgeListCommand,
+  knowledgeConceptAddCommand,
+  knowledgeConceptLinkCommand,
+  knowledgeConceptListCommand,
+} from '../commands/knowledge.js';
 import { serviceStartCommand, serviceStopCommand, serviceStatusCommand, dashboardCommand } from '../commands/service.js';
 import {
   captainAddCommand,
@@ -86,6 +101,16 @@ import {
   cascadeRemoveCommand,
   cascadeDeriveCommand,
 } from '../commands/cascade.js';
+import {
+  roleCreateCommand,
+  roleListCommand,
+  roleShowCommand,
+  roleDeleteCommand,
+} from '../commands/role.js';
+import {
+  licenceStatusCommand,
+  licenceInstallCommand,
+} from '../commands/licence.js';
 
 // Pure construction only -- no parsing, no process.exit. Split out from index.ts so
 // guided mode (src/tui/guided/commandTree.ts) can introspect the full command tree
@@ -539,6 +564,73 @@ export function buildProgram(): Command {
     .description('Show all fields of a single knowledge object')
     .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
     .action((id: string, opts: { workspace?: string }) => knowledgeShowCommand(id, opts));
+
+  knowledge
+    .command('search')
+    .argument('<query>', 'Natural language query over promoted notes and ADRs')
+    .description('Decision archaeology: search knowledge objects by title/content relevance')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .option('--min-confidence <n>', 'Minimum confidence score to include', parseFloat)
+    .option('--include-archived', 'Include archived knowledge objects')
+    .action((query: string, opts: { workspace?: string; minConfidence?: number; includeArchived?: boolean }) =>
+      knowledgeSearchCommand(query, opts)
+    );
+
+  knowledge
+    .command('velocity')
+    .description('Time-series view of knowledge object creation, promotion, and archival rates')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .option('--from <date>', 'Start date (ISO), default 30 days before --to')
+    .option('--to <date>', 'End date (ISO), default now')
+    .option('--bucket <size>', 'Bucket size: day or week (default: day)')
+    .action((opts: { workspace?: string; from?: string; to?: string; bucket?: string }) => knowledgeVelocityCommand(opts));
+
+  const knowledgeEdge = knowledge.command('edge').description('Manage relationships between knowledge objects');
+
+  knowledgeEdge
+    .command('add')
+    .description('Add a directed edge between two knowledge objects')
+    .requiredOption('--from <id>', 'Source knowledge object id (full or 8-char prefix)')
+    .requiredOption('--to <id>', 'Target knowledge object id (full or 8-char prefix)')
+    .requiredOption('--type <type>', 'Edge type: supports, contradicts, supersedes, related_to, derived_from')
+    .option('--description <text>', 'Optional description of the relationship')
+    .option('--confidence <n>', 'Confidence score (default: 1.0)', parseFloat)
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action(
+      (opts: { from: string; to: string; type: string; description?: string; confidence?: number; workspace?: string }) =>
+        knowledgeEdgeAddCommand(opts)
+    );
+
+  knowledgeEdge
+    .command('list')
+    .description('List edges, optionally filtered to those touching one object')
+    .option('--object <id>', 'Only show edges touching this knowledge object id')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((opts: { object?: string; workspace?: string }) => knowledgeEdgeListCommand(opts));
+
+  const knowledgeConcept = knowledge.command('concept').description('Manage recurring themes linked to knowledge objects');
+
+  knowledgeConcept
+    .command('add')
+    .description('Create a new concept')
+    .requiredOption('--name <name>', 'Concept name (must be unique)')
+    .option('--description <text>', 'Optional description of the concept')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((opts: { name: string; description?: string; workspace?: string }) => knowledgeConceptAddCommand(opts));
+
+  knowledgeConcept
+    .command('link')
+    .description('Link a knowledge object to a concept')
+    .requiredOption('--concept <id>', 'Concept id (full or 8-char prefix)')
+    .requiredOption('--object <id>', 'Knowledge object id (full or 8-char prefix)')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((opts: { concept: string; object: string; workspace?: string }) => knowledgeConceptLinkCommand(opts));
+
+  knowledgeConcept
+    .command('list')
+    .description('List all concepts and how many objects each is linked to')
+    .option('--workspace <name>', 'Registered workspace name (default: current workspace)')
+    .action((opts: { workspace?: string }) => knowledgeConceptListCommand(opts));
 
   const service = program.command('service').description('Run the local control-plane service (docs/control-plane.md, Phase 2)');
 
@@ -1064,8 +1156,9 @@ export function buildProgram(): Command {
   blueprint
     .command('install')
     .argument('<path-or-name>', 'Local .ctxblueprint file path, or registry name (registry not yet available)')
+    .option('--ignore-deps', 'Skip dependency resolution check')
     .description('Install a blueprint from a local .ctxblueprint archive')
-    .action((target: string) => blueprintInstallCommand(target));
+    .action((target: string, opts: { ignoreDeps?: boolean }) => blueprintInstallCommand(target, opts));
 
   blueprint
     .command('list')
@@ -1226,6 +1319,53 @@ export function buildProgram(): Command {
     .description('Derive cascade rules from topology depends_on edges across orgs')
     .option('--yes', 'Skip confirmation prompt and save rules')
     .action((opts: { yes?: boolean }) => cascadeDeriveCommand(opts));
+
+  // ── Custom Roles ──────────────────────────────────────────────────────────
+
+  const role = program.command('role').description('Manage custom roles with configurable permission sets');
+
+  role
+    .command('create')
+    .description('Create a new custom role with specified permissions')
+    .requiredOption('--name <name>', 'Role name (must not conflict with built-in roles)')
+    .requiredOption('--permissions <list>', 'Comma-separated permissions (e.g. knowledge:read,workspace:read)')
+    .option('--inherits <role>', 'Built-in or custom role to inherit permissions from')
+    .option('--description <text>', 'Short description of the role')
+    .action((opts: { name: string; permissions: string; inherits?: string; description?: string }) =>
+      roleCreateCommand(opts)
+    );
+
+  role
+    .command('list')
+    .description('List all roles (built-in and custom)')
+    .action(() => roleListCommand());
+
+  role
+    .command('show')
+    .argument('<name>', 'Role name to inspect')
+    .description('Show permissions for a role (including inherited)')
+    .action((name: string) => roleShowCommand(name));
+
+  role
+    .command('delete')
+    .argument('<name>', 'Custom role name to delete (cannot delete built-in roles)')
+    .description('Delete a custom role')
+    .action((name: string) => roleDeleteCommand(name));
+
+  // ── Licence ───────────────────────────────────────────────────────────────
+
+  const licence = program.command('licence').description('Manage air-gapped licence key for enterprise deployments');
+
+  licence
+    .command('status')
+    .description('Show licence status, org name, seats, features, and expiry')
+    .action(() => licenceStatusCommand());
+
+  licence
+    .command('install')
+    .description('Install a licence file (validates before copying to ~/.ctxhub/licence.json)')
+    .requiredOption('--file <path>', 'Path to the licence JSON file')
+    .action((opts: { file: string }) => licenceInstallCommand(opts));
 
   // ── Status ────────────────────────────────────────────────────────────────
 

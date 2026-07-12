@@ -12,6 +12,11 @@ export interface BlueprintManifest {
     missionTemplates?: string[]; // relative paths
     knowledgeSources?: string[]; // paths to sample docs
   };
+  dependencies?: Array<{
+    name: string;
+    version?: string;  // semver range or exact, optional
+    path?: string;     // local path fallback if registry not available
+  }>;
 }
 
 export interface InstalledBlueprint {

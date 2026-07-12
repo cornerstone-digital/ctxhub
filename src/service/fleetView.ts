@@ -1368,7 +1368,20 @@ function renderCloud(data){
     '<div style="background:var(--bg-surface);border:1px solid var(--border-faint);border-radius:var(--r);padding:14px 16px;' +
     'color:var(--text-3);font-size:12px">No sync history available yet. Click Sync Now to push chunks to Cloud.</div>';
 
-  el.innerHTML = statusCard + chunksHeader + chunksEmpty;
+  var historySection =
+    '<div id="cloud-history-runs" style="margin-top:20px">' +
+    '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Captain Runs History</div>' +
+    '<div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>' +
+    '</div>' +
+    '<div id="cloud-history-notes" style="margin-top:16px">' +
+    '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Promoted Notes History</div>' +
+    '<div style="color:var(--text-3);font-size:12px;padding:8px 0">Loading&hellip;</div>' +
+    '</div>';
+
+  el.innerHTML = statusCard + chunksHeader + chunksEmpty + historySection;
+
+  // Load historical data
+  loadCloudHistory();
 
   document.getElementById('btn-sync-now').addEventListener('click', function(){
     var btn = document.getElementById('btn-sync-now');
@@ -1397,6 +1410,84 @@ function renderCloud(data){
       result.style.color = 'var(--error)';
       result.textContent = String(err);
     });
+  });
+}
+
+function loadCloudHistory(){
+  fetch('/cloud/history?type=runs&limit=10').then(function(r){ return r.json(); }).then(function(data){
+    var el = document.getElementById('cloud-history-runs');
+    if(!el) return;
+    var runs = data.runs || [];
+    if(!runs.length){
+      el.innerHTML =
+        '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Captain Runs History</div>' +
+        '<div style="background:var(--bg-surface);border:1px solid var(--border-faint);border-radius:var(--r);padding:14px 16px;color:var(--text-3);font-size:12px">' +
+        'No captain runs synced yet. Runs appear here after <code style="font-family:var(--font-mono)">ctxhub cloud sync</code>.' +
+        '</div>';
+      return;
+    }
+    var statusColor = {'completed':'var(--ok)','failed':'var(--error)','running':'var(--warn)'};
+    var rows = runs.map(function(r){
+      var sc = (statusColor[r.status]) || 'var(--text-3)';
+      var completed = r.completedAt ? new Date(r.completedAt).toLocaleString() : '--';
+      return '<tr>' +
+        '<td style="padding:5px 8px;font-size:11px;color:var(--text-1)">' + esc(r.taskName||'') + '</td>' +
+        '<td style="padding:5px 8px;font-size:11px;color:'+sc+'">' + esc(r.status||'') + '</td>' +
+        '<td style="padding:5px 8px;font-size:11px;color:var(--text-2);text-align:right">' + (r.findingsCount||0) + '</td>' +
+        '<td style="padding:5px 8px;font-size:11px;color:var(--text-2);text-align:right">' + (r.promotedCount||0) + '</td>' +
+        '<td style="padding:5px 8px;font-size:11px;color:var(--text-3)">' + esc(completed) + '</td>' +
+        '</tr>';
+    }).join('');
+    el.innerHTML =
+      '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Captain Runs History</div>' +
+      '<div style="overflow-x:auto">' +
+      '<table style="border-collapse:collapse;width:100%;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r)">' +
+      '<thead><tr>' +
+      '<th style="padding:6px 8px;font-size:10px;color:var(--text-3);text-align:left;font-weight:400">Task</th>' +
+      '<th style="padding:6px 8px;font-size:10px;color:var(--text-3);text-align:left;font-weight:400">Status</th>' +
+      '<th style="padding:6px 8px;font-size:10px;color:var(--text-3);text-align:right;font-weight:400">Findings</th>' +
+      '<th style="padding:6px 8px;font-size:10px;color:var(--text-3);text-align:right;font-weight:400">Promoted</th>' +
+      '<th style="padding:6px 8px;font-size:10px;color:var(--text-3);text-align:left;font-weight:400">Completed</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }).catch(function(){
+    var el = document.getElementById('cloud-history-runs');
+    if(el) el.innerHTML =
+      '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Captain Runs History</div>' +
+      '<div style="color:var(--text-3);font-size:12px">Could not load run history.</div>';
+  });
+
+  fetch('/cloud/history?type=notes&limit=10').then(function(r){ return r.json(); }).then(function(data){
+    var el = document.getElementById('cloud-history-notes');
+    if(!el) return;
+    var notes = data.notes || [];
+    if(!notes.length){
+      el.innerHTML =
+        '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Promoted Notes History</div>' +
+        '<div style="background:var(--bg-surface);border:1px solid var(--border-faint);border-radius:var(--r);padding:14px 16px;color:var(--text-3);font-size:12px">' +
+        'No promoted notes synced yet.' +
+        '</div>';
+      return;
+    }
+    var tierColor = {'institutional':'var(--ok)','canonical':'var(--accent)'};
+    var cards = notes.map(function(n){
+      var tc = (tierColor[n.trustTier]) || 'var(--text-3)';
+      var promotedAt = n.promotedAt ? new Date(n.promotedAt).toLocaleDateString() : '--';
+      return '<div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r);padding:10px 14px;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+        '<div style="font-size:12px;font-weight:600;color:var(--text-1);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(n.title||'(untitled)') + '</div>' +
+        '<div style="font-size:10px;padding:2px 8px;border-radius:20px;background:var(--accent-dim);color:'+tc+';white-space:nowrap">' + esc(n.trustTier||'') + '</div>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--text-3)">by ' + esc(n.promotedBy||'') + ' &middot; ' + promotedAt + '</div>' +
+        '</div>';
+    }).join('');
+    el.innerHTML =
+      '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Promoted Notes History</div>' +
+      cards;
+  }).catch(function(){
+    var el = document.getElementById('cloud-history-notes');
+    if(el) el.innerHTML =
+      '<div style="color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Promoted Notes History</div>' +
+      '<div style="color:var(--text-3);font-size:12px">Could not load notes history.</div>';
   });
 }
 

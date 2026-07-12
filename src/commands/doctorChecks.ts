@@ -35,7 +35,8 @@ export const CHECK_LABELS: Record<string, string> = {
   'enterprise-session': 'Enterprise: Session',
   'enterprise-role-map': 'Enterprise: Role map',
   'enterprise-groups': 'Enterprise: Groups store',
-  'enterprise-index': 'Enterprise: Indexed knowledge'
+  'enterprise-index': 'Enterprise: Indexed knowledge',
+  'enterprise-licence': 'Enterprise: Licence'
 };
 
 export function buildEnterpriseChecks(config: CtxhubConfig, workspaceRoot = process.cwd()): DoctorCheck[] {
@@ -98,6 +99,40 @@ export function buildEnterpriseChecks(config: CtxhubConfig, workspaceRoot = proc
           return [{ status: 'ok', message: `Index: ${status.documentCount} documents across 1 workspace` }];
         } catch {
           return [{ status: 'warn', message: 'Index: no indexed documents found (run: ctxhub index)' }];
+        }
+      }
+    },
+    {
+      id: 'enterprise-licence',
+      run: async () => {
+        try {
+          const { loadLicence, validateLicence } = await import('../licence/licence.js');
+          const licence = await loadLicence();
+          if (!licence) {
+            return [{
+              status: 'ok',
+              message: 'Licence: no licence file (not required for self-hosted; needed for air-gapped enterprise)'
+            }];
+          }
+          const validation = validateLicence(licence);
+          if (validation.status === 'valid') {
+            return [{
+              status: 'ok',
+              message: `Licence: valid — ${licence.orgName} (expires ${new Date(licence.validUntil).toLocaleDateString()})`
+            }];
+          }
+          if (validation.status === 'expired') {
+            return [{
+              status: 'warn',
+              message: `Licence: expired — ${licence.orgName} (expired ${new Date(licence.validUntil).toLocaleDateString()})`
+            }];
+          }
+          return [{
+            status: 'error',
+            message: `Licence: invalid — ${validation.reason ?? 'signature verification failed'}`
+          }];
+        } catch {
+          return [{ status: 'warn', message: 'Licence: could not read licence file' }];
         }
       }
     }

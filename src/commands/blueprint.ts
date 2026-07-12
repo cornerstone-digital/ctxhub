@@ -11,6 +11,7 @@ import {
   findInstalled
 } from '../blueprints/store.js';
 import type { BlueprintManifest, InstalledBlueprint } from '../blueprints/types.js';
+import { resolveDependencies } from '../blueprints/resolver.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ export async function blueprintPackCommand(opts: { dir?: string; out?: string } 
 
 // ── blueprintInstallCommand ───────────────────────────────────────────────────
 
-export async function blueprintInstallCommand(target: string): Promise<void> {
+export async function blueprintInstallCommand(target: string, opts: { ignoreDeps?: boolean } = {}): Promise<void> {
   const looksLikeLocalPath = target.endsWith('.ctxblueprint') || target.startsWith('./') || target.startsWith('../') || target.startsWith('/');
 
   if (!looksLikeLocalPath) {
@@ -108,6 +109,24 @@ export async function blueprintInstallCommand(target: string): Promise<void> {
       console.error(chalk.red(`✗ Invalid blueprint manifest in archive:`));
       for (const e of errors) console.error(chalk.red(`  - ${e}`));
       process.exit(1);
+    }
+
+    // Resolve dependencies before installing
+    if (!opts.ignoreDeps && (manifest.dependencies?.length ?? 0) > 0) {
+      const store = await loadBlueprintStore();
+      const resolution = await resolveDependencies(manifest, store);
+      if (resolution.missing.length > 0) {
+        console.error(chalk.yellow(`Missing dependencies:`));
+        for (const m of resolution.missing) {
+          console.error(chalk.red(`  ✗ ${m.name}: ${m.reason}`));
+        }
+        console.error(chalk.yellow(`\nInstall missing dependencies first, or pass --ignore-deps to skip this check.`));
+        process.exit(1);
+      }
+      if (resolution.order.length > 1) {
+        const depOrder = resolution.order.filter(n => n !== manifest.name);
+        console.log(chalk.dim(`Dependencies resolved (install order: ${depOrder.join(' → ')} → ${manifest.name})`));
+      }
     }
 
     const installDir = path.join(home, manifest.name);

@@ -24,6 +24,9 @@ import type {
   CloudSyncRequest,
   CloudSyncResponse,
   CloudSearchResult,
+  CloudEvent,
+  CloudCaptainRun,
+  CloudNote,
 } from './types.js';
 
 // ── In-memory store ───────────────────────────────────────────────────────────
@@ -34,6 +37,9 @@ export interface CloudStore {
   workspaces: Map<string, CloudWorkspace>; // key: workspace.id
   apiKeys: Map<string, string>;        // key: apiKey → orgId
   adminKeys: Set<string>;              // admin API keys
+  events: CloudEvent[];
+  runs: CloudCaptainRun[];
+  notes: CloudNote[];
 }
 
 export function createInMemoryStore(): CloudStore {
@@ -43,6 +49,9 @@ export function createInMemoryStore(): CloudStore {
     workspaces: new Map(),
     apiKeys: new Map(),
     adminKeys: new Set(),
+    events: [],
+    runs: [],
+    notes: [],
   };
 }
 
@@ -232,6 +241,139 @@ function createHandler(store: CloudStore) {
 
       const workspaces = [...store.workspaces.values()].filter(w => w.orgId === orgId);
       sendJson(res, 200, { workspaces });
+      return;
+    }
+
+    // ── POST /sync/events ─────────────────────────────────────────────────────
+    if (method === 'POST' && url.pathname === '/sync/events') {
+      const apiKey = extractBearerToken(req);
+      if (!apiKey || !store.apiKeys.has(apiKey)) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const body = (await readJsonBody(req)) as { orgId?: string; events?: unknown[] };
+      if (!body.orgId || !Array.isArray(body.events)) {
+        sendJson(res, 400, { error: 'orgId and events are required' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      let accepted = 0;
+      for (const ev of body.events) {
+        if (typeof ev !== 'object' || ev === null) continue;
+        const e = ev as Record<string, unknown>;
+        store.events.push({
+          ...e,
+          type: String(e['type'] ?? ''),
+          ts: String(e['ts'] ?? now),
+          orgId: body.orgId,
+          sub: e['sub'] !== undefined ? String(e['sub']) : undefined,
+          email: e['email'] !== undefined ? String(e['email']) : undefined,
+        } as CloudEvent);
+        accepted++;
+      }
+      console.log(`Accepted ${accepted} events from org ${body.orgId}`);
+      sendJson(res, 200, { accepted });
+      return;
+    }
+
+    // ── POST /sync/runs ───────────────────────────────────────────────────────
+    if (method === 'POST' && url.pathname === '/sync/runs') {
+      const apiKey = extractBearerToken(req);
+      if (!apiKey || !store.apiKeys.has(apiKey)) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const body = (await readJsonBody(req)) as { orgId?: string; workspaceId?: string; runs?: unknown[] };
+      if (!body.orgId || !body.workspaceId || !Array.isArray(body.runs)) {
+        sendJson(res, 400, { error: 'orgId, workspaceId, and runs are required' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      let accepted = 0;
+      for (const r of body.runs) {
+        if (typeof r !== 'object' || r === null) continue;
+        const run = r as Record<string, unknown>;
+        store.runs.push({
+          id: String(run['id'] ?? ''),
+          orgId: body.orgId,
+          workspaceId: body.workspaceId,
+          taskName: String(run['taskName'] ?? ''),
+          startedAt: String(run['startedAt'] ?? now),
+          completedAt: run['completedAt'] !== undefined ? String(run['completedAt']) : undefined,
+          status: (run['status'] as 'running' | 'completed' | 'failed') ?? 'completed',
+          findingsCount: Number(run['findingsCount'] ?? 0),
+          promotedCount: Number(run['promotedCount'] ?? 0),
+          syncedAt: now,
+        });
+        accepted++;
+      }
+      sendJson(res, 200, { accepted });
+      return;
+    }
+
+    // ── POST /sync/notes ──────────────────────────────────────────────────────
+    if (method === 'POST' && url.pathname === '/sync/notes') {
+      const apiKey = extractBearerToken(req);
+      if (!apiKey || !store.apiKeys.has(apiKey)) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const body = (await readJsonBody(req)) as { orgId?: string; workspaceId?: string; notes?: unknown[] };
+      if (!body.orgId || !body.workspaceId || !Array.isArray(body.notes)) {
+        sendJson(res, 400, { error: 'orgId, workspaceId, and notes are required' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      let accepted = 0;
+      for (const n of body.notes) {
+        if (typeof n !== 'object' || n === null) continue;
+        const note = n as Record<string, unknown>;
+        store.notes.push({
+          id: String(note['id'] ?? ''),
+          orgId: body.orgId,
+          workspaceId: body.workspaceId,
+          title: String(note['title'] ?? ''),
+          content: String(note['content'] ?? ''),
+          promotedAt: String(note['promotedAt'] ?? now),
+          promotedBy: String(note['promotedBy'] ?? ''),
+          trustTier: String(note['trustTier'] ?? 'institutional'),
+          syncedAt: now,
+        });
+        accepted++;
+      }
+      sendJson(res, 200, { accepted });
+      return;
+    }
+
+    // ── GET /sync/history ─────────────────────────────────────────────────────
+    if (method === 'GET' && url.pathname === '/sync/history') {
+      const apiKey = extractBearerToken(req);
+      if (!apiKey || !store.apiKeys.has(apiKey)) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const orgId = url.searchParams.get('orgId') ?? store.apiKeys.get(apiKey) ?? '';
+      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '20', 10), 200);
+      const type = url.searchParams.get('type') ?? 'all';
+
+      const events = (type === 'all' || type === 'events')
+        ? store.events.filter(e => e.orgId === orgId).slice(-limit)
+        : [];
+      const runs = (type === 'all' || type === 'runs')
+        ? store.runs.filter(r => r.orgId === orgId).slice(-limit)
+        : [];
+      const notes = (type === 'all' || type === 'notes')
+        ? store.notes.filter(n => n.orgId === orgId).slice(-limit)
+        : [];
+
+      sendJson(res, 200, { events, runs, notes });
       return;
     }
 

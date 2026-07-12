@@ -482,7 +482,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const searchMatch = /^\/workspaces\/([^/]+)\/search$/.exec(url.pathname);
   if (req.method === 'GET' && searchMatch) {
-    await handleWorkspaceSearch(res, decodeURIComponent(searchMatch[1]), url, req);
+    await handleWorkspaceSearch(res, decodeURIComponent(searchMatch[1]), url);
     return;
   }
 
@@ -762,6 +762,15 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (req.method === 'GET' && url.pathname === '/cloud/status') {
     await handleCloudStatus(res);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/cloud/history') {
+    if (!hasRole(authOutcome.principal, 'member')) {
+      sendJson(res, 403, { error: 'Member role required' });
+      return;
+    }
+    await handleCloudHistory(req, res, url);
     return;
   }
 
@@ -1146,7 +1155,7 @@ async function handleWorkspaceStatus(res: http.ServerResponse, name: string): Pr
   sendJson(res, 200, body);
 }
 
-async function handleWorkspaceSearch(res: http.ServerResponse, name: string, url: URL, req: http.IncomingMessage): Promise<void> {
+async function handleWorkspaceSearch(res: http.ServerResponse, name: string, url: URL): Promise<void> {
   const workspaces = await listWorkspaces();
   const workspace = workspaces.find(entry => entry.name === name);
   if (!workspace || !workspace.exists) {
@@ -2029,6 +2038,55 @@ async function handleCloudStatus(res: http.ServerResponse): Promise<void> {
       chunksSynced: config.chunksSynced ?? 0,
       chunksAvailable,
     });
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleCloudHistory(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  url: URL,
+): Promise<void> {
+  try {
+    const { loadCloudConfig } = await import('../commands/cloud.js');
+    const cloudConfig = await loadCloudConfig();
+
+    const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '20', 10), 200);
+    const type = url.searchParams.get('type') ?? 'all';
+
+    // If cloud is not configured, return empty local data
+    if (!cloudConfig) {
+      sendJson(res, 200, { runs: [], notes: [], source: 'local' });
+      return;
+    }
+
+    // Try to fetch from cloud endpoint with 3s timeout
+    const cloudEndpoint = cloudConfig.endpoint?.replace(/\/$/, '');
+    const apiKey = cloudConfig.apiKey ?? '';
+
+    if (cloudEndpoint && apiKey) {
+      try {
+        const fetchUrl = `${cloudEndpoint}/sync/history?limit=${limit}&type=${encodeURIComponent(type)}`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3_000);
+        const response = await fetch(fetchUrl, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (response.ok) {
+          const data = await response.json() as { runs?: unknown[]; notes?: unknown[] };
+          sendJson(res, 200, { runs: data.runs ?? [], notes: data.notes ?? [], source: 'cloud' });
+          return;
+        }
+      } catch {
+        // Cloud unavailable — fall through to local
+      }
+    }
+
+    // Fall back to local cloud.json data (no historical data cached locally by default)
+    sendJson(res, 200, { runs: [], notes: [], source: 'local' });
   } catch (error) {
     sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
   }

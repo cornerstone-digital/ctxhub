@@ -73,3 +73,39 @@ export interface CloudSearchResult {
   syncedAt: string;
   score?: number;
 }
+
+// ── Event ingestion ───────────────────────────────────────────────────────────
+
+export interface CloudEvent {
+  type: string;
+  ts: string;
+  orgId: string;
+  sub?: string;
+  email?: string;
+  [key: string]: unknown;
+}
+
+export interface CloudCaptainRun {
+  id: string;
+  orgId: string;
+  workspaceId: string;
+  taskName: string;
+  startedAt: string;
+  completedAt?: string;
+  status: 'running' | 'completed' | 'failed';
+  findingsCount: number;
+  promotedCount: number;
+  syncedAt: string;
+}
+
+export interface CloudNote {
+  id: string;
+  orgId: string;
+  workspaceId: string;
+  title: string;
+  content: string;
+  promotedAt: string;
+  promotedBy: string;
+  trustTier: string;
+  syncedAt: string;
+}

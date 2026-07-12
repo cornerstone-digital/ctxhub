@@ -189,11 +189,26 @@ export async function topologyEdgeAddCommand(opts: {
 
   const store = await loadTopologyStore();
 
+  // --from/--to are accepted as full ids or prefixes (matching the display convention of
+  // `service add`/`repo add`, which only ever prints an 8-char id back to the user). Resolve
+  // to the canonical stored id here so edges never silently point at a dangling reference that
+  // downstream lookups (getEdgesFrom, getTransitiveDependencies) can't find via strict equality.
+  const fromNode = opts.fromType === 'service' ? findService(store, opts.from.trim()) : findRepository(store, opts.from.trim());
+  if (!fromNode) {
+    console.error(`Error: No ${opts.fromType} found with id "${opts.from}"`);
+    process.exit(1);
+  }
+  const toNode = opts.toType === 'service' ? findService(store, opts.to.trim()) : findRepository(store, opts.to.trim());
+  if (!toNode) {
+    console.error(`Error: No ${opts.toType} found with id "${opts.to}"`);
+    process.exit(1);
+  }
+
   const edge = {
     id: crypto.randomUUID(),
-    fromId: opts.from.trim(),
+    fromId: fromNode.id,
     fromType: opts.fromType as 'service' | 'repository',
-    toId: opts.to.trim(),
+    toId: toNode.id,
     toType: opts.toType as 'service' | 'repository',
     edgeType: opts.type as TopologyEdgeType,
     description: opts.description?.trim() || undefined,
@@ -216,7 +231,8 @@ export async function topologyEdgeListCommand(opts: { from?: string }): Promise<
 
   let edges = store.edges;
   if (opts.from) {
-    edges = getEdgesFrom(store, opts.from.trim());
+    const node = findService(store, opts.from.trim()) ?? findRepository(store, opts.from.trim());
+    edges = getEdgesFrom(store, node ? node.id : opts.from.trim());
   }
 
   if (edges.length === 0) {
