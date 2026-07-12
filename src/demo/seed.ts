@@ -1,4 +1,6 @@
+import os from 'node:os';
 import path from 'node:path';
+import { mkdir, readFile } from 'node:fs/promises';
 import { getCtxhubHome } from '../workspaces/registry.js';
 import { ensureDir, pathExists, readText, writeText } from '../utils/fs.js';
 import { loadCaptainTasks, saveCaptainTasks, type CaptainTaskFile } from '../captains/tasks.js';
@@ -9,12 +11,22 @@ import { loadGroupStore, saveGroupStore } from '../groups/store.js';
 import type { GroupStore } from '../groups/types.js';
 import { loadCustomRoleStore, saveCustomRoleStore } from '../auth/customRoleStore.js';
 import type { CustomRoleStore } from '../auth/customRoles.js';
+import { loadScimStore, saveScimStore } from '../scim/store.js';
+import type { ScimUser } from '../scim/types.js';
+import { loadMachineTokenStore, saveMachineTokenStore, generateRawToken, hashToken } from '../auth/machineTokenStore.js';
+import { installBlueprintArchive } from '../commands/blueprint.js';
+import { execa } from '../utils/execa-lite.js';
+import { getSyncConfig } from '../cloud/sync.js';
+import { publishBlueprint } from '../blueprints/registryClient.js';
 import { loadJobDefinitions, saveJobDefinitions, saveJobRun } from '../jobs/jobStore.js';
 import type { JobDefinitionFile, JobRun } from '../jobs/types.js';
 import type { CtxhubEventEnvelope } from '../events/eventBus.js';
 import type { UsageStats } from '../utils/usageStats.js';
 
-export type DemoSeedSummary = { knowledgeObjects: number; captains: number; captainRuns: number; groups: number; jobs: number; events: number };
+export type DemoSeedSummary = {
+  knowledgeObjects: number; captains: number; captainRuns: number; groups: number; jobs: number; events: number;
+  scimUsers: number; machineTokens: number; blueprints: number; blueprintPublishedToCloud: boolean;
+};
 
 const isoDaysAgo = (days: number, hour = 10): string => {
   const date = new Date();
@@ -120,7 +132,105 @@ export async function seedDemoFeatureData(workspaceName: string, workspaceRoot: 
   const existingEvents = await readJsonLines(eventPath);
   const demoEventIds = new Set(events.map(event => event.id));
   await writeText(eventPath, `${[...existingEvents.filter(event => !demoEventIds.has(event.id)), ...events].map(event => JSON.stringify(event)).join('\n')}\n`);
-  return { knowledgeObjects: knowledge.objects.length, captains: captainTasks.tasks.length, captainRuns: captainRuns.length, groups: groups.groups.length, jobs: jobs.jobs.length, events: events.length };
+
+  const scimUsers = await seedScimUsers();
+  const machineTokens = await seedMachineToken();
+  const { blueprints, publishedToCloud } = await seedBlueprint();
+
+  return {
+    knowledgeObjects: knowledge.objects.length, captains: captainTasks.tasks.length, captainRuns: captainRuns.length,
+    groups: groups.groups.length, jobs: jobs.jobs.length, events: events.length,
+    scimUsers, machineTokens, blueprints, blueprintPublishedToCloud: publishedToCloud,
+  };
+}
+
+// ── SCIM users ────────────────────────────────────────────────────────────────
+// Real records in the same store `/scim/v2/Users` reads from -- not a separate fixture --
+// so the Config view's member list and SCIM API show the same seeded people.
+
+async function seedScimUsers(): Promise<number> {
+  const store = await loadScimStore();
+  const now = new Date().toISOString();
+  const demoUsers: Array<{ id: string; userName: string; displayName: string }> = [
+    { id: 'demo-scim-alice', userName: 'alice@acme-engineering.example', displayName: 'Alice Chen (Principal Engineer)' },
+    { id: 'demo-scim-bob', userName: 'bob@acme-engineering.example', displayName: 'Bob Okafor (Security Reviewer)' },
+  ];
+  const seeded: ScimUser[] = demoUsers.map(u => ({
+    id: u.id,
+    userName: u.userName,
+    displayName: u.displayName,
+    active: true,
+    emails: [{ value: u.userName, primary: true }],
+    meta: { resourceType: 'User', created: now, lastModified: now, location: `/scim/v2/Users/${u.id}` },
+  }));
+  const demoIds = new Set(seeded.map(u => u.id));
+  await saveScimStore({ ...store, users: [...store.users.filter(u => !demoIds.has(u.id)), ...seeded] });
+  return seeded.length;
+}
+
+// ── Machine token ────────────────────────────────────────────────────────────
+// A real, usable ctxm_ token -- generated fresh each seed run since the raw value is never
+// recoverable from the hash, matching how `ctxhub machine-token create` works for real.
+
+async function seedMachineToken(): Promise<number> {
+  const store = await loadMachineTokenStore();
+  const filtered = store.tokens.filter(t => t.name !== 'demo-ci');
+  const raw = generateRawToken();
+  filtered.push({
+    id: 'demo-machine-token',
+    name: 'demo-ci',
+    hashedToken: await hashToken(raw),
+    roles: ['machine'],
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+  await saveMachineTokenStore({ ...store, tokens: filtered });
+  return 1;
+}
+
+// ── Blueprint (local pack + install; best-effort publish to Cloud's Hub) ────────
+// Packs a real .ctxblueprint archive (same `tar czf` a human running `ctxhub blueprint pack`
+// would produce) and installs it through the same throw-based installBlueprintArchive() the
+// HTTP handler uses -- not a hand-written InstalledBlueprint record.
+
+async function seedBlueprint(): Promise<{ blueprints: number; publishedToCloud: boolean }> {
+  const sourceDir = path.join(os.tmpdir(), 'ctxhub-demo-blueprint-source');
+  await mkdir(sourceDir, { recursive: true });
+  await writeText(path.join(sourceDir, 'blueprint.yaml'), [
+    'name: secure-service-launch',
+    'version: 1.0.0',
+    'description: Security, architecture, and release-readiness Captains for launching a new service.',
+    'author: ctxhub demo',
+    'tags: [security, platform, demo]',
+    'serviceTypes: [api]',
+  ].join('\n'));
+
+  const archivePath = path.join(os.tmpdir(), 'secure-service-launch-1.0.0.ctxblueprint');
+  await execa('tar', ['-czf', archivePath, '-C', path.dirname(sourceDir), path.basename(sourceDir)]);
+  await installBlueprintArchive(archivePath, { ignoreDeps: true });
+
+  let publishedToCloud = false;
+  const syncConfig = await getSyncConfig();
+  if (syncConfig) {
+    try {
+      const archive = await readFile(archivePath);
+      await publishBlueprint(syncConfig, archive, {
+        name: 'secure-service-launch',
+        version: '1.0.0',
+        description: 'Security, architecture, and release-readiness Captains for launching a new service.',
+        author: 'ctxhub demo',
+        tags: ['security', 'platform', 'demo'],
+        serviceTypes: ['api'],
+        public: true,
+      });
+      publishedToCloud = true;
+    } catch {
+      // Cloud configured but unreachable (e.g. no local Cloud service running) -- local
+      // install above already succeeded and is this function's primary contract.
+    }
+  }
+
+  return { blueprints: 1, publishedToCloud };
 }
 
 async function readJsonRecord(filePath: string): Promise<Record<string, unknown>> {

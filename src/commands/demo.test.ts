@@ -15,6 +15,9 @@ import { readEventLog } from '../events/eventLog.js';
 import { readUsageStats } from '../utils/usageStats.js';
 import { saveCaptainTasks } from '../captains/tasks.js';
 import { saveGroupStore } from '../groups/store.js';
+import { loadScimStore, saveScimStore } from '../scim/store.js';
+import { loadMachineTokenStore, saveMachineTokenStore } from '../auth/machineTokenStore.js';
+import { findInstalled } from '../blueprints/store.js';
 
 async function withIsolatedHome(run: (home: string) => Promise<void>) {
   const home = await mkdtemp(path.join(os.tmpdir(), 'ctxhub-demo-cmd-'));
@@ -58,6 +61,11 @@ test('demoCommand seeds a repeatable, populated Mission Control scenario', () =>
   return withIsolatedHome(async home => {
     await saveCaptainTasks({ version: 1, tasks: [{ name: 'user-task', workspace: 'somewhere-else', query: 'Preserve me' }] });
     await saveGroupStore({ version: 1, groups: [{ id: 'user-group', name: 'User Group', createdAt: new Date().toISOString(), createdBy: 'user' }], orgs: [], sharingPolicies: [] });
+    const userScim = await loadScimStore();
+    await saveScimStore({ ...userScim, users: [...userScim.users, { id: 'user-scim', userName: 'user@example.com', active: true, meta: { resourceType: 'User', created: new Date().toISOString(), lastModified: new Date().toISOString(), location: '/scim/v2/Users/user-scim' } }] });
+    const userTokens = await loadMachineTokenStore();
+    await saveMachineTokenStore({ ...userTokens, tokens: [...userTokens.tokens, { id: 'user-token', name: 'user-ci', hashedToken: 'irrelevant', roles: ['machine'], createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString() }] });
+
     await demoCommand();
     const demoRoot = path.join(home, 'demo-workspace');
     const knowledge = await loadKnowledgeStore('ctxhub-demo');
@@ -70,9 +78,22 @@ test('demoCommand seeds a repeatable, populated Mission Control scenario', () =>
     assert.equal((await readEventLog({ limit: 100 })).length, 6);
     assert.equal(Object.keys((await readUsageStats(path.join(demoRoot, '.ctxhub', 'stats.json')))?.daily ?? {}).length, 14);
 
+    const scimAfterFirstSeed = await loadScimStore();
+    assert.equal(scimAfterFirstSeed.users.filter(u => u.id.startsWith('demo-scim')).length, 2);
+    assert.ok(scimAfterFirstSeed.users.some(u => u.id === 'user-scim'));
+    const tokensAfterFirstSeed = await loadMachineTokenStore();
+    assert.ok(tokensAfterFirstSeed.tokens.some(t => t.name === 'demo-ci'));
+    assert.ok(tokensAfterFirstSeed.tokens.some(t => t.id === 'user-token'));
+    assert.ok(await findInstalled('secure-service-launch'));
+
     await demoCommand({ force: true });
     assert.equal((await loadKnowledgeStore('ctxhub-demo')).objects.length, 4);
     assert.equal((await listCaptainRuns('architecture-review')).total, 1);
     assert.ok((await loadCaptainTasks()).tasks.some(task => task.name === 'user-task'));
+    const scimAfterReseed = await loadScimStore();
+    assert.equal(scimAfterReseed.users.filter(u => u.id.startsWith('demo-scim')).length, 2);
+    assert.ok(scimAfterReseed.users.some(u => u.id === 'user-scim'));
+    const tokensAfterReseed = await loadMachineTokenStore();
+    assert.equal(tokensAfterReseed.tokens.filter(t => t.name === 'demo-ci').length, 1);
   });
 });

@@ -448,6 +448,7 @@ export async function demoCommand(opts: { workspace?: string; force?: boolean } 
 
   const featureSeed = await seedDemoFeatureData(workspaceName, demoRoot);
   console.log(chalk.green(`  ✓ Seeded ${featureSeed.knowledgeObjects} knowledge objects, ${featureSeed.captains} Captains, and ${featureSeed.events} timeline events`));
+  console.log(chalk.green(`  ✓ Seeded ${featureSeed.scimUsers} SCIM users, ${featureSeed.machineTokens} machine token, and ${featureSeed.blueprints} blueprint (installed locally${featureSeed.blueprintPublishedToCloud ? ', published to Cloud' : ''})`));
 
   // ── Summary ──────────────────────────────────────────────────────────────
   console.log(chalk.bold('\n── Demo workspace ready ──────────────────────────────────\n'));
@@ -457,6 +458,7 @@ export async function demoCommand(opts: { workspace?: string; force?: boolean } 
   console.log(`  Chunks:     ${chalk.white(String(allChunks.length))} indexed`);
   console.log(`  Promotions: ${chalk.blue(String(promotions))} chunk(s) elevated to institutional tier`);
   console.log(`  Features:   ${chalk.white(`${featureSeed.captains} Captains · ${featureSeed.captainRuns} runs · ${featureSeed.knowledgeObjects} knowledge objects · ${featureSeed.jobs} workflow`)}`);
+  console.log(`  Admin:      ${chalk.white(`${featureSeed.scimUsers} SCIM users · ${featureSeed.machineTokens} machine token · ${featureSeed.blueprints} blueprint`)}`);
 
   console.log('');
   console.log(chalk.dim('Files created:'));
