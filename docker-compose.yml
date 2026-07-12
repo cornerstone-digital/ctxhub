@@ -1,6 +1,8 @@
 services:
   ctxhub:
-    build: .
+    build:
+      context: .
+      target: runtime
     ports:
       - "7342:7342"
     volumes:

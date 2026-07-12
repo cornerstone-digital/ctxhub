@@ -48,9 +48,18 @@ export async function runForegroundService(
 ): Promise<ForegroundServiceHandle> {
   const log = opts.log ?? (line => console.log(line));
 
+  // Loopback-only by default -- this is what a developer running `ctxhub service start` on
+  // their own machine wants, not a service exposed on every interface. Containerized
+  // deployments (Dockerfile's runtime stage, docker-compose.yml, the Helm chart) set
+  // CTXHUB_HOST=0.0.0.0, since inside a container/pod, 127.0.0.1 only accepts connections
+  // from within that same network namespace -- Kubernetes liveness/readiness probes and any
+  // Service routing hit the pod's real IP and get connection-refused otherwise. Found by
+  // actually deploying the Helm chart to a real cluster and watching probes fail, not by
+  // reading the code.
+  const host = process.env.CTXHUB_HOST ?? '127.0.0.1';
   const server = createServiceServer();
-  await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve));
-  log(chalk.green(`ctxhub control-plane service listening on http://127.0.0.1:${port}`));
+  await new Promise<void>(resolve => server.listen(port, host, resolve));
+  log(chalk.green(`ctxhub control-plane service listening on http://${host}:${port}`));
   log(chalk.gray('Press Ctrl+C to stop.'));
 
   // docs/control-plane.md Phase 6 follow-up: the running service is what turns a captain task's

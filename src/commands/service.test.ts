@@ -139,3 +139,36 @@ test('runForegroundService polls and runs due captain tasks on its own interval'
     }
   });
 });
+
+// Regression test: this line was hardcoded to '127.0.0.1' with no override, which meant
+// deploying via the Dockerfile/docker-compose.yml/Helm chart into any containerized
+// environment (Kubernetes above all) silently produced a service that refused every
+// connection except from inside its own container -- readiness/liveness probes and the
+// K8s Service both connect via the pod's real IP, not 127.0.0.1. Only caught by actually
+// deploying the Helm chart to a real cluster and watching the pod fail its health checks.
+test('runForegroundService binds to 127.0.0.1 by default, and to CTXHUB_HOST when set', () => {
+  return withIsolatedCtxhubHome(async () => {
+    const lines: string[] = [];
+    const handle = await runForegroundService(0, { log: line => lines.push(line) });
+    try {
+      assert.ok(lines.some(line => line.includes('http://127.0.0.1:')));
+    } finally {
+      await handle.stop();
+    }
+
+    const previous = process.env.CTXHUB_HOST;
+    process.env.CTXHUB_HOST = '0.0.0.0';
+    try {
+      const overrideLines: string[] = [];
+      const overrideHandle = await runForegroundService(0, { log: line => overrideLines.push(line) });
+      try {
+        assert.ok(overrideLines.some(line => line.includes('http://0.0.0.0:')));
+      } finally {
+        await overrideHandle.stop();
+      }
+    } finally {
+      if (previous === undefined) delete process.env.CTXHUB_HOST;
+      else process.env.CTXHUB_HOST = previous;
+    }
+  });
+});
