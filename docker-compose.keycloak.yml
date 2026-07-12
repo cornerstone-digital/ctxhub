@@ -1,0 +1,13 @@
+# Real IdP for SAML SP-side testing -- not part of the product, not for production use.
+# Keycloak is a real, spec-compliant, widely-deployed IdP supporting SAML 2.0 natively
+# (as do Okta, Azure AD SAML apps, OneLogin) -- validating against it is real integration
+# testing, not a hand-rolled mock asserting its own correctness.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"

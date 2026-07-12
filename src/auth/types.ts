@@ -10,6 +10,32 @@ export interface OidcConfig {
   issuerUrl?: string;     // for 'generic'/'okta'/'google' — full OIDC issuer URL
 }
 
+/**
+ * SAML 2.0 config. Validated only against a local mock IdP built for this project
+ * (src/auth/samlMockIdp.ts, test-only) -- not yet tested against a real IdP (Okta, Azure AD
+ * SAML app, OneLogin, etc). Real IdP metadata/certs vary enough between vendors that this
+ * should be integration-tested against whichever IdP a customer actually uses before it
+ * backs a production deployment.
+ */
+export interface SamlConfig {
+  /** IdP's SSO URL — where the SP redirects the browser to start SP-initiated login */
+  idpEntryPoint: string;
+  /** IdP's entity ID (issuer), as it will appear in the <Issuer> of responses/assertions */
+  idpIssuer: string;
+  /** IdP's X.509 signing certificate (PEM, may include or omit the BEGIN/END lines) — used to verify assertion/response signatures */
+  idpCert: string;
+  /** ctxhub's own entity ID (SP), registered with the IdP */
+  spEntityId: string;
+  /** Assertion Consumer Service URL registered with the IdP — where it POSTs the SAMLResponse */
+  callbackUrl: string;
+  /** SAML attribute names to read email/name/groups from. Defaults cover the common IdP conventions (Okta, Azure AD SAML apps, OneLogin). */
+  attributeMapping?: {
+    email?: string;
+    name?: string;
+    groups?: string;
+  };
+}
+
 export interface MachineToken {
   id: string;           // UUID
   name: string;         // human label, e.g. "github-actions"
@@ -49,10 +75,14 @@ export interface RoleMap {
 
 export interface AuthConfig {
   version: 1;
+  /** default 'oidc' for backward compat with every config written before SAML support existed */
+  protocol?: 'oidc' | 'saml';
+  /** required regardless of protocol to avoid touching every existing OIDC caller; ignored when protocol === 'saml' */
   oidc: OidcConfig;
+  saml?: SamlConfig;
   /** hex-encoded 32-byte HMAC-SHA256 signing key for ctxhub-issued JWTs */
   jwtSecret: string;
-  /** Optional role mapping — omitted means everyone gets 'member' */
+  /** Optional role mapping — omitted means everyone gets 'member'. Shared across OIDC/SAML: SAML's groups attribute maps into the same groupRoles as OIDC's groups claim. */
   roleMap?: RoleMap;
 }
 
