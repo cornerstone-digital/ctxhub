@@ -84,15 +84,20 @@ describe('POST /sync/events', () => {
     });
   });
 
-  it('returns 400 when orgId is missing', async () => {
+  it('ignores a client-supplied orgId and tags events with the API key\'s actual org', async () => {
     const store = makeStore();
+    const otherOrgId = 'some-other-org-id';
     await withRunningCloudServer(store, async baseUrl => {
       const res = await fetch(`${baseUrl}/sync/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ORG_API_KEY}` },
-        body: JSON.stringify({ events: [] }),
+        // orgId here doesn't match ORG_API_KEY's real org -- must not let a caller write
+        // events under someone else's org just by naming it in the body.
+        body: JSON.stringify({ orgId: otherOrgId, events: [{ type: 'test.event', ts: '2024-01-01T00:00:00Z' }] }),
       });
-      assert.equal(res.status, 400);
+      assert.equal(res.status, 200);
+      assert.equal(store.events.length, 1);
+      assert.equal(store.events[0]?.orgId, ORG_ID);
     });
   });
 });
@@ -228,6 +233,28 @@ describe('GET /sync/history', () => {
       assert.equal(body.events.length, 0);
       assert.equal(body.runs.length, 1);
       assert.equal(body.notes.length, 0);
+    });
+  });
+
+  it('ignores a client-supplied orgId param and never returns another org\'s data', async () => {
+    const store = makeStore();
+    const otherOrgId = 'some-other-org-id';
+    store.orgs.set(otherOrgId, { id: otherOrgId, name: 'Other Org', slug: 'other-org', createdAt: new Date().toISOString() });
+    store.runs.push({
+      id: 'run-secret', orgId: otherOrgId, workspaceId: 'ws-1',
+      taskName: 'confidential-task', startedAt: '2024-01-01T10:00:00Z',
+      status: 'completed', findingsCount: 1, promotedCount: 0,
+      syncedAt: new Date().toISOString(),
+    });
+
+    await withRunningCloudServer(store, async baseUrl => {
+      // ORG_API_KEY belongs to ORG_ID, not otherOrgId -- the ?orgId= param must not override that.
+      const res = await fetch(`${baseUrl}/sync/history?orgId=${otherOrgId}`, {
+        headers: { Authorization: `Bearer ${ORG_API_KEY}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json() as { runs: unknown[] };
+      assert.equal(body.runs.length, 0);
     });
   });
 

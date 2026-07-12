@@ -41,9 +41,10 @@ export interface CloudChunk {
 
 // ── Sync protocol ─────────────────────────────────────────────────────────────
 
-/** Body for POST /sync */
+/** Body for POST /sync. orgId is resolved server-side from the API key, never trusted from
+ * the client -- see the orgId-spoofing fix applied to /sync, /sync/events, /sync/runs, and
+ * /sync/notes together. */
 export interface CloudSyncRequest {
-  orgId: string;
   workspaceId?: string;
   chunks: Array<{
     contentHash: string;

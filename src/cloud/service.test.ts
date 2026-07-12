@@ -153,15 +153,33 @@ test('POST /sync filters out non-institutional/canonical chunks', async () => {
   });
 });
 
-test('POST /sync returns 400 when orgId is missing', async () => {
+test('POST /sync returns 400 when chunks is missing', async () => {
   const store = makeStore();
   await withRunningCloudServer(store, async baseUrl => {
     const res = await fetch(`${baseUrl}/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer org-api-key-456' },
-      body: JSON.stringify({ chunks: [] }), // missing orgId
+      body: JSON.stringify({}), // missing chunks
     });
     assert.equal(res.status, 400);
+  });
+});
+
+test('POST /sync ignores a client-supplied orgId and uses the API key\'s actual org', async () => {
+  const store = makeStore();
+  await withRunningCloudServer(store, async baseUrl => {
+    const res = await fetch(`${baseUrl}/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer org-api-key-456' },
+      body: JSON.stringify({
+        orgId: 'some-other-org-id', // must not override the API key's real org
+        chunks: [{ contentHash: 'hash-1', body: 'test', trustTier: 'institutional' }],
+      }),
+    });
+    assert.equal(res.status, 200);
+    const stored = store.chunks.get('org-id-001:hash-1');
+    assert.ok(stored, 'chunk should be stored under the API key\'s real org');
+    assert.equal(stored?.orgId, 'org-id-001');
   });
 });
 

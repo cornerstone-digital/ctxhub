@@ -42,8 +42,14 @@ export interface CloudStore {
   notes: CloudNote[];
 }
 
-export function createInMemoryStore(): CloudStore {
-  return {
+/**
+ * @param bootstrapAdminKey — seeds `adminKeys` so the very first `POST /orgs` call has
+ *   somewhere to start from. Without this there is no way to create an org on a freshly
+ *   started service outside of tests (which poke `store.adminKeys` directly) — real
+ *   deployments need a key handed to them out of band (env var, secret store, etc).
+ */
+export function createInMemoryStore(bootstrapAdminKey?: string): CloudStore {
+  const store: CloudStore = {
     chunks: new Map(),
     orgs: new Map(),
     workspaces: new Map(),
@@ -53,6 +59,8 @@ export function createInMemoryStore(): CloudStore {
     runs: [],
     notes: [],
   };
+  if (bootstrapAdminKey) store.adminKeys.add(bootstrapAdminKey);
+  return store;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -109,8 +117,8 @@ function createHandler(store: CloudStore) {
       }
 
       const body = (await readJsonBody(req)) as CloudSyncRequest;
-      if (!body.orgId || !Array.isArray(body.chunks)) {
-        sendJson(res, 400, { error: 'orgId and chunks are required' });
+      if (!Array.isArray(body.chunks)) {
+        sendJson(res, 400, { error: 'chunks is required' });
         return;
       }
 
@@ -247,14 +255,15 @@ function createHandler(store: CloudStore) {
     // ── POST /sync/events ─────────────────────────────────────────────────────
     if (method === 'POST' && url.pathname === '/sync/events') {
       const apiKey = extractBearerToken(req);
-      if (!apiKey || !store.apiKeys.has(apiKey)) {
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
         sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
         return;
       }
 
-      const body = (await readJsonBody(req)) as { orgId?: string; events?: unknown[] };
-      if (!body.orgId || !Array.isArray(body.events)) {
-        sendJson(res, 400, { error: 'orgId and events are required' });
+      const body = (await readJsonBody(req)) as { events?: unknown[] };
+      if (!Array.isArray(body.events)) {
+        sendJson(res, 400, { error: 'events is required' });
         return;
       }
 
@@ -267,13 +276,13 @@ function createHandler(store: CloudStore) {
           ...e,
           type: String(e['type'] ?? ''),
           ts: String(e['ts'] ?? now),
-          orgId: body.orgId,
+          orgId,
           sub: e['sub'] !== undefined ? String(e['sub']) : undefined,
           email: e['email'] !== undefined ? String(e['email']) : undefined,
         } as CloudEvent);
         accepted++;
       }
-      console.log(`Accepted ${accepted} events from org ${body.orgId}`);
+      console.log(`Accepted ${accepted} events from org ${orgId}`);
       sendJson(res, 200, { accepted });
       return;
     }
@@ -281,14 +290,15 @@ function createHandler(store: CloudStore) {
     // ── POST /sync/runs ───────────────────────────────────────────────────────
     if (method === 'POST' && url.pathname === '/sync/runs') {
       const apiKey = extractBearerToken(req);
-      if (!apiKey || !store.apiKeys.has(apiKey)) {
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
         sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
         return;
       }
 
-      const body = (await readJsonBody(req)) as { orgId?: string; workspaceId?: string; runs?: unknown[] };
-      if (!body.orgId || !body.workspaceId || !Array.isArray(body.runs)) {
-        sendJson(res, 400, { error: 'orgId, workspaceId, and runs are required' });
+      const body = (await readJsonBody(req)) as { workspaceId?: string; runs?: unknown[] };
+      if (!body.workspaceId || !Array.isArray(body.runs)) {
+        sendJson(res, 400, { error: 'workspaceId and runs are required' });
         return;
       }
 
@@ -299,7 +309,7 @@ function createHandler(store: CloudStore) {
         const run = r as Record<string, unknown>;
         store.runs.push({
           id: String(run['id'] ?? ''),
-          orgId: body.orgId,
+          orgId,
           workspaceId: body.workspaceId,
           taskName: String(run['taskName'] ?? ''),
           startedAt: String(run['startedAt'] ?? now),
@@ -318,14 +328,15 @@ function createHandler(store: CloudStore) {
     // ── POST /sync/notes ──────────────────────────────────────────────────────
     if (method === 'POST' && url.pathname === '/sync/notes') {
       const apiKey = extractBearerToken(req);
-      if (!apiKey || !store.apiKeys.has(apiKey)) {
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
         sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
         return;
       }
 
-      const body = (await readJsonBody(req)) as { orgId?: string; workspaceId?: string; notes?: unknown[] };
-      if (!body.orgId || !body.workspaceId || !Array.isArray(body.notes)) {
-        sendJson(res, 400, { error: 'orgId, workspaceId, and notes are required' });
+      const body = (await readJsonBody(req)) as { workspaceId?: string; notes?: unknown[] };
+      if (!body.workspaceId || !Array.isArray(body.notes)) {
+        sendJson(res, 400, { error: 'workspaceId and notes are required' });
         return;
       }
 
@@ -336,7 +347,7 @@ function createHandler(store: CloudStore) {
         const note = n as Record<string, unknown>;
         store.notes.push({
           id: String(note['id'] ?? ''),
-          orgId: body.orgId,
+          orgId,
           workspaceId: body.workspaceId,
           title: String(note['title'] ?? ''),
           content: String(note['content'] ?? ''),
@@ -354,12 +365,15 @@ function createHandler(store: CloudStore) {
     // ── GET /sync/history ─────────────────────────────────────────────────────
     if (method === 'GET' && url.pathname === '/sync/history') {
       const apiKey = extractBearerToken(req);
-      if (!apiKey || !store.apiKeys.has(apiKey)) {
+      // Always resolved from the API key, never from a client-supplied orgId param -- an
+      // earlier version trusted `?orgId=` directly, letting any valid key read any org's
+      // synced runs/notes/events. Fixed alongside the matching write-side issue above.
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
         sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
         return;
       }
 
-      const orgId = url.searchParams.get('orgId') ?? store.apiKeys.get(apiKey) ?? '';
       const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '20', 10), 200);
       const type = url.searchParams.get('type') ?? 'all';
 
