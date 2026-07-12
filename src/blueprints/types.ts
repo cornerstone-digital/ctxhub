@@ -5,6 +5,9 @@ export interface BlueprintManifest {
   author?: string;
   license?: string;
   tags?: string[];
+  /** M8 topology-aware blueprints: service types this blueprint applies to, e.g. ['api', 'worker'].
+   * Omitted/empty means "applies to any service type" (unfiltered in ?serviceType= queries). */
+  serviceTypes?: string[];
   requires?: { runtime: string }; // semver range e.g. ">=0.5.0"
   includes?: {
     personas?: string[];         // relative paths to persona files

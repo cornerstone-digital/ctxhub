@@ -4,9 +4,10 @@ import { getCtxhubHome, listWorkspaces } from '../workspaces/registry.js';
 import { pathExists, readText, writeText } from '../utils/fs.js';
 import { loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from '../indexing/providers.js';
-import { getSyncConfig, syncToCloud, syncRunsToCloud } from '../cloud/sync.js';
+import { getSyncConfig, syncToCloud, syncRunsToCloud, syncKnowledgeToCloud } from '../cloud/sync.js';
 import { loadCaptainTasks } from '../captains/tasks.js';
 import { listCaptainRuns } from '../captains/runner.js';
+import { loadKnowledgeStore } from '../knowledge/store.js';
 
 // ── Cloud config file ─────────────────────────────────────────────────────────
 
@@ -156,31 +157,32 @@ export async function cloudSyncCommand(opts: { workspace?: string; dryRun?: bool
     return;
   }
 
+  // No eligible chunks only means "skip the chunk push" -- captain runs and knowledge objects
+  // (below) are independent data types with their own eligibility, not gated on chunks existing.
+  // This used to `return` here, which silently skipped captain-run and knowledge-object sync
+  // any time a workspace had promoted findings but zero institutional/canonical chunks.
+  let chunksSynced = 0;
   if (eligible === 0) {
-    console.log(chalk.yellow('Nothing to sync — no institutional or canonical chunks found.'));
+    console.log(chalk.yellow('No institutional or canonical chunks to sync.'));
     console.log(chalk.gray('Promote chunks with: ctxhub chunk promote <id>'));
-    return;
-  }
+  } else {
+    console.log(chalk.gray(`Syncing ${eligible} institutional/canonical chunks to ctxhub Cloud...`));
 
-  console.log(chalk.gray(`Syncing ${eligible} institutional/canonical chunks to ctxhub Cloud...`));
+    const result = await syncToCloud(syncConfig, allChunks);
 
-  const result = await syncToCloud(syncConfig, allChunks);
-
-  if (result.skipped) {
-    console.log(chalk.yellow(`Skipped: ${result.reason ?? 'no eligible chunks'}`));
-    return;
-  }
-
-  if (result.errors && result.errors.length > 0) {
-    console.error(chalk.red(`Sync errors:`));
-    for (const err of result.errors) {
-      console.error(chalk.red(`  ${err}`));
+    if (result.skipped) {
+      console.log(chalk.yellow(`Skipped: ${result.reason ?? 'no eligible chunks'}`));
+    } else if (result.errors && result.errors.length > 0) {
+      console.error(chalk.red(`Sync errors:`));
+      for (const err of result.errors) {
+        console.error(chalk.red(`  ${err}`));
+      }
+      process.exit(1);
+    } else {
+      chunksSynced = result.synced ?? 0;
+      console.log(chalk.green(`✓ Synced ${chunksSynced} chunk${chunksSynced !== 1 ? 's' : ''}`));
     }
-    process.exit(1);
   }
-
-  const synced = result.synced ?? 0;
-  console.log(chalk.green(`✓ Synced ${synced} chunk${synced !== 1 ? 's' : ''}`));
 
   // Best-effort: also push each target workspace's recent Captain run history, same as the
   // HTTP `POST /cloud/sync` route (see server.ts's handleCloudSync). A failure here doesn't
@@ -200,10 +202,26 @@ export async function cloudSyncCommand(opts: { workspace?: string; dryRun?: bool
     console.log(chalk.yellow(`Captain run sync skipped: ${error instanceof Error ? error.message : String(error)}`));
   }
 
+  // Best-effort: also push each target workspace's promoted Knowledge Objects, so the Org
+  // Graph's cross-workspace query (GET /knowledge on Cloud) has real data to query instead of
+  // only ever seeing objects created directly through the Cloud API in tests.
+  try {
+    let knowledgeSynced = 0;
+    for (const ws of targets) {
+      const knowledgeStore = await loadKnowledgeStore(ws.name);
+      if (knowledgeStore.objects.length === 0) continue;
+      const result = await syncKnowledgeToCloud(syncConfig, ws.name, knowledgeStore.objects);
+      if ('synced' in result) knowledgeSynced += result.synced;
+    }
+    if (knowledgeSynced > 0) console.log(chalk.green(`✓ Synced ${knowledgeSynced} knowledge object${knowledgeSynced !== 1 ? 's' : ''}`));
+  } catch (error) {
+    console.log(chalk.yellow(`Knowledge object sync skipped: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
   // Update the cloud config with the new sync timestamp
   await saveCloudConfig({
     ...cloudConfig,
     lastSyncAt: new Date().toISOString(),
-    chunksSynced: (cloudConfig.chunksSynced ?? 0) + synced,
+    chunksSynced: (cloudConfig.chunksSynced ?? 0) + chunksSynced,
   });
 }

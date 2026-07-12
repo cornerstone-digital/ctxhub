@@ -28,6 +28,18 @@ import type {
   CloudCaptainRun,
   CloudNote,
   BlueprintRecord,
+  CloudKnowledgeObject,
+  CloudKnowledgeEdge,
+  CloudConcept,
+  CloudTopologyRepository,
+  CloudTopologyService,
+  CloudTopologyEdge,
+  CloudCascadeRule,
+  CloudKnowledgeSyncRequest,
+  KnowledgeObjectState,
+  KnowledgeEdgeType,
+  TopologyNodeType,
+  TopologyEdgeType,
 } from './types.js';
 
 // ── In-memory store ───────────────────────────────────────────────────────────
@@ -43,6 +55,16 @@ export interface CloudStore {
   notes: CloudNote[];
   blueprints: Map<string, BlueprintRecord>;  // key: `${name}@${version}`
   blueprintArchives: Map<string, Buffer>;    // key: archiveHash (sha256)
+  // Org Graph (docs/org_graph_architecture.md) — Knowledge Graph
+  knowledgeObjects: Map<string, CloudKnowledgeObject>; // key: `${orgId}:${workspaceId}:${localId}` for sync idempotency
+  knowledgeEdges: CloudKnowledgeEdge[];
+  concepts: Map<string, CloudConcept>; // key: `${orgId}:${name}`
+  // Org Graph — Engineering Topology Graph
+  topologyRepositories: Map<string, CloudTopologyRepository>;
+  topologyServices: Map<string, CloudTopologyService>;
+  topologyEdges: Map<string, CloudTopologyEdge>;
+  // Org Graph — Cascade Rules (ADR-007)
+  cascadeRules: Map<string, CloudCascadeRule>;
 }
 
 /**
@@ -63,12 +85,44 @@ export function createInMemoryStore(bootstrapAdminKey?: string): CloudStore {
     notes: [],
     blueprints: new Map(),
     blueprintArchives: new Map(),
+    knowledgeObjects: new Map(),
+    knowledgeEdges: [],
+    concepts: new Map(),
+    topologyRepositories: new Map(),
+    topologyServices: new Map(),
+    topologyEdges: new Map(),
+    cascadeRules: new Map(),
   };
   if (bootstrapAdminKey) store.adminKeys.add(bootstrapAdminKey);
   return store;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * M8 topology-aware blueprints: resolve a workspace to the service type(s) it maps to via
+ * the topology graph (workspace -contains-> repository -part_of-> service), so the Blueprint
+ * Hub can filter to blueprints declared relevant to that workspace's service type. A workspace
+ * with no topology registered (most workspaces, since topology registration is opt-in) simply
+ * resolves to no service types, which means no serviceType-based filtering is applied.
+ */
+function resolveWorkspaceServiceTypes(store: CloudStore, orgId: string, workspaceId: string): string[] {
+  const repoIds = [...store.topologyRepositories.values()]
+    .filter(r => r.orgId === orgId && r.workspaceId === workspaceId)
+    .map(r => r.id);
+  if (repoIds.length === 0) return [];
+
+  const serviceIds = [...store.topologyEdges.values()]
+    .filter(e => e.orgId === orgId && e.edgeType === 'part_of' && e.fromType === 'repository' && repoIds.includes(e.fromId) && e.toType === 'service')
+    .map(e => e.toId);
+
+  const types = new Set<string>();
+  for (const serviceId of serviceIds) {
+    const service = store.topologyServices.get(serviceId);
+    if (service?.serviceType) types.add(service.serviceType);
+  }
+  return [...types];
+}
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -273,7 +327,7 @@ function createHandler(store: CloudStore) {
 
       const body = (await readJsonBody(req)) as {
         name?: string; version?: string; description?: string; author?: string; tags?: string[];
-        public?: boolean; archiveBase64?: string; publishedBy?: string;
+        serviceTypes?: string[]; public?: boolean; archiveBase64?: string; publishedBy?: string;
       };
       if (!body.name?.trim() || !body.version?.trim() || !body.description?.trim() || !body.archiveBase64) {
         sendJson(res, 400, { error: 'name, version, description, and archiveBase64 are required' });
@@ -295,6 +349,7 @@ function createHandler(store: CloudStore) {
         description: body.description.trim(),
         author: body.author,
         tags: body.tags,
+        serviceTypes: body.serviceTypes,
         orgId: body.public ? null : orgId,
         publishedBy: body.publishedBy ?? 'unknown',
         publishedAt: new Date().toISOString(),
@@ -310,7 +365,10 @@ function createHandler(store: CloudStore) {
 
     // ── GET /blueprints ────────────────────────────────────────────────────────
     // Lists public blueprints plus the caller's own org-private ones. Supports ?q= for a
-    // simple name/description/tag substring search.
+    // simple name/description/tag substring search, and M8 topology-aware filtering via
+    // ?serviceType= directly or ?workspace= (resolved to service type(s) via the topology
+    // graph). A blueprint with no serviceTypes declared always matches -- serviceTypes is an
+    // opt-in narrowing, not a requirement every blueprint must declare.
     if (method === 'GET' && url.pathname === '/blueprints') {
       const apiKey = extractBearerToken(req);
       const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
@@ -320,7 +378,18 @@ function createHandler(store: CloudStore) {
       }
 
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
-      const visible = [...store.blueprints.values()].filter(bp => bp.orgId === null || bp.orgId === orgId);
+      const workspaceParam = url.searchParams.get('workspace') ?? undefined;
+      const explicitServiceType = url.searchParams.get('serviceType') ?? undefined;
+      const serviceTypes = explicitServiceType
+        ? [explicitServiceType]
+        : workspaceParam
+          ? resolveWorkspaceServiceTypes(store, orgId, workspaceParam)
+          : [];
+
+      let visible = [...store.blueprints.values()].filter(bp => bp.orgId === null || bp.orgId === orgId);
+      if (serviceTypes.length > 0) {
+        visible = visible.filter(bp => !bp.serviceTypes?.length || bp.serviceTypes.some(t => serviceTypes.includes(t)));
+      }
       const matched = q
         ? visible.filter(bp =>
             bp.name.toLowerCase().includes(q) ||
@@ -512,6 +581,514 @@ function createHandler(store: CloudStore) {
         : [];
 
       sendJson(res, 200, { events, runs, notes });
+      return;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Org Graph — docs/org_graph_architecture.md, ADR-005 through ADR-009.
+    // Same in-memory-stub pattern as the rest of this file (see the CloudStore doc
+    // comment): real, tested, working logic, running on Maps/arrays instead of the
+    // Postgres schema the architecture doc describes. ROADMAP.md M7 originally
+    // checked these routes off with nothing behind them at all -- this is the real
+    // implementation, corrected on 2026-07-12.
+    //
+    // Not implemented (documented gaps, not silent omissions):
+    //   - pgvector semantic similarity / auto-derived related_to edges (ADR-009 Phase 2 —
+    //     explicitly gated on 500+ active objects and real semantic-search demand)
+    //   - confidence decay from git-diff file-change tracking (ADR-008) — needs a background
+    //     job correlating topology_repositories to real git history, not built here
+    //   - actual cascade *propagation* (enqueuing a captain run in the target workspace when
+    //     captain.run.promoted fires) — the cascade_rules table and its derivation from
+    //     topology exist and are correct, but nothing consumes the rules yet; that is
+    //     Engineering Intelligence territory (M10), which explicitly depends on this milestone
+    //     being live with real data first
+    //   - the Mission Control force-directed graph view (architecture doc §8) — the ROADMAP
+    //     checkbox asks for "browse and search... filter by state and confidence", which is
+    //     what got built (OrgKnowledgeView.tsx); the full graph visualisation is a larger,
+    //     separate UI investment
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ── POST /sync/knowledge ──────────────────────────────────────────────────
+    // Self-hosted instances push locally-promoted Knowledge Objects (src/knowledge/store.ts)
+    // here. Idempotent on (workspaceId, localId) so re-syncing after a local edit updates the
+    // existing Cloud record rather than duplicating it. Confidence/corroborations/reviewFlag
+    // set by contradiction/reaffirm (ADR-008) are Cloud-computed and NOT overwritten by a local
+    // re-sync, except reviewFlag which is OR'd — either side raising it is enough to flag it.
+    if (method === 'POST' && url.pathname === '/sync/knowledge') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const body = (await readJsonBody(req)) as CloudKnowledgeSyncRequest;
+      if (!body.workspaceId || !Array.isArray(body.objects)) {
+        sendJson(res, 400, { error: 'workspaceId and objects are required' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      let synced = 0;
+      for (const o of body.objects) {
+        if (!o.localId || !o.title?.trim() || !o.body?.trim()) continue;
+        // Keyed by orgId too, not just (workspaceId, localId) -- workspace names/IDs are
+        // client-chosen strings that can coincidentally collide across two different orgs.
+        const key = `${orgId}:${body.workspaceId}:${o.localId}`;
+        const existing = store.knowledgeObjects.get(key);
+        store.knowledgeObjects.set(key, {
+          id: existing?.id ?? randomUUID(),
+          orgId,
+          workspaceId: body.workspaceId,
+          localId: o.localId,
+          promotedBy: o.promotedBy,
+          promotedAt: o.promotedAt,
+          title: o.title,
+          body: o.body,
+          query: o.query,
+          agent: o.agent,
+          state: o.state,
+          supersededBy: existing?.supersededBy,
+          archivedAt: existing?.archivedAt,
+          archiveReason: existing?.archiveReason,
+          confidence: existing?.confidence ?? o.confidence,
+          corroborations: existing?.corroborations ?? 0,
+          reviewFlag: (existing?.reviewFlag ?? false) || o.reviewFlag,
+          conceptIds: existing?.conceptIds ?? [],
+          syncedAt: now,
+        });
+        synced++;
+      }
+
+      sendJson(res, 200, { synced });
+      return;
+    }
+
+    // ── GET /knowledge — cross-workspace query ────────────────────────────────
+    // The M7 exit condition: "an org with 3+ workspaces queries 'what do we know about X?'
+    // and gets findings from all workspaces, ranked by confidence, with provenance shown."
+    if (method === 'GET' && url.pathname === '/knowledge') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const workspaceFilter = url.searchParams.get('workspace') ?? undefined;
+      const stateFilter = url.searchParams.get('state') as KnowledgeObjectState | null;
+      const conceptFilter = url.searchParams.get('concept') ?? undefined;
+      const minConfidenceRaw = url.searchParams.get('minConfidence');
+
+      let objects = [...store.knowledgeObjects.values()].filter(o => o.orgId === orgId);
+      if (workspaceFilter) objects = objects.filter(o => o.workspaceId === workspaceFilter);
+      if (stateFilter) objects = objects.filter(o => o.state === stateFilter);
+      if (conceptFilter) objects = objects.filter(o => o.conceptIds.includes(conceptFilter));
+      if (minConfidenceRaw) objects = objects.filter(o => o.confidence >= Number(minConfidenceRaw));
+      if (q) objects = objects.filter(o => o.title.toLowerCase().includes(q) || o.body.toLowerCase().includes(q));
+
+      objects.sort((a, b) => b.confidence - a.confidence || b.promotedAt.localeCompare(a.promotedAt));
+
+      sendJson(res, 200, { objects, count: objects.length });
+      return;
+    }
+
+    // ── GET/PATCH /knowledge/:id ──────────────────────────────────────────────
+    const knowledgeObjectMatch = /^\/knowledge\/([^/]+)$/.exec(url.pathname);
+    if (method === 'GET' && knowledgeObjectMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const id = knowledgeObjectMatch[1]!;
+      const object = [...store.knowledgeObjects.values()].find(o => o.id === id && o.orgId === orgId);
+      if (!object) {
+        sendJson(res, 404, { error: 'Knowledge object not found' });
+        return;
+      }
+      const edges = store.knowledgeEdges.filter(e => e.orgId === orgId && (e.fromId === id || e.toId === id));
+      sendJson(res, 200, { object, edges });
+      return;
+    }
+
+    if (method === 'PATCH' && knowledgeObjectMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const id = knowledgeObjectMatch[1]!;
+      const entry = [...store.knowledgeObjects.entries()].find(([, o]) => o.id === id && o.orgId === orgId);
+      if (!entry) {
+        sendJson(res, 404, { error: 'Knowledge object not found' });
+        return;
+      }
+      const [key, object] = entry;
+
+      const body = (await readJsonBody(req)) as { action?: string; supersededBy?: string; reason?: string };
+      const now = new Date().toISOString();
+
+      if (body.action === 'supersede') {
+        if (!body.supersededBy) {
+          sendJson(res, 400, { error: 'supersededBy is required to supersede' });
+          return;
+        }
+        object.state = 'superseded';
+        object.supersededBy = body.supersededBy;
+        store.knowledgeEdges.push({
+          id: randomUUID(), orgId, fromId: id, toId: body.supersededBy,
+          edgeType: 'superseded_by', createdBy: 'human', createdAt: now,
+        });
+      } else if (body.action === 'archive') {
+        object.state = 'archived';
+        object.archivedAt = now;
+        object.archiveReason = body.reason;
+      } else if (body.action === 'reaffirm') {
+        // ADR-008: an engineer explicitly marking a finding "still accurate" is a
+        // corroboration signal, distinct from and not derived from model confidence.
+        object.reviewFlag = false;
+        object.confidence = Math.min(1, object.confidence + 0.1);
+        object.corroborations += 1;
+      } else if (body.action === 'flag') {
+        object.reviewFlag = true;
+      } else {
+        sendJson(res, 400, { error: 'action must be one of: supersede, archive, reaffirm, flag' });
+        return;
+      }
+
+      store.knowledgeObjects.set(key, object);
+      sendJson(res, 200, { object });
+      return;
+    }
+
+    // ── GET/POST /knowledge/:id/edges ─────────────────────────────────────────
+    const knowledgeEdgesMatch = /^\/knowledge\/([^/]+)\/edges$/.exec(url.pathname);
+    if (method === 'GET' && knowledgeEdgesMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const id = knowledgeEdgesMatch[1]!;
+      const edges = store.knowledgeEdges.filter(e => e.orgId === orgId && (e.fromId === id || e.toId === id));
+      sendJson(res, 200, { edges });
+      return;
+    }
+
+    if (method === 'POST' && knowledgeEdgesMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const fromId = knowledgeEdgesMatch[1]!;
+      if (![...store.knowledgeObjects.values()].some(o => o.id === fromId && o.orgId === orgId)) {
+        sendJson(res, 404, { error: 'Knowledge object not found' });
+        return;
+      }
+
+      const body = (await readJsonBody(req)) as { toId?: string; edgeType?: KnowledgeEdgeType };
+      if (!body.toId || !body.edgeType) {
+        sendJson(res, 400, { error: 'toId and edgeType are required' });
+        return;
+      }
+      const toEntry = [...store.knowledgeObjects.entries()].find(([, o]) => o.id === body.toId && o.orgId === orgId);
+      if (!toEntry) {
+        sendJson(res, 400, { error: `toId "${body.toId}" not found` });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const edge: CloudKnowledgeEdge = {
+        id: randomUUID(), orgId, fromId, toId: body.toId, edgeType: body.edgeType,
+        createdBy: 'human', createdAt: now,
+      };
+      store.knowledgeEdges.push(edge);
+
+      // ADR-008: a contradiction decreases confidence and flags the contradicted (target)
+      // object for review. "This one" in the ADR's wording is the object being contradicted.
+      if (body.edgeType === 'contradicts') {
+        const [toKey, toObject] = toEntry;
+        toObject.confidence = Math.max(0, toObject.confidence - 0.3);
+        toObject.reviewFlag = true;
+        store.knowledgeObjects.set(toKey, toObject);
+      }
+
+      sendJson(res, 201, { edge });
+      return;
+    }
+
+    // ── GET/POST /concepts, POST /knowledge/:id/concepts ──────────────────────
+    if (method === 'GET' && url.pathname === '/concepts') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const concepts = [...store.concepts.values()].filter(c => c.orgId === orgId);
+      sendJson(res, 200, { concepts });
+      return;
+    }
+
+    if (method === 'POST' && url.pathname === '/concepts') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const body = (await readJsonBody(req)) as { name?: string };
+      if (!body.name?.trim()) {
+        sendJson(res, 400, { error: 'name is required' });
+        return;
+      }
+      const name = body.name.trim();
+      const key = `${orgId}:${name}`;
+      let concept = store.concepts.get(key);
+      if (!concept) {
+        concept = { id: randomUUID(), orgId, name };
+        store.concepts.set(key, concept);
+      }
+      sendJson(res, 200, { concept });
+      return;
+    }
+
+    const linkConceptMatch = /^\/knowledge\/([^/]+)\/concepts$/.exec(url.pathname);
+    if (method === 'POST' && linkConceptMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const id = linkConceptMatch[1]!;
+      const entry = [...store.knowledgeObjects.entries()].find(([, o]) => o.id === id && o.orgId === orgId);
+      if (!entry) {
+        sendJson(res, 404, { error: 'Knowledge object not found' });
+        return;
+      }
+      const body = (await readJsonBody(req)) as { conceptId?: string };
+      if (!body.conceptId) {
+        sendJson(res, 400, { error: 'conceptId is required' });
+        return;
+      }
+      const [key, object] = entry;
+      if (!object.conceptIds.includes(body.conceptId)) {
+        object.conceptIds.push(body.conceptId);
+        store.knowledgeObjects.set(key, object);
+      }
+      sendJson(res, 200, { object });
+      return;
+    }
+
+    // ── GET/POST /topology/repositories ───────────────────────────────────────
+    if (method === 'GET' && url.pathname === '/topology/repositories') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const repositories = [...store.topologyRepositories.values()].filter(r => r.orgId === orgId);
+      sendJson(res, 200, { repositories });
+      return;
+    }
+
+    if (method === 'POST' && url.pathname === '/topology/repositories') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const body = (await readJsonBody(req)) as { workspaceId?: string; name?: string; gitRemote?: string };
+      if (!body.workspaceId || !body.name?.trim()) {
+        sendJson(res, 400, { error: 'workspaceId and name are required' });
+        return;
+      }
+      const repository: CloudTopologyRepository = {
+        id: randomUUID(), orgId, workspaceId: body.workspaceId, name: body.name.trim(), gitRemote: body.gitRemote,
+      };
+      store.topologyRepositories.set(repository.id, repository);
+      sendJson(res, 201, { repository });
+      return;
+    }
+
+    // ── GET/POST /topology/services ───────────────────────────────────────────
+    if (method === 'GET' && url.pathname === '/topology/services') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const serviceTypeFilter = url.searchParams.get('serviceType') ?? undefined;
+      let services = [...store.topologyServices.values()].filter(s => s.orgId === orgId);
+      if (serviceTypeFilter) services = services.filter(s => s.serviceType === serviceTypeFilter);
+      sendJson(res, 200, { services });
+      return;
+    }
+
+    if (method === 'POST' && url.pathname === '/topology/services') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const body = (await readJsonBody(req)) as { name?: string; serviceType?: string; description?: string; createdBy?: string };
+      if (!body.name?.trim()) {
+        sendJson(res, 400, { error: 'name is required' });
+        return;
+      }
+      const service: CloudTopologyService = {
+        id: randomUUID(), orgId, name: body.name.trim(), serviceType: body.serviceType,
+        description: body.description, createdBy: body.createdBy,
+      };
+      store.topologyServices.set(service.id, service);
+      sendJson(res, 201, { service });
+      return;
+    }
+
+    // ── POST /topology/edges — auto-derives cascade rules (ADR-007) ──────────
+    if (method === 'POST' && url.pathname === '/topology/edges') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const body = (await readJsonBody(req)) as {
+        fromType?: TopologyNodeType; fromId?: string; toType?: TopologyNodeType; toId?: string;
+        edgeType?: TopologyEdgeType; basis?: 'inferred' | 'manual'; createdBy?: string;
+      };
+      if (!body.fromType || !body.fromId || !body.toType || !body.toId || !body.edgeType) {
+        sendJson(res, 400, { error: 'fromType, fromId, toType, toId, and edgeType are required' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const edge: CloudTopologyEdge = {
+        id: randomUUID(), orgId, fromType: body.fromType, fromId: body.fromId, toType: body.toType, toId: body.toId,
+        edgeType: body.edgeType, basis: body.basis ?? 'manual', createdBy: body.createdBy, createdAt: now,
+      };
+      store.topologyEdges.set(edge.id, edge);
+
+      // ADR-007: a depends_on edge between two workspaces auto-derives a cascade rule with
+      // zero configuration. Only workspace-to-workspace depends_on edges qualify — that is
+      // the edge type the architecture doc defines cascade derivation over.
+      let cascadeRule: CloudCascadeRule | undefined;
+      if (body.edgeType === 'depends_on' && body.fromType === 'workspace' && body.toType === 'workspace') {
+        cascadeRule = {
+          id: randomUUID(), orgId, sourceWorkspaceId: body.fromId, targetWorkspaceId: body.toId,
+          basis: 'topology', topologyEdgeId: edge.id, trigger: 'captain.run.promoted', createdAt: now,
+        };
+        store.cascadeRules.set(cascadeRule.id, cascadeRule);
+      }
+
+      sendJson(res, 201, { edge, cascadeRule });
+      return;
+    }
+
+    // ── DELETE /topology/edges/:id — cascades deletion of derived rules (ADR-007) ─
+    const topologyEdgeDeleteMatch = /^\/topology\/edges\/([^/]+)$/.exec(url.pathname);
+    if (method === 'DELETE' && topologyEdgeDeleteMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const id = topologyEdgeDeleteMatch[1]!;
+      const edge = store.topologyEdges.get(id);
+      if (!edge || edge.orgId !== orgId) {
+        sendJson(res, 404, { error: 'Topology edge not found' });
+        return;
+      }
+      store.topologyEdges.delete(id);
+
+      let deletedCascadeRules = 0;
+      for (const [ruleId, rule] of store.cascadeRules) {
+        if (rule.orgId === orgId && rule.basis === 'topology' && rule.topologyEdgeId === id) {
+          store.cascadeRules.delete(ruleId);
+          deletedCascadeRules++;
+        }
+      }
+
+      sendJson(res, 200, { deleted: true, deletedCascadeRules });
+      return;
+    }
+
+    // ── GET/POST /cascade-rules, DELETE /cascade-rules/:id ────────────────────
+    if (method === 'GET' && url.pathname === '/cascade-rules') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const rules = [...store.cascadeRules.values()].filter(r => r.orgId === orgId);
+      sendJson(res, 200, { rules });
+      return;
+    }
+
+    if (method === 'POST' && url.pathname === '/cascade-rules') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const body = (await readJsonBody(req)) as {
+        sourceWorkspaceId?: string; targetWorkspaceId?: string; trigger?: string;
+        filterCaptainTask?: string; createdBy?: string;
+      };
+      if (!body.sourceWorkspaceId || !body.targetWorkspaceId || !body.trigger) {
+        sendJson(res, 400, { error: 'sourceWorkspaceId, targetWorkspaceId, and trigger are required' });
+        return;
+      }
+      const rule: CloudCascadeRule = {
+        id: randomUUID(), orgId, sourceWorkspaceId: body.sourceWorkspaceId, targetWorkspaceId: body.targetWorkspaceId,
+        basis: 'manual', trigger: body.trigger, filterCaptainTask: body.filterCaptainTask,
+        createdBy: body.createdBy, createdAt: new Date().toISOString(),
+      };
+      store.cascadeRules.set(rule.id, rule);
+      sendJson(res, 201, { rule });
+      return;
+    }
+
+    const cascadeRuleDeleteMatch = /^\/cascade-rules\/([^/]+)$/.exec(url.pathname);
+    if (method === 'DELETE' && cascadeRuleDeleteMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+      const id = cascadeRuleDeleteMatch[1]!;
+      const rule = store.cascadeRules.get(id);
+      if (!rule || rule.orgId !== orgId) {
+        sendJson(res, 404, { error: 'Cascade rule not found' });
+        return;
+      }
+      if (rule.basis !== 'manual') {
+        sendJson(res, 400, {
+          error: 'Only manual cascade rules can be deleted directly — topology-derived rules are removed by deleting their source topology edge',
+        });
+        return;
+      }
+      store.cascadeRules.delete(id);
+      sendJson(res, 200, { deleted: true });
       return;
     }
 

@@ -431,6 +431,7 @@ export interface BlueprintRecord {
   publishedAt: string;
   archiveHash: string;
   archiveSize: number;
+  serviceTypes?: string[];
 }
 
 export interface BlueprintHubListResponse {
@@ -441,4 +442,51 @@ export interface BlueprintHubListResponse {
 export interface BlueprintInstallResult {
   installed: { name: string; version: string; installedAt: string; path: string };
   depOrder: string[];
+}
+
+// ── Org Graph — cross-workspace Knowledge (M7) ─────────────────────────────────
+
+export type KnowledgeObjectState = 'draft' | 'active' | 'superseded' | 'archived';
+
+export interface CloudKnowledgeObject {
+  id: string;
+  orgId: string;
+  workspaceId: string;
+  localId: string;
+  promotedBy: string;
+  promotedAt: string;
+  title: string;
+  body: string;
+  query?: string;
+  agent?: string;
+  state: KnowledgeObjectState;
+  supersededBy?: string;
+  archivedAt?: string;
+  archiveReason?: string;
+  confidence: number;
+  corroborations: number;
+  reviewFlag: boolean;
+  conceptIds: string[];
+  syncedAt: string;
+}
+
+export interface CloudKnowledgeEdge {
+  id: string;
+  orgId: string;
+  fromId: string;
+  toId: string;
+  edgeType: 'superseded_by' | 'related_to' | 'contradicts';
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface OrgKnowledgeQueryResponse {
+  objects: CloudKnowledgeObject[];
+  count: number;
+  configured: boolean;
+}
+
+export interface OrgKnowledgeObjectResponse {
+  object: CloudKnowledgeObject;
+  edges: CloudKnowledgeEdge[];
 }

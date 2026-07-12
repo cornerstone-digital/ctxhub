@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { getSyncConfig, syncToCloud } from './sync.js';
+import { getSyncConfig, syncToCloud, syncKnowledgeToCloud } from './sync.js';
 import { writeText } from '../utils/fs.js';
 import type { IndexedDocument } from '../config/types.js';
+import type { KnowledgeObject } from '../knowledge/types.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -202,6 +203,75 @@ test('syncToCloud handles network errors gracefully', async () => {
     assert.equal(result.synced, 0);
     assert.ok((result.failed ?? 0) > 0);
     assert.ok(result.errors?.some(e => e.includes('Network unreachable')));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── syncKnowledgeToCloud ─────────────────────────────────────────────────────
+
+function makeKnowledgeObject(overrides: Partial<KnowledgeObject> = {}): KnowledgeObject {
+  return {
+    id: crypto.randomUUID(),
+    workspaceId: 'ws',
+    title: 'Finding',
+    content: 'body text',
+    state: 'active',
+    confidence: 1.0,
+    corroborations: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: 'user-1',
+    ...overrides,
+  };
+}
+
+test('syncKnowledgeToCloud skips when endpoint is empty', async () => {
+  const result = await syncKnowledgeToCloud({ endpoint: '', apiKey: 'key' }, 'ws', []);
+  assert.equal(result.skipped, true);
+});
+
+test('syncKnowledgeToCloud excludes draft objects', async () => {
+  let capturedBody: unknown = null;
+  const originalFetch = globalThis.fetch;
+  // @ts-expect-error — monkey-patching for test
+  globalThis.fetch = async (_url: string, init: RequestInit) => {
+    capturedBody = JSON.parse(init.body as string);
+    return { ok: true, json: async () => ({ synced: 1 }) } as Response;
+  };
+
+  try {
+    const objects = [makeKnowledgeObject({ state: 'draft' }), makeKnowledgeObject({ state: 'active' })];
+    const result = await syncKnowledgeToCloud({ endpoint: 'https://cloud.example.com', apiKey: 'key' }, 'ws', objects);
+    assert.equal('synced' in result && result.synced, 1);
+    const body = capturedBody as { workspaceId: string; objects: Array<{ state: string }> };
+    assert.equal(body.workspaceId, 'ws');
+    assert.equal(body.objects.length, 1);
+    assert.equal(body.objects[0]!.state, 'active');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('syncKnowledgeToCloud skips when all objects are drafts', async () => {
+  const result = await syncKnowledgeToCloud(
+    { endpoint: 'https://cloud.example.com', apiKey: 'key' },
+    'ws',
+    [makeKnowledgeObject({ state: 'draft' })],
+  );
+  assert.equal(result.skipped, true);
+});
+
+test('syncKnowledgeToCloud throws on a non-OK response', async () => {
+  const originalFetch = globalThis.fetch;
+  // @ts-expect-error — monkey-patching for test
+  globalThis.fetch = async () => ({ ok: false, status: 500, statusText: 'Error', text: async () => 'boom' } as Response);
+
+  try {
+    await assert.rejects(
+      () => syncKnowledgeToCloud({ endpoint: 'https://cloud.example.com', apiKey: 'key' }, 'ws', [makeKnowledgeObject()]),
+      /500/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

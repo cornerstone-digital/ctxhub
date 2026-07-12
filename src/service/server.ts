@@ -474,6 +474,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // ── Org Graph (proxies Cloud's cross-workspace /knowledge, same pattern as /blueprints/hub)
+  if (req.method === 'GET' && url.pathname === '/cloud/knowledge') {
+    await handleCloudKnowledgeQuery(res, url);
+    return;
+  }
+  const cloudKnowledgeObjectMatch = /^\/cloud\/knowledge\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'GET' && cloudKnowledgeObjectMatch) {
+    await handleCloudKnowledgeGet(res, decodeURIComponent(cloudKnowledgeObjectMatch[1]!));
+    return;
+  }
+
   const skillsMatch = /^\/workspaces\/([^/]+)\/skills$/.exec(url.pathname);
   if (req.method === 'GET' && skillsMatch) {
     await handleGetSkillsStatus(res, decodeURIComponent(skillsMatch[1]));
@@ -1128,7 +1139,8 @@ async function handleBlueprintHubList(_req: http.IncomingMessage, res: http.Serv
     }
 
     const q = url.searchParams.get('q') ?? undefined;
-    const blueprints = await listRegistryBlueprints(syncConfig, q);
+    const workspace = url.searchParams.get('workspace') ?? undefined;
+    const blueprints = await listRegistryBlueprints(syncConfig, q, workspace);
     sendJson(res, 200, { blueprints, configured: true });
   } catch (error) {
     sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
@@ -1153,6 +1165,54 @@ async function handleBlueprintHubInstall(req: http.IncomingMessage, res: http.Se
     }
   } catch (error) {
     sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+// ── Org Graph proxy handlers ──────────────────────────────────────────────────
+// Mirrors the Blueprint Hub proxy pattern above: self-hosted has no Postgres/cross-workspace
+// data of its own, so these forward to Cloud's /knowledge routes using the configured Cloud
+// API key. This is what "Cloud Mission Control: Knowledge view" (ROADMAP.md M7) actually calls.
+
+async function handleCloudKnowledgeQuery(res: http.ServerResponse, url: URL): Promise<void> {
+  try {
+    const { getSyncConfig } = await import('../cloud/sync.js');
+    const { queryOrgKnowledge } = await import('../cloud/orgKnowledgeClient.js');
+
+    const syncConfig = await getSyncConfig();
+    if (!syncConfig) {
+      sendJson(res, 200, { objects: [], count: 0, configured: false });
+      return;
+    }
+
+    const minConfidenceRaw = url.searchParams.get('minConfidence');
+    const result = await queryOrgKnowledge(syncConfig, {
+      q: url.searchParams.get('q') ?? undefined,
+      workspace: url.searchParams.get('workspace') ?? undefined,
+      state: (url.searchParams.get('state') as import('../cloud/types.js').KnowledgeObjectState | null) ?? undefined,
+      concept: url.searchParams.get('concept') ?? undefined,
+      minConfidence: minConfidenceRaw ? Number(minConfidenceRaw) : undefined,
+    });
+    sendJson(res, 200, { ...result, configured: true });
+  } catch (error) {
+    sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleCloudKnowledgeGet(res: http.ServerResponse, id: string): Promise<void> {
+  try {
+    const { getSyncConfig } = await import('../cloud/sync.js');
+    const { getOrgKnowledgeObject } = await import('../cloud/orgKnowledgeClient.js');
+
+    const syncConfig = await getSyncConfig();
+    if (!syncConfig) {
+      sendJson(res, 400, { error: 'Cloud sync not configured. Run: ctxhub cloud configure' });
+      return;
+    }
+
+    const result = await getOrgKnowledgeObject(syncConfig, id);
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -2257,6 +2317,25 @@ async function handleCloudSync(res: http.ServerResponse): Promise<void> {
       // No captain tasks configured, or tasks store unreadable -- not fatal to chunk sync.
     }
 
+    // Best-effort: also push promoted Knowledge Objects per workspace, same pattern as
+    // captain runs above. Failures here never fail the whole sync either.
+    const knowledgeSyncErrors: string[] = [];
+    try {
+      const { loadKnowledgeStore } = await import('../knowledge/store.js');
+      const { syncKnowledgeToCloud } = await import('../cloud/sync.js');
+      for (const ws of workspaces.filter(w => w.exists)) {
+        try {
+          const knowledgeStore = await loadKnowledgeStore(ws.name);
+          if (knowledgeStore.objects.length === 0) continue;
+          await syncKnowledgeToCloud(syncConfig, ws.name, knowledgeStore.objects);
+        } catch (error) {
+          knowledgeSyncErrors.push(`${ws.name}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    } catch {
+      // Knowledge store unreadable -- not fatal to chunk sync.
+    }
+
     // Update lastSyncAt in the cloud config file
     if (!result.skipped && (result.synced ?? 0) > 0) {
       const { saveCloudConfig } = await import('../commands/cloud.js');
@@ -2269,7 +2348,7 @@ async function handleCloudSync(res: http.ServerResponse): Promise<void> {
 
     sendJson(res, 200, {
       synced: result.synced ?? 0,
-      errors: [...(result.errors ?? []), ...runSyncErrors],
+      errors: [...(result.errors ?? []), ...runSyncErrors, ...knowledgeSyncErrors],
       skipped: result.skipped ?? false,
     });
   } catch (error) {

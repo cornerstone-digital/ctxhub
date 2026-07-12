@@ -11,6 +11,7 @@
 
 import type { IndexedDocument } from '../config/types.js';
 import type { CaptainRunRecord } from '../captains/runner.js';
+import type { KnowledgeObject } from '../knowledge/types.js';
 
 // ── Protocol types ────────────────────────────────────────────────────────────
 
@@ -227,4 +228,60 @@ export async function syncRunsToCloud(
 
   const result = await res.json() as { accepted?: number };
   return { accepted: result.accepted ?? runs.length };
+}
+
+// ── syncKnowledgeToCloud ──────────────────────────────────────────────────────
+
+/**
+ * Push locally-promoted Knowledge Objects (src/knowledge/store.ts) to Cloud's
+ * `POST /sync/knowledge`, which is what makes cross-workspace querying (Org Graph M7)
+ * possible at all -- without this, /knowledge on Cloud only ever sees objects created
+ * directly through its own API in tests, never anything from a real `ctxhub knowledge
+ * promote`. Only draft objects are excluded (they haven't been human-reviewed yet, and
+ * ADR-008 requires promotion -- the human validation signal -- before confidence starts).
+ */
+export async function syncKnowledgeToCloud(
+  config: SyncConfig,
+  workspaceId: string,
+  objects: KnowledgeObject[],
+): Promise<{ synced: number } | { skipped: true; reason: string }> {
+  if (!config.endpoint) {
+    return { skipped: true, reason: 'cloud sync not configured' };
+  }
+  const eligible = objects.filter(o => o.state !== 'draft');
+  if (eligible.length === 0) {
+    return { skipped: true, reason: 'no promoted (non-draft) knowledge objects to sync' };
+  }
+
+  const payload = {
+    workspaceId,
+    objects: eligible.map(o => ({
+      localId: o.id,
+      promotedBy: o.createdBy,
+      promotedAt: o.createdAt,
+      title: o.title,
+      body: o.content,
+      state: o.state,
+      confidence: o.confidence,
+      reviewFlag: o.reviewFlag ?? false,
+    })),
+  };
+
+  const res = await fetch(`${config.endpoint}/sync/knowledge`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`Cloud API returned ${res.status} for /sync/knowledge: ${text}`);
+  }
+
+  const result = await res.json() as { synced?: number };
+  return { synced: result.synced ?? eligible.length };
 }

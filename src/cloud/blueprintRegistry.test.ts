@@ -198,3 +198,69 @@ test('publish, list, get, and download work end to end for a public blueprint', 
     assert.equal(Buffer.from(downloadBody.archiveBase64, 'base64').toString(), 'e2e content');
   });
 });
+
+// ── M8: topology-aware blueprints ────────────────────────────────────────────
+
+async function publish(baseUrl: string, key: string, name: string, serviceTypes?: string[]) {
+  const res = await fetch(`${baseUrl}/blueprints`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ name, version: '1.0.0', description: 'x', public: true, serviceTypes, archiveBase64: fakeArchiveBase64() }),
+  });
+  assert.equal(res.status, 201);
+}
+
+describe('GET /blueprints — M8 topology-aware filtering', () => {
+  it('?serviceType= only returns blueprints declaring a match, plus universal (no serviceTypes) ones', async () => {
+    const store = makeStore();
+    await withRunningCloudServer(store, async baseUrl => {
+      await publish(baseUrl, ORG_A_KEY, 'api-only-bp', ['api']);
+      await publish(baseUrl, ORG_A_KEY, 'worker-only-bp', ['worker']);
+      await publish(baseUrl, ORG_A_KEY, 'universal-bp'); // no serviceTypes declared
+
+      const res = await fetch(`${baseUrl}/blueprints?serviceType=api`, { headers: { Authorization: `Bearer ${ORG_A_KEY}` } });
+      const body = await res.json() as { blueprints: Array<{ name: string }> };
+      assert.deepEqual(body.blueprints.map(b => b.name).sort(), ['api-only-bp', 'universal-bp']);
+    });
+  });
+
+  it('?workspace= resolves service type via topology (workspace -> repository -part_of-> service)', async () => {
+    const store = makeStore();
+    await withRunningCloudServer(store, async baseUrl => {
+      await publish(baseUrl, ORG_A_KEY, 'api-bp', ['api']);
+      await publish(baseUrl, ORG_A_KEY, 'frontend-bp', ['frontend']);
+
+      const repoRes = await fetch(`${baseUrl}/topology/repositories`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ORG_A_KEY}` },
+        body: JSON.stringify({ workspaceId: 'ws-payments', name: 'payments-repo' }),
+      });
+      const repo = (await repoRes.json() as { repository: { id: string } }).repository;
+
+      const serviceRes = await fetch(`${baseUrl}/topology/services`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ORG_A_KEY}` },
+        body: JSON.stringify({ name: 'payments-service', serviceType: 'api' }),
+      });
+      const service = (await serviceRes.json() as { service: { id: string } }).service;
+
+      await fetch(`${baseUrl}/topology/edges`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ORG_A_KEY}` },
+        body: JSON.stringify({ fromType: 'repository', fromId: repo.id, toType: 'service', toId: service.id, edgeType: 'part_of' }),
+      });
+
+      const res = await fetch(`${baseUrl}/blueprints?workspace=ws-payments`, { headers: { Authorization: `Bearer ${ORG_A_KEY}` } });
+      const body = await res.json() as { blueprints: Array<{ name: string }> };
+      assert.deepEqual(body.blueprints.map(b => b.name).sort(), ['api-bp']);
+    });
+  });
+
+  it('?workspace= with no topology registered returns everything unfiltered', async () => {
+    const store = makeStore();
+    await withRunningCloudServer(store, async baseUrl => {
+      await publish(baseUrl, ORG_A_KEY, 'api-bp', ['api']);
+      await publish(baseUrl, ORG_A_KEY, 'frontend-bp', ['frontend']);
+
+      const res = await fetch(`${baseUrl}/blueprints?workspace=ws-unregistered`, { headers: { Authorization: `Bearer ${ORG_A_KEY}` } });
+      const body = await res.json() as { blueprints: Array<{ name: string }> };
+      assert.deepEqual(body.blueprints.map(b => b.name).sort(), ['api-bp', 'frontend-bp']);
+    });
+  });
+});

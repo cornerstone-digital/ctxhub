@@ -13,6 +13,8 @@ export interface PublishBlueprintOptions {
   description: string;
   author?: string;
   tags?: string[];
+  /** M8 topology-aware blueprints: service types this blueprint applies to. */
+  serviceTypes?: string[];
   public?: boolean;
   publishedBy?: string;
 }
@@ -36,8 +38,11 @@ export async function publishBlueprint(
   return body.blueprint;
 }
 
-export async function listRegistryBlueprints(config: SyncConfig, query?: string): Promise<BlueprintRecord[]> {
-  const qs = query ? `?q=${encodeURIComponent(query)}` : '';
+export async function listRegistryBlueprints(config: SyncConfig, query?: string, workspace?: string): Promise<BlueprintRecord[]> {
+  const params = new URLSearchParams();
+  if (query) params.set('q', query);
+  if (workspace) params.set('workspace', workspace);
+  const qs = params.toString() ? `?${params.toString()}` : '';
   const res = await fetch(`${config.endpoint}/blueprints${qs}`, {
     headers: { Authorization: `Bearer ${config.apiKey}` },
     signal: AbortSignal.timeout(30_000),

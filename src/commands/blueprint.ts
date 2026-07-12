@@ -133,6 +133,7 @@ export async function blueprintPublishCommand(target: string, opts: { public?: b
       description: manifest.description,
       author: manifest.author,
       tags: manifest.tags,
+      serviceTypes: manifest.serviceTypes,
       public: opts.public ?? false,
     });
     console.log(chalk.green(`✓ Published ${record.name}@${record.version} → ${syncConfig.endpoint}`));

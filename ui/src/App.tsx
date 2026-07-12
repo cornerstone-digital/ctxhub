@@ -18,6 +18,7 @@ import { TimelineView } from './components/TimelineView'
 import { GroupsView } from './components/GroupsView'
 import { CloudView } from './components/CloudView'
 import { BlueprintsView } from './components/BlueprintsView'
+import { OrgKnowledgeView } from './components/OrgKnowledgeView'
 
 function ResizeHandleH() {
   return (
@@ -78,6 +79,7 @@ export default function App() {
               {activeView === 'groups' && <GroupsView />}
               {activeView === 'cloud' && <CloudView />}
               {activeView === 'blueprints' && <BlueprintsView />}
+              {activeView === 'org-knowledge' && <OrgKnowledgeView />}
             </Panel>
             <ResizeHandleV />
             <Panel defaultSize={22} minSize={10} maxSize={45} style={{ display: 'flex', flexDirection: 'column' }}>

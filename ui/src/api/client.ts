@@ -8,6 +8,9 @@ import type {
   CaptainTask,
   CloudHistory,
   CloudStatus,
+  CloudKnowledgeObject,
+  OrgKnowledgeQueryResponse,
+  OrgKnowledgeObjectResponse,
   CtxhubConfig,
   CtxhubEventEnvelope,
   EvalRunResult,
@@ -774,10 +777,13 @@ export function useRevokeMemberRoleMutation(workspace: string) {
 
 // ── Blueprint Hub ─────────────────────────────────────────────────────────────
 
-export function useBlueprintHub(query: string) {
-  const qs = query ? `?q=${encodeURIComponent(query)}` : ''
+export function useBlueprintHub(query: string, workspace?: string) {
+  const params = new URLSearchParams()
+  if (query) params.set('q', query)
+  if (workspace) params.set('workspace', workspace)
+  const qs = params.toString() ? `?${params.toString()}` : ''
   return useQuery({
-    queryKey: ['blueprint-hub', query],
+    queryKey: ['blueprint-hub', query, workspace],
     queryFn: () => fetchJson<BlueprintHubListResponse>(`/blueprints/hub${qs}`),
     refetchInterval: 30_000,
   })
@@ -791,5 +797,36 @@ export function useInstallBlueprintMutation() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['blueprint-hub'] })
     },
+  })
+}
+
+// ── Org Graph — cross-workspace Knowledge (M7) ─────────────────────────────────
+
+export interface OrgKnowledgeFilters {
+  q?: string
+  workspace?: string
+  state?: CloudKnowledgeObject['state']
+  minConfidence?: number
+}
+
+export function useOrgKnowledge(filters: OrgKnowledgeFilters) {
+  const qs = new URLSearchParams()
+  if (filters.q) qs.set('q', filters.q)
+  if (filters.workspace) qs.set('workspace', filters.workspace)
+  if (filters.state) qs.set('state', filters.state)
+  if (filters.minConfidence !== undefined) qs.set('minConfidence', String(filters.minConfidence))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  return useQuery({
+    queryKey: ['org-knowledge', filters],
+    queryFn: () => fetchJson<OrgKnowledgeQueryResponse>(`/cloud/knowledge${suffix}`),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useOrgKnowledgeObject(id: string | null) {
+  return useQuery({
+    queryKey: ['org-knowledge-object', id],
+    queryFn: () => fetchJson<OrgKnowledgeObjectResponse>(`/cloud/knowledge/${encodeURIComponent(id!)}`),
+    enabled: id !== null,
   })
 }

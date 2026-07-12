@@ -5,7 +5,8 @@ import { relTime } from '../lib/utils'
 
 export function BlueprintsView() {
   const [query, setQuery] = useState('')
-  const { data, isLoading } = useBlueprintHub(query)
+  const [workspace, setWorkspace] = useState('')
+  const { data, isLoading } = useBlueprintHub(query, workspace || undefined)
   const install = useInstallBlueprintMutation()
   const [installedName, setInstalledName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -39,14 +40,24 @@ export function BlueprintsView() {
         </div>
 
         {!notConfigured && (
-          <div className="flex items-center gap-1.5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px' }}>
-            <Search size={12} style={{ color: 'var(--text-muted)' }} />
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px' }}>
+              <Search size={12} style={{ color: 'var(--text-muted)' }} />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search name, description, tags..."
+                className="text-xs w-56"
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', outline: 'none' }}
+              />
+            </div>
             <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search name, description, tags..."
-              className="text-xs w-56"
-              style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', outline: 'none' }}
+              value={workspace}
+              onChange={e => setWorkspace(e.target.value)}
+              placeholder="filter by workspace's service type"
+              title="Resolves this workspace's service type via the Org Graph topology and only shows blueprints that declare a matching serviceType"
+              className="text-xs w-56 px-2 py-1.5 rounded-md"
+              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', outline: 'none' }}
             />
           </div>
         )}
@@ -122,6 +133,11 @@ export function BlueprintsView() {
                   {bp.tags?.map(tag => (
                     <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--text-muted)', background: 'var(--bg-elevated)' }}>
                       {tag}
+                    </span>
+                  ))}
+                  {bp.serviceTypes?.map(st => (
+                    <span key={st} className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--accent)', background: 'var(--bg-elevated)' }}>
+                      {st}
                     </span>
                   ))}
                 </div>

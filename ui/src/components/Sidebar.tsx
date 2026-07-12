@@ -1,4 +1,4 @@
-import { Network, Users, BookOpen, RefreshCw, Hexagon, Folder, CheckCircle, Activity, Building2, Cloud, Package } from 'lucide-react'
+import { Network, Users, BookOpen, RefreshCw, Hexagon, Folder, CheckCircle, Activity, Building2, Cloud, Package, Globe } from 'lucide-react'
 import { useWorkspaces, useHealth, useWorkspaceStatus, useIndexStatus } from '../api/client'
 import { useFleetStore, type FleetView } from '../store/fleet'
 import { healthColor } from '../lib/utils'
@@ -87,6 +87,7 @@ export function Sidebar() {
     { icon: Building2, label: 'Groups', view: 'groups' },
     { icon: Cloud, label: 'Cloud', view: 'cloud' },
     { icon: Package, label: 'Blueprints', view: 'blueprints' },
+    { icon: Globe, label: 'Org Knowledge', view: 'org-knowledge' },
   ]
 
   return (
