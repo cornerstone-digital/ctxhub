@@ -15,7 +15,7 @@
  */
 
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { getPackageVersion } from '../utils/version.js';
 import type {
   CloudChunk,
@@ -27,6 +27,7 @@ import type {
   CloudEvent,
   CloudCaptainRun,
   CloudNote,
+  BlueprintRecord,
 } from './types.js';
 
 // ── In-memory store ───────────────────────────────────────────────────────────
@@ -40,6 +41,8 @@ export interface CloudStore {
   events: CloudEvent[];
   runs: CloudCaptainRun[];
   notes: CloudNote[];
+  blueprints: Map<string, BlueprintRecord>;  // key: `${name}@${version}`
+  blueprintArchives: Map<string, Buffer>;    // key: archiveHash (sha256)
 }
 
 /**
@@ -58,6 +61,8 @@ export function createInMemoryStore(bootstrapAdminKey?: string): CloudStore {
     events: [],
     runs: [],
     notes: [],
+    blueprints: new Map(),
+    blueprintArchives: new Map(),
   };
   if (bootstrapAdminKey) store.adminKeys.add(bootstrapAdminKey);
   return store;
@@ -249,6 +254,125 @@ function createHandler(store: CloudStore) {
 
       const workspaces = [...store.workspaces.values()].filter(w => w.orgId === orgId);
       sendJson(res, 200, { workspaces });
+      return;
+    }
+
+    // ── POST /blueprints ──────────────────────────────────────────────────────
+    // Publish a blueprint. Archive travels as base64 in the JSON body rather than a
+    // separate multipart upload -- keeps this route consistent with every other route in
+    // this file (JSON in, JSON out) and blueprints are small (docs/personas/task configs,
+    // not binaries). `public: true` publishes to every org; omitted/false publishes
+    // org-private, visible only to the caller's own org (M8's "org-private blueprints").
+    if (method === 'POST' && url.pathname === '/blueprints') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const body = (await readJsonBody(req)) as {
+        name?: string; version?: string; description?: string; author?: string; tags?: string[];
+        public?: boolean; archiveBase64?: string; publishedBy?: string;
+      };
+      if (!body.name?.trim() || !body.version?.trim() || !body.description?.trim() || !body.archiveBase64) {
+        sendJson(res, 400, { error: 'name, version, description, and archiveBase64 are required' });
+        return;
+      }
+
+      const archive = Buffer.from(body.archiveBase64, 'base64');
+      const archiveHash = createHash('sha256').update(archive).digest('hex');
+      const key = `${body.name.trim()}@${body.version.trim()}`;
+
+      if (store.blueprints.has(key)) {
+        sendJson(res, 409, { error: `${key} is already published. Publish a new version instead of overwriting.` });
+        return;
+      }
+
+      const record: BlueprintRecord = {
+        name: body.name.trim(),
+        version: body.version.trim(),
+        description: body.description.trim(),
+        author: body.author,
+        tags: body.tags,
+        orgId: body.public ? null : orgId,
+        publishedBy: body.publishedBy ?? 'unknown',
+        publishedAt: new Date().toISOString(),
+        archiveHash,
+        archiveSize: archive.length,
+      };
+      store.blueprints.set(key, record);
+      store.blueprintArchives.set(archiveHash, archive);
+
+      sendJson(res, 201, { blueprint: record });
+      return;
+    }
+
+    // ── GET /blueprints ────────────────────────────────────────────────────────
+    // Lists public blueprints plus the caller's own org-private ones. Supports ?q= for a
+    // simple name/description/tag substring search.
+    if (method === 'GET' && url.pathname === '/blueprints') {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const visible = [...store.blueprints.values()].filter(bp => bp.orgId === null || bp.orgId === orgId);
+      const matched = q
+        ? visible.filter(bp =>
+            bp.name.toLowerCase().includes(q) ||
+            bp.description.toLowerCase().includes(q) ||
+            (bp.tags ?? []).some(t => t.toLowerCase().includes(q))
+          )
+        : visible;
+
+      sendJson(res, 200, { blueprints: matched });
+      return;
+    }
+
+    // ── GET /blueprints/:name/:version ────────────────────────────────────────
+    const blueprintGetMatch = /^\/blueprints\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+    if (method === 'GET' && blueprintGetMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const record = store.blueprints.get(`${decodeURIComponent(blueprintGetMatch[1]!)}@${decodeURIComponent(blueprintGetMatch[2]!)}`);
+      if (!record || (record.orgId !== null && record.orgId !== orgId)) {
+        sendJson(res, 404, { error: 'Blueprint not found' });
+        return;
+      }
+      sendJson(res, 200, { blueprint: record });
+      return;
+    }
+
+    // ── GET /blueprints/:name/:version/download ───────────────────────────────
+    const blueprintDownloadMatch = /^\/blueprints\/([^/]+)\/([^/]+)\/download$/.exec(url.pathname);
+    if (method === 'GET' && blueprintDownloadMatch) {
+      const apiKey = extractBearerToken(req);
+      const orgId = apiKey ? store.apiKeys.get(apiKey) : undefined;
+      if (!apiKey || !orgId) {
+        sendJson(res, 401, { error: 'Unauthorized — invalid or missing API key' });
+        return;
+      }
+
+      const record = store.blueprints.get(`${decodeURIComponent(blueprintDownloadMatch[1]!)}@${decodeURIComponent(blueprintDownloadMatch[2]!)}`);
+      if (!record || (record.orgId !== null && record.orgId !== orgId)) {
+        sendJson(res, 404, { error: 'Blueprint not found' });
+        return;
+      }
+      const archive = store.blueprintArchives.get(record.archiveHash);
+      if (!archive) {
+        sendJson(res, 500, { error: 'Blueprint record exists but its archive is missing from the store' });
+        return;
+      }
+      sendJson(res, 200, { archiveBase64: archive.toString('base64'), archiveHash: record.archiveHash });
       return;
     }
 

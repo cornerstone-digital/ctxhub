@@ -81,7 +81,7 @@ import { shareCommand, shareListCommand, shareRevokeCommand } from '../commands/
 import { serviceSetPeerUrlCommand } from '../commands/service.js';
 import { cloudConfigureCommand, cloudStatusCommand, cloudSyncCommand } from '../commands/cloud.js';
 import { demoCommand } from '../commands/demo.js';
-import { blueprintPackCommand, blueprintInstallCommand, blueprintListCommand, blueprintRemoveCommand } from '../commands/blueprint.js';
+import { blueprintPackCommand, blueprintInstallCommand, blueprintListCommand, blueprintRemoveCommand, blueprintPublishCommand } from '../commands/blueprint.js';
 import { machineTokenCreateCommand, machineTokenListCommand, machineTokenRevokeCommand } from '../commands/machineToken.js';
 import { auditCommand } from '../commands/audit.js';
 import { statusCommand } from '../commands/status.js';
@@ -1155,10 +1155,17 @@ export function buildProgram(): Command {
 
   blueprint
     .command('install')
-    .argument('<path-or-name>', 'Local .ctxblueprint file path, or registry name (registry not yet available)')
+    .argument('<path-or-name>', 'Local .ctxblueprint file path, or a registry name[@version] (requires ctxhub cloud configure)')
     .option('--ignore-deps', 'Skip dependency resolution check')
-    .description('Install a blueprint from a local .ctxblueprint archive')
+    .description('Install a blueprint from a local .ctxblueprint archive or the Cloud registry')
     .action((target: string, opts: { ignoreDeps?: boolean }) => blueprintInstallCommand(target, opts));
+
+  blueprint
+    .command('publish')
+    .argument('<path-or-archive>', 'Blueprint source directory or a packed .ctxblueprint file')
+    .option('--public', 'Publish visible to every org (default: org-private, visible only to your own org)')
+    .description('Publish a blueprint to the Cloud registry (requires ctxhub cloud configure)')
+    .action((target: string, opts: { public?: boolean }) => blueprintPublishCommand(target, opts));
 
   blueprint
     .command('list')

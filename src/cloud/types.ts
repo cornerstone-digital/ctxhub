@@ -110,3 +110,24 @@ export interface CloudNote {
   trustTier: string;
   syncedAt: string;
 }
+
+// ── Blueprint registry ───────────────────────────────────────────────────────
+// Content-addressed store, keyed by (name, version). `orgId: null` means published
+// public (visible to every org); a real orgId means org-private (M8's "org-private
+// blueprints" -- gated on this org model existing, which is why it's here and not a
+// separate service).
+
+export interface BlueprintRecord {
+  name: string;
+  version: string;
+  description: string;
+  author?: string;
+  tags?: string[];
+  /** null = public; a real orgId = visible only to that org */
+  orgId: string | null;
+  publishedBy: string; // sub of the API key holder, if known, else 'unknown'
+  publishedAt: string;
+  archiveHash: string; // sha256 of the archive bytes; used as the content-addressed key
+  archiveSize: number;
+}
+

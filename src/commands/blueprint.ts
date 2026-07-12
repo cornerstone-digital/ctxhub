@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import chalk from 'chalk';
 import yaml from 'js-yaml';
 import { pathExists, readText, ensureDir } from '../utils/fs.js';
@@ -12,6 +13,8 @@ import {
 } from '../blueprints/store.js';
 import type { BlueprintManifest, InstalledBlueprint } from '../blueprints/types.js';
 import { resolveDependencies } from '../blueprints/resolver.js';
+import { getSyncConfig } from '../cloud/sync.js';
+import { publishBlueprint, listRegistryBlueprints, downloadRegistryBlueprint } from '../blueprints/registryClient.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -70,22 +73,133 @@ export async function blueprintPackCommand(opts: { dir?: string; out?: string } 
   console.log(chalk.green(`✓ Packed ${manifest.name}@${manifest.version} → ${outPath}`));
 }
 
+// ── blueprintPublishCommand ───────────────────────────────────────────────────
+
+export async function blueprintPublishCommand(target: string, opts: { public?: boolean } = {}): Promise<void> {
+  const syncConfig = await getSyncConfig();
+  if (!syncConfig) {
+    console.error(chalk.red('Error: Cloud sync is not configured.'));
+    console.error(chalk.gray('Run: ctxhub cloud configure --endpoint <url> --api-key <key>'));
+    process.exit(1);
+  }
+
+  const isArchive = target.endsWith('.ctxblueprint');
+  let archivePath = path.resolve(target);
+  let manifest: BlueprintManifest;
+
+  if (isArchive) {
+    if (!(await pathExists(archivePath))) {
+      console.error(chalk.red(`✗ File not found: ${archivePath}`));
+      process.exit(1);
+    }
+    const tmpDir = path.join(os.tmpdir(), `ctxhub-publish-read-${Date.now()}`);
+    await mkdir(tmpDir, { recursive: true });
+    try {
+      await execa('tar', ['-xzf', archivePath, '-C', tmpDir]);
+      const { readdir } = await import('node:fs/promises');
+      const entries = await readdir(tmpDir);
+      manifest = await readManifest(entries.length === 1 ? path.join(tmpDir, entries[0]!) : tmpDir);
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  } else {
+    // A source directory -- pack it to a temp archive first.
+    const sourceDir = path.resolve(target);
+    manifest = await readManifest(sourceDir);
+    const errors = validateManifest(manifest);
+    if (errors.length > 0) {
+      console.error(chalk.red(`✗ Invalid blueprint manifest:`));
+      for (const e of errors) console.error(chalk.red(`  - ${e}`));
+      process.exit(1);
+    }
+    archivePath = path.join(os.tmpdir(), `${manifest.name}-${manifest.version}-${Date.now()}.ctxblueprint`);
+    await execa('tar', ['-czf', archivePath, '-C', path.dirname(sourceDir), path.basename(sourceDir)]);
+  }
+
+  const errors = validateManifest(manifest);
+  if (errors.length > 0) {
+    console.error(chalk.red(`✗ Invalid blueprint manifest:`));
+    for (const e of errors) console.error(chalk.red(`  - ${e}`));
+    process.exit(1);
+  }
+
+  const archive = await readFile(archivePath);
+  console.log(chalk.gray(`Publishing ${manifest.name}@${manifest.version} (${archive.length} bytes, ${opts.public ? 'public' : 'org-private'})...`));
+
+  try {
+    const record = await publishBlueprint(syncConfig, archive, {
+      name: manifest.name,
+      version: manifest.version,
+      description: manifest.description,
+      author: manifest.author,
+      tags: manifest.tags,
+      public: opts.public ?? false,
+    });
+    console.log(chalk.green(`✓ Published ${record.name}@${record.version} → ${syncConfig.endpoint}`));
+  } catch (err) {
+    console.error(chalk.red(`✗ ${err instanceof Error ? err.message : String(err)}`));
+    process.exit(1);
+  } finally {
+    if (!isArchive) await rm(archivePath, { force: true }).catch(() => undefined);
+  }
+}
+
 // ── blueprintInstallCommand ───────────────────────────────────────────────────
 
 export async function blueprintInstallCommand(target: string, opts: { ignoreDeps?: boolean } = {}): Promise<void> {
   const looksLikeLocalPath = target.endsWith('.ctxblueprint') || target.startsWith('./') || target.startsWith('../') || target.startsWith('/');
 
-  if (!looksLikeLocalPath) {
-    console.log(chalk.yellow(
-      `Registry not yet available. Install from a local .ctxblueprint file:\n  ctxhub blueprint install ./my-blueprint-1.0.0.ctxblueprint`
-    ));
-    return;
-  }
+  let archivePath: string;
+  let cleanupArchive = false;
 
-  const archivePath = path.resolve(target);
-  if (!(await pathExists(archivePath))) {
-    console.error(chalk.red(`✗ File not found: ${archivePath}`));
-    process.exit(1);
+  if (looksLikeLocalPath) {
+    archivePath = path.resolve(target);
+    if (!(await pathExists(archivePath))) {
+      console.error(chalk.red(`✗ File not found: ${archivePath}`));
+      process.exit(1);
+    }
+  } else {
+    const syncConfig = await getSyncConfig();
+    if (!syncConfig) {
+      console.error(chalk.red('Error: Cloud sync is not configured, and this doesn\'t look like a local path.'));
+      console.error(chalk.gray('Configure a registry: ctxhub cloud configure --endpoint <url> --api-key <key>'));
+      console.error(chalk.gray(`Or install from a local file: ctxhub blueprint install ./my-blueprint-1.0.0.ctxblueprint`));
+      process.exit(1);
+    }
+
+    const [name, requestedVersion] = target.split('@');
+    if (!name) {
+      console.error(chalk.red('✗ Invalid blueprint name'));
+      process.exit(1);
+    }
+
+    let version = requestedVersion;
+    if (!version) {
+      // No semver comparison library in this project -- "latest" is approximated as the
+      // most recently published version, not the highest semver. Documented simplification;
+      // fine for a registry that's mostly one team publishing sequentially, could be wrong
+      // if versions get published out of order.
+      const matches = (await listRegistryBlueprints(syncConfig, name)).filter(b => b.name === name);
+      if (matches.length === 0) {
+        console.error(chalk.red(`✗ No blueprint named "${name}" found in the registry.`));
+        process.exit(1);
+      }
+      version = matches.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))[0]!.version;
+      console.log(chalk.gray(`Resolved ${name} → ${name}@${version} (most recently published)`));
+    }
+
+    console.log(chalk.gray(`Downloading ${name}@${version} from ${syncConfig.endpoint}...`));
+    let archive: Buffer;
+    try {
+      archive = await downloadRegistryBlueprint(syncConfig, name, version);
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err instanceof Error ? err.message : String(err)}`));
+      process.exit(1);
+    }
+
+    archivePath = path.join(os.tmpdir(), `${name}-${version}-${Date.now()}.ctxblueprint`);
+    await writeFile(archivePath, archive);
+    cleanupArchive = true;
   }
 
   // Extract to a temp dir to read the manifest, then move to final location
@@ -156,6 +270,7 @@ export async function blueprintInstallCommand(target: string, opts: { ignoreDeps
   } finally {
     // Clean up tmp dir (best-effort)
     try { await rm(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+    if (cleanupArchive) { try { await rm(archivePath, { force: true }); } catch { /* best-effort */ } }
   }
 }
 
