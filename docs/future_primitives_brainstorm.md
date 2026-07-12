@@ -1,7 +1,7 @@
 # Future primitives — brainstorm capture
 *Status: Raw brainstorm, not yet promoted to numbered milestones · July 2026*
 
-A shopping list, not a priority order. Every idea below came out of the same brainstorming conversations (`ChatGPT-Brainstorming-Convo.txt` plus earlier chat discussion) and is captured here so nothing gets lost before it's decided whether to build it. None of these are roadmap commitments — unlike ROADMAP.md's numbered milestones (each with a specific promise, trigger, hypothesis, and exit condition), nothing here has had that rigour applied yet. Two ideas from this same brainstorming — **Bring Your Own Runtime** and **Engineering Time Machine** — already graduated into ROADMAP.md as Milestones 18 and 19; they're not re-listed here.
+A shopping list, not a priority order. The purpose of this document is not to predict the future, but to ensure good ideas are not forgotten before there is enough user evidence to justify building them. Every idea below came out of the same brainstorming conversations (`ChatGPT-Brainstorming-Convo.txt` plus earlier chat discussion) and is captured here so nothing gets lost before it's decided whether to build it. None of these are roadmap commitments — unlike ROADMAP.md's numbered milestones (each with a specific promise, trigger, hypothesis, and exit condition), nothing here has had that rigour applied yet. Two ideas from this same brainstorming — **Bring Your Own Runtime** and **Engineering Time Machine** — already graduated into ROADMAP.md as Milestones 18 and 19; they're not re-listed here.
 
 The recurring theme, in the words that prompted this document: **ctxhub doesn't replace existing systems — it registers them, understands them, and orchestrates them.** Most entries below are a variation on that pattern applied to a new surface (knowledge sources, policy, models, memory, governance, meetings). Each entry notes what it would connect to in the current codebase, where that's known — not as a ranking, just as a pointer for whoever picks it up next.
 
@@ -152,7 +152,7 @@ Voice as a first-class interaction surface alongside CLI, Mission Control, Chat,
 
 Staged rather than all-or-nothing: push-to-talk on web and mobile with off-the-shelf speech-to-text is the cheap, reliable starting point; a local wake phrase ("Hey Captain" — see below), a desktop companion, and an Alexa skill for ambient status checks ("any production incidents? has my mission completed?") are further out and each a real, separate integration surface, not a bigger version of the same feature.
 
-**"Hey Captain" is branding, not just a wake word.** The platform's existing vocabulary — Mission Control, Captains, Workers, Missions — already gives it an identity distinct from "an AI assistant." A voice interface that says "Hey Captain" instead of "Hey AI" reinforces that the user is addressing the operating model, not a generic chatbot; worth keeping in mind for any voice work even before wake-word detection itself is real.
+> **Brand note:** "Hey Captain" is intentionally more than a wake phrase. The platform's existing vocabulary — Mission Control, Captains, Workers, Missions — already gives it an identity distinct from "an AI assistant"; a voice interface that says "Hey Captain" instead of "Hey AI" reinforces that users are interacting with the engineering operating model, not a generic chatbot. Worth keeping in mind for any voice work even before wake-word detection itself is real.
 
 ---
 
@@ -161,3 +161,5 @@ Staged rather than all-or-nothing: push-to-talk on web and mobile with off-the-s
 Looking across everything above, a consistent pattern emerges: none of these ideas are attempts to replace an existing engineering system. They're different ways of interacting with, extending, or reasoning over the same underlying operating model. Whether through voice, workflows, meetings, knowledge sources, workers, or marketplace integrations, the platform underneath stays the same. The interfaces evolve independently; the engineering operating model is the constant.
 
 That's the thesis this whole document keeps arriving at from different directions, and it's worth stating once, plainly, rather than leaving it implicit in 31 separate entries: **import rather than recreate, orchestrate rather than replace, capture rather than lose, recommend rather than automate, learn rather than repeat.**
+
+These five principles have become useful evaluation criteria in their own right. Future ideas that don't reinforce at least one of them should probably be challenged before being added to this document.
