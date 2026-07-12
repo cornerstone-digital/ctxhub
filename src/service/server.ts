@@ -454,6 +454,20 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // ── Blueprint Hub (proxies the Cloud registry, same pattern as /cloud/*) ────────────────
+  if (req.method === 'GET' && url.pathname === '/blueprints/hub') {
+    await handleBlueprintHubList(req, res, url);
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/blueprints/hub/install') {
+    if (!hasRole(authOutcome.principal, 'admin')) {
+      sendJson(res, 403, { error: 'forbidden', hint: 'Admin or owner role required to install blueprints' });
+      return;
+    }
+    await handleBlueprintHubInstall(req, res);
+    return;
+  }
+
   const skillsMatch = /^\/workspaces\/([^/]+)\/skills$/.exec(url.pathname);
   if (req.method === 'GET' && skillsMatch) {
     await handleGetSkillsStatus(res, decodeURIComponent(skillsMatch[1]));
@@ -993,6 +1007,48 @@ async function handleRolesList(res: http.ServerResponse): Promise<void> {
   const { VALID_ROLES } = await import('../auth/roles.js');
   const store = await loadCustomRoleStore();
   sendJson(res, 200, { builtIn: VALID_ROLES, custom: store.roles });
+}
+
+// ── Blueprint Hub (proxies the Cloud registry) ──────────────────────────────────────────
+
+async function handleBlueprintHubList(_req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+  try {
+    const { getSyncConfig } = await import('../cloud/sync.js');
+    const { listRegistryBlueprints } = await import('../blueprints/registryClient.js');
+
+    const syncConfig = await getSyncConfig();
+    if (!syncConfig) {
+      sendJson(res, 200, { blueprints: [], configured: false });
+      return;
+    }
+
+    const q = url.searchParams.get('q') ?? undefined;
+    const blueprints = await listRegistryBlueprints(syncConfig, q);
+    sendJson(res, 200, { blueprints, configured: true });
+  } catch (error) {
+    sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleBlueprintHubInstall(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const body = (await readJsonBody(req)) as { target?: string; ignoreDeps?: boolean };
+  if (!body.target?.trim()) {
+    sendJson(res, 400, { error: 'target is required (a registry name[@version])' });
+    return;
+  }
+
+  try {
+    const { resolveInstallTarget, installBlueprintArchive } = await import('../commands/blueprint.js');
+    const resolved = await resolveInstallTarget(body.target.trim());
+    try {
+      const { installed, depOrder } = await installBlueprintArchive(resolved.archivePath, { ignoreDeps: body.ignoreDeps });
+      sendJson(res, 200, { installed, depOrder: depOrder ?? [] });
+    } finally {
+      await resolved.cleanup();
+    }
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 async function handleAddRepo(req: http.IncomingMessage, res: http.ServerResponse, name: string): Promise<void> {
