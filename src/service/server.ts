@@ -723,6 +723,32 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // ── SAML routes ────────────────────────────────────────────────────────────
+  // For a browser hitting this *deployed* instance directly (IdP-initiated SSO from the
+  // customer's IdP portal, or SP-initiated from a browser rather than the CLI). The CLI's
+  // own `ctxhub login` uses a separate local-only flow (samlLoginFlow.ts) that never touches
+  // this service. Since this service is Bearer-JWT-only with no cookie/session support
+  // (same as OIDC -- there's no browser session mechanism here at all today), a successful
+  // ACS validation issues a JWT and shows it on the page for the user to copy, rather than
+  // establishing a Mission Control session. That's a real, documented limitation, not an
+  // oversight: building real session support is a separate, larger change to the web auth
+  // model that OIDC doesn't have either.
+
+  if (req.method === 'GET' && url.pathname === '/auth/saml/metadata') {
+    await handleSamlMetadata(res);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/auth/saml/login') {
+    await handleSamlLoginRedirect(res);
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/auth/saml/acs') {
+    await handleSamlAcs(req, res);
+    return;
+  }
+
   // ── Corporate Groups ──────────────────────────────────────────────────────
 
   if (req.method === 'POST' && url.pathname === '/groups') {
@@ -998,6 +1024,79 @@ async function handleWorkspaceMemberRevoke(res: http.ServerResponse, name: strin
   config.workspace.memberOverrides = Object.keys(overrides).length ? overrides : undefined;
   await saveConfig(config, workspaceRoot);
   sendJson(res, 200, { revoked: existed });
+}
+
+// ── SAML ──────────────────────────────────────────────────────────────────────
+
+function samlResultPage(success: boolean, message: string, token?: string): string {
+  const icon = success ? '✓' : '✗';
+  const color = success ? '#22c55e' : '#ef4444';
+  const title = success ? 'Signed in via SAML' : 'SAML sign-in failed';
+  const tokenBlock = success && token
+    ? `<p style="margin-top:1rem">This deployment has no browser session mechanism (same as OIDC) -- use this token as a Bearer credential:</p>
+       <textarea readonly style="width:100%;height:80px;background:#18181b;color:#a1a1aa;border:1px solid #27272a;border-radius:8px;padding:.5rem;font-family:monospace;font-size:.75rem" onclick="this.select()">${token}</textarea>`
+    : '';
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title>
+<style>*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#09090b;color:#fafafa}.card{text-align:center;padding:2.5rem 2rem;border:1px solid #27272a;border-radius:12px;max-width:480px;width:100%}.icon{font-size:2.5rem;color:${color};margin-bottom:.5rem}h1{font-size:1.125rem;font-weight:600;margin:0 0 .5rem}p{color:#a1a1aa;font-size:.875rem;margin:.25rem 0}</style>
+</head><body><div class="card"><div class="icon">${icon}</div><h1>${title}</h1><p>${message}</p>${tokenBlock}</div></body></html>`;
+}
+
+async function handleSamlMetadata(res: http.ServerResponse): Promise<void> {
+  const { loadAuthConfig, generateSpMetadata } = await import('../auth/index.js');
+  const config = await loadAuthConfig();
+  if (config?.protocol !== 'saml' || !config.saml) {
+    sendJson(res, 404, { error: 'SAML is not configured on this instance' });
+    return;
+  }
+  const xml = generateSpMetadata(config.saml);
+  res.writeHead(200, { 'Content-Type': 'application/xml', 'X-Content-Type-Options': 'nosniff' });
+  res.end(xml);
+}
+
+async function handleSamlLoginRedirect(res: http.ServerResponse): Promise<void> {
+  const { loadAuthConfig, getSamlAuthorizeUrl } = await import('../auth/index.js');
+  const config = await loadAuthConfig();
+  if (config?.protocol !== 'saml' || !config.saml) {
+    sendJson(res, 404, { error: 'SAML is not configured on this instance' });
+    return;
+  }
+  try {
+    const url = await getSamlAuthorizeUrl(config.saml);
+    res.writeHead(302, { Location: url });
+    res.end();
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleSamlAcs(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const { loadAuthConfig, validateSamlResponse, resolveRoles, issueAccessToken } = await import('../auth/index.js');
+  const config = await loadAuthConfig();
+  if (config?.protocol !== 'saml' || !config.saml) {
+    res.writeHead(404, { 'Content-Type': 'text/html' }).end(samlResultPage(false, 'SAML is not configured on this instance'));
+    return;
+  }
+
+  try {
+    const raw = await readRawBody(req);
+    const params = new URLSearchParams(raw.toString('utf8'));
+    const samlResponse = params.get('SAMLResponse');
+    if (!samlResponse) {
+      res.writeHead(400, { 'Content-Type': 'text/html' }).end(samlResultPage(false, 'No SAMLResponse in callback'));
+      return;
+    }
+
+    const profile = await validateSamlResponse(config.saml, samlResponse);
+    const roles = resolveRoles({ groups: profile.groups }, profile.nameId, config.roleMap);
+    const { token } = issueAccessToken({ sub: profile.nameId, email: profile.email, name: profile.name, roles }, config.jwtSecret);
+
+    try { eventBus.publish({ type: 'auth.login', sub: profile.nameId, email: profile.email, name: profile.name, roles, provider: 'saml' }); } catch { /* audit failure must not break auth */ }
+    res.writeHead(200, { 'Content-Type': 'text/html' }).end(samlResultPage(true, `Signed in as ${profile.email}`, token));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    try { eventBus.publish({ type: 'auth.login_failed', error: message }); } catch { /* audit failure must not break auth */ }
+    res.writeHead(400, { 'Content-Type': 'text/html' }).end(samlResultPage(false, message));
+  }
 }
 
 // ── Custom roles (read) ──────────────────────────────────────────────────────
