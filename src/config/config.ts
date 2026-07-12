@@ -61,7 +61,8 @@ function mergeConfig(parsed: Partial<CtxhubConfig>): CtxhubConfig {
     privacy: { ...defaultConfig.privacy, ...parsed.privacy },
     llm: { ...defaultConfig.llm, ...parsed.llm },
     executionProfiles: { ...defaultConfig.executionProfiles, ...parsed.executionProfiles },
-    repositories: parsed.repositories ?? []
+    repositories: parsed.repositories ?? [],
+    evidenceSources: parsed.evidenceSources ?? []
   };
 }
 

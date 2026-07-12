@@ -39,6 +39,7 @@ const CATEGORY_BY_TOP_LEVEL: Record<string, string> = {
   onboard: 'Setup',
   doctor: 'Setup',
   repo: 'Repositories',
+  source: 'Repositories',
   index: 'Index & Sync',
   sync: 'Index & Sync',
   watch: 'Index & Sync',

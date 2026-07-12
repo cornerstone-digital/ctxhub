@@ -1,17 +1,14 @@
-import path from 'node:path';
-import { stat } from 'node:fs/promises';
-import fg from 'fast-glob';
-import type { IndexedChunk, RepoConfig } from '../config/types.js';
+import type { IndexedChunk } from '../config/types.js';
 import { loadManifest, manifestKey, saveManifest } from './manifest.js';
 import { loadWorkspaceConfig } from '../config/config.js';
 import { createIndexProvider } from './providers.js';
-import { pathExists, readText } from '../utils/fs.js';
 import { sha256 } from '../utils/hash.js';
-import { getCurrentCommit } from '../git/git.js';
 import { buildFileSummaryChunkWithLlm, chunkDocument, extractTitle, type ChunkTrustTier } from './chunk.js';
 import { redactContent } from './redact.js';
 import { mapWithConcurrencyLimit } from '../utils/concurrency.js';
 import { loadCtxhubIgnorePatterns } from './ctxhubignore.js';
+import type { Evidence, EvidenceSource } from './evidenceSource.js';
+import { createEvidenceSource, createGitEvidenceSource } from './evidenceSources/index.js';
 
 export type IndexResult = {
   scanned: number;
@@ -26,40 +23,46 @@ export type IndexProgressEvent =
   | { type: 'repo-missing'; repo: string }
   | { type: 'repo-done'; repo: string; scanned: number; indexed: number; skipped: number };
 
-// How often (ms) to emit a repo-progress event while scanning a repo's files. Time-based
-// rather than count-based so it scales correctly regardless of repo size or how slow
-// individual files are to hash/chunk/index -- a huge repo of tiny files and a smaller
-// repo of a few huge files both get an update roughly this often, not too chatty either way.
+// How often (ms) to emit a repo-progress event while scanning a source's items. Time-based
+// rather than count-based so it scales correctly regardless of source size or how slow
+// individual items are to hash/chunk/index.
 const PROGRESS_THROTTLE_MS = 100;
 
-// Reading, hashing, chunking, and the optional per-file LLM summary call are I/O/subprocess-bound,
+// Reading, hashing, chunking, and the optional per-item LLM summary call are I/O/subprocess-bound,
 // not CPU-bound -- real OS threads (worker_threads) wouldn't help here, since Node's event loop
-// already runs concurrent I/O fine on its own. This is the default number of files whose "prepare"
+// already runs concurrent I/O fine on its own. This is the default number of items whose "prepare"
 // step (everything up to but not including the actual index write) runs concurrently; the actual
-// write to the index provider still happens one file at a time, in original file order, since
-// overlapping multi-step writes isn't guaranteed safe for every IndexProvider implementation.
-// Batched (not one single pool over the whole repo) so peak memory only grows by this many files'
-// worth of pending chunks at a time, not the entire repo's.
+// write to the index provider still happens one item at a time, in the order pulled from the
+// source, since overlapping multi-step writes isn't guaranteed safe for every IndexProvider
+// implementation. Batched (not one single pool over the whole source) so peak memory only grows
+// by this many items' worth of pending chunks at a time, not the entire source's.
 const DEFAULT_INDEX_CONCURRENCY = 8;
 
-type PreparedFile =
+type PreparedItem =
   | { type: 'skip'; key: string }
   | {
       type: 'index';
       key: string;
-      filePath: string;
+      sourceId: string;
       absolutePath: string;
+      commit?: string;
       hash: string;
       chunks: IndexedChunk[];
       existingChunkIds?: string[];
     };
 
-function repoInclude(repo: RepoConfig, globalInclude: string[]): string[] {
-  return repo.include?.length ? repo.include : globalInclude;
-}
-
-function repoExclude(repo: RepoConfig, globalExclude: string[]): string[] {
-  return repo.exclude?.length ? repo.exclude : globalExclude;
+// Pulls up to `size` items from an async iterator. A GitEvidenceSource/LandRegistryEvidenceSource
+// etc. already batches its own internal work (e.g. concurrent file reads); this just groups
+// whatever comes out of `fetch()` into fixed-size windows so the prepare step below can run
+// concurrently across them without materializing the whole source's evidence in memory.
+async function takeBatch<T>(iterator: AsyncIterator<T>, size: number): Promise<T[]> {
+  const batch: T[] = [];
+  for (let i = 0; i < size; i++) {
+    const { value, done } = await iterator.next();
+    if (done) break;
+    batch.push(value);
+  }
+  return batch;
 }
 
 export async function indexWorkspace(
@@ -73,88 +76,101 @@ export async function indexWorkspace(
 
   const result: IndexResult = { scanned: 0, indexed: 0, skipped: 0, deleted: 0 };
   const seenKeys = new Set<string>();
+  const concurrency = config.index.concurrency ?? DEFAULT_INDEX_CONCURRENCY;
 
-  // Load .ctxhubignore patterns once for the whole workspace run. Merged into
-  // each repo's exclude list so they apply to every file fast-glob scans.
+  // Load .ctxhubignore patterns once for the whole workspace run. Merged into each git
+  // source's exclude list so they apply to every file fast-glob scans.
   const ignorePatterns = await loadCtxhubIgnorePatterns(workspaceRoot);
 
+  // ADR-020: a workspace's evidence sources are its repositories plus whatever non-git
+  // EvidenceSource adapters are configured -- additive, no privileged kind.
+  const sources: EvidenceSource[] = [
+    ...config.repositories.map(repo =>
+      createGitEvidenceSource(repo, workspaceRoot, config.knowledge.include, config.knowledge.exclude, ignorePatterns, concurrency)
+    ),
+    ...(config.evidenceSources ?? []).map(createEvidenceSource)
+  ];
+
   try {
-  for (const repo of config.repositories) {
-    const repoPath = path.resolve(workspaceRoot, repo.path);
-    if (!(await pathExists(repoPath))) {
-      onProgress?.({ type: 'repo-missing', repo: repo.name });
+  for (const source of sources) {
+    if (!(await source.detect())) {
+      onProgress?.({ type: 'repo-missing', repo: source.name });
       continue;
     }
 
-    onProgress?.({ type: 'repo-start', repo: repo.name });
-    const repoCounts = { scanned: 0, indexed: 0, skipped: 0 };
+    onProgress?.({ type: 'repo-start', repo: source.name });
+    const sourceCounts = { scanned: 0, indexed: 0, skipped: 0 };
 
-    const files = await fg(repoInclude(repo, config.knowledge.include), {
-      cwd: repoPath,
-      ignore: [...repoExclude(repo, config.knowledge.exclude), ...ignorePatterns],
-      onlyFiles: true,
-      dot: false
-    });
+    let iterationFailed = false;
+    let total = 0;
+    let iterator: AsyncIterator<Evidence>;
+    try {
+      const fetched = await source.fetch();
+      total = fetched.total;
+      iterator = fetched.items[Symbol.asyncIterator]();
+    } catch (err) {
+      console.warn(`[indexer] ${source.name}: ${err instanceof Error ? err.message : String(err)}`);
+      onProgress?.({ type: 'repo-done', repo: source.name, ...sourceCounts });
+      continue;
+    }
 
-    const commit = await getCurrentCommit(repoPath);
-
-    onProgress?.({ type: 'repo-progress', repo: repo.name, scanned: 0, total: files.length });
+    onProgress?.({ type: 'repo-progress', repo: source.name, scanned: 0, total });
     let lastProgressAt = Date.now();
 
-    const concurrency = config.index.concurrency ?? DEFAULT_INDEX_CONCURRENCY;
+    while (true) {
+      let batch: Evidence[];
+      try {
+        batch = await takeBatch(iterator, concurrency);
+      } catch (err) {
+        console.warn(`[indexer] ${source.name}: ${err instanceof Error ? err.message : String(err)}`);
+        iterationFailed = true;
+        break;
+      }
+      if (batch.length === 0) break;
 
-    for (let batchStart = 0; batchStart < files.length; batchStart += concurrency) {
-      const batch = files.slice(batchStart, batchStart + concurrency);
+      // Prepare runs concurrently across the batch -- hash, redact, chunk, and the optional
+      // LLM summary call are all independent per item. Promise ordering guarantees `prepared`
+      // comes back in the same order as `batch`, so the commit phase below stays deterministic.
+      const prepared = await mapWithConcurrencyLimit(batch, concurrency, async (evidence): Promise<PreparedItem> => {
+        const key = manifestKey(source.name, evidence.sourceId);
 
-      // Prepare runs concurrently across the batch -- read, hash, redact, chunk, and the
-      // optional LLM summary call are all independent per file. Promise ordering guarantees
-      // `prepared` comes back in the same order as `batch`, so the commit phase below stays
-      // deterministic (progress/counts/manifest updates happen in original file order)
-      // regardless of which file's prepare step actually finished first.
-      const prepared = await mapWithConcurrencyLimit(batch, concurrency, async (filePath): Promise<PreparedFile> => {
-        const absolutePath = path.join(repoPath, filePath);
-        const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
-        const key = manifestKey(repo.name, filePath);
-        const fileStat = await stat(absolutePath).catch(() => null);
-        if (!fileStat || fileStat.size > MAX_FILE_BYTES) {
-          console.warn(`[indexer] skipping ${filePath}: ${fileStat ? `file too large (${fileStat.size} bytes)` : 'stat failed'}`);
+        if (evidence.unreadable) {
           return { type: 'skip', key };
         }
-        const raw = await readText(absolutePath);
-        const hash = sha256(raw);
 
+        const hash = sha256(evidence.content);
         const existing = manifest.files[key];
         if (!force && existing?.hash === hash) {
           return { type: 'skip', key };
         }
 
-        const redaction = redactContent(raw, config.privacy.redactPatterns);
+        const redaction = redactContent(evidence.content, config.privacy.redactPatterns);
         const title = extractTitle(redaction.content);
-        const parts = chunkDocument(filePath, redaction.content, config.index.chunkSize);
-        const summaryChunk = await buildFileSummaryChunkWithLlm(filePath, title, parts, redaction.content, config);
+        const parts = chunkDocument(evidence.sourceId, redaction.content, config.index.chunkSize);
+        const summaryChunk = await buildFileSummaryChunkWithLlm(evidence.sourceId, title, parts, redaction.content, config);
         // Appended, not prepended -- keeps every existing chunk's index (and therefore its
-        // deterministic id) unchanged when this feature is added to an already-indexed file.
+        // deterministic id) unchanged when this feature is added to an already-indexed item.
         const allParts = summaryChunk ? [...parts, summaryChunk] : parts;
 
-        // Detect trust tier from YAML frontmatter.
-        // Explicit `trust-tier: <tier>` wins if present (written by captainNoteTemplate for
-        // promoted captain runs, or set manually).
-        // Notes promoted from MemPalace carry `promoted-from: mempalace:...` and are given
-        // the 'promoted' tier as a fallback.
-        // All other documents default to 'unverified'.
-        const explicitTierMatch = raw.match(/^trust-tier\s*:\s*(\S+)/m);
+        // Detect trust tier from YAML frontmatter (git sources) or default to 'unverified'
+        // (every other source today -- freshly-fetched evidence has no trust of its own,
+        // per ADR-020/ADR-008; it earns trust through review and promotion, not on arrival).
+        const explicitTierMatch = evidence.content.match(/^trust-tier\s*:\s*(\S+)/m);
         const explicitTier = explicitTierMatch?.[1] as ChunkTrustTier | undefined;
         const validTiers: ChunkTrustTier[] = ['unverified', 'reviewed', 'promoted', 'institutional', 'canonical'];
         const trustTier: ChunkTrustTier =
           explicitTier && validTiers.includes(explicitTier)
             ? explicitTier
-            : /^promoted-from\s*:/m.test(raw) ? 'promoted' : 'unverified';
+            : /^promoted-from\s*:/m.test(evidence.content) ? 'promoted' : 'unverified';
+
+        const absolutePath = typeof evidence.metadata.absolutePath === 'string' ? evidence.metadata.absolutePath : evidence.sourceId;
+        const commit = typeof evidence.metadata.commit === 'string' ? evidence.metadata.commit : undefined;
 
         const chunks: IndexedChunk[] = allParts.map((part, i) => ({
-          id: sha256(`${repo.name}:${filePath}:${hash}:${i}`),
+          id: sha256(`${source.name}:${evidence.sourceId}:${hash}:${i}`),
           workspace: config.workspace.name,
-          repo: repo.name,
-          filePath,
+          repo: source.name,
+          filePath: evidence.sourceId,
           absolutePath,
           kind: part.kind ?? 'document',
           diagramType: part.diagramType,
@@ -171,26 +187,26 @@ export async function indexWorkspace(
           trustTier,
         }));
 
-        return { type: 'index', key, filePath, absolutePath, hash, chunks, existingChunkIds: existing?.chunkIds };
+        return { type: 'index', key, sourceId: evidence.sourceId, absolutePath, commit, hash, chunks, existingChunkIds: existing?.chunkIds };
       });
 
-      // Commit runs strictly sequentially -- one file's write to the index provider fully
+      // Commit runs strictly sequentially -- one item's write to the index provider fully
       // completes before the next starts, so multi-step writes (remove-then-add, conditional
       // index creation) never overlap, regardless of how the prepare phase above interleaved.
       for (const item of prepared) {
         result.scanned++;
-        repoCounts.scanned++;
+        sourceCounts.scanned++;
         seenKeys.add(item.key);
 
         const now = Date.now();
         if (now - lastProgressAt >= PROGRESS_THROTTLE_MS) {
-          onProgress?.({ type: 'repo-progress', repo: repo.name, scanned: repoCounts.scanned, total: files.length });
+          onProgress?.({ type: 'repo-progress', repo: source.name, scanned: sourceCounts.scanned, total });
           lastProgressAt = now;
         }
 
         if (item.type === 'skip') {
           result.skipped++;
-          repoCounts.skipped++;
+          sourceCounts.skipped++;
           continue;
         }
 
@@ -200,20 +216,29 @@ export async function indexWorkspace(
 
         await index.indexDocuments(item.chunks);
         manifest.files[item.key] = {
-          repo: repo.name,
-          filePath: item.filePath,
+          repo: source.name,
+          filePath: item.sourceId,
           absolutePath: item.absolutePath,
           hash: item.hash,
-          commit,
+          commit: item.commit,
           indexedAt: new Date().toISOString(),
           chunkIds: item.chunks.map(c => c.id)
         };
         result.indexed++;
-        repoCounts.indexed++;
+        sourceCounts.indexed++;
       }
     }
 
-    onProgress?.({ type: 'repo-done', repo: repo.name, ...repoCounts });
+    // A mid-run fetch failure (network blip, etc.) shouldn't be treated the same as "this
+    // item no longer exists" -- mark this source's already-indexed entries as seen so the
+    // stale-cleanup pass below doesn't delete previously-indexed content over a transient error.
+    if (iterationFailed) {
+      for (const [key, entry] of Object.entries(manifest.files)) {
+        if (entry.repo === source.name) seenKeys.add(key);
+      }
+    }
+
+    onProgress?.({ type: 'repo-done', repo: source.name, ...sourceCounts });
   }
 
   for (const [key, entry] of Object.entries(manifest.files)) {

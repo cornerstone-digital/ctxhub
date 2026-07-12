@@ -1,6 +1,7 @@
 import { Argument, Command, Option } from 'commander';
 import { initCommand } from '../commands/init.js';
 import { repoAddCommand, repoDiscoverCommand, repoHookCommand, repoListCommand } from '../commands/repo.js';
+import { sourceAddLandRegistryCommand, sourceListCommand } from '../commands/source.js';
 import { indexCommand } from '../commands/index.js';
 import { searchCommand } from '../commands/search.js';
 import { syncCommand } from '../commands/sync.js';
@@ -185,6 +186,22 @@ export function buildProgram(): Command {
     .description('Install a post-commit hook that re-indexes the workspace after each commit')
     .option('-f, --force', 'Overwrite an existing post-commit hook')
     .action(repoHookCommand);
+
+  // ADR-020: non-git evidence sources. See docs/evidence_sources_architecture.md.
+  const source = program.command('source').description('Manage non-git evidence sources');
+
+  source
+    .command('add-land-registry')
+    .argument('<name>', 'Evidence source name')
+    .requiredOption('--area <outcode>', 'UK postcode outcode to filter to, e.g. SW1A')
+    .option('--since <date>', 'ISO date; only transactions on or after this date (default: last 12 months)')
+    .description('Add a UK Land Registry Price Paid Data evidence source for a postcode area')
+    .action(sourceAddLandRegistryCommand);
+
+  source
+    .command('list')
+    .description('List configured evidence sources (repositories and non-git sources)')
+    .action(sourceListCommand);
 
   const ci = program.command('ci').description('Scaffold CI integrations for ctxhub workspace checks');
 

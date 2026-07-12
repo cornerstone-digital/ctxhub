@@ -6,6 +6,20 @@ export type RepoConfig = {
   git?: boolean;
 };
 
+// ADR-020 / docs/evidence_sources_architecture.md: a workspace's root concept is Evidence
+// Sources, not Repositories. This union is additive alongside `repositories` -- git keeps
+// working through RepoConfig unchanged; this is where non-git adapter configs land.
+export type LandRegistryEvidenceSourceConfig = {
+  kind: 'land-registry';
+  name: string;
+  /** UK postcode outcode, e.g. 'SW1A'. Matches Land Registry's own postcode filter. */
+  postcodeArea: string;
+  /** ISO date. Defaults to the last 12 months when absent. */
+  sinceDate?: string;
+};
+
+export type EvidenceSourceConfig = LandRegistryEvidenceSourceConfig;
+
 export type CtxhubConfig = {
   version: number;
   workspace: {
@@ -16,6 +30,9 @@ export type CtxhubConfig = {
     memberOverrides?: Record<string, string>;
   };
   repositories: RepoConfig[];
+  // Additive alongside `repositories` -- see ADR-020. Optional: absent/empty means
+  // no non-git evidence sources are configured, and nothing about indexing changes.
+  evidenceSources?: EvidenceSourceConfig[];
   knowledge: {
     include: string[];
     exclude: string[];

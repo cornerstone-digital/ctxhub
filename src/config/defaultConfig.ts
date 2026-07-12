@@ -6,6 +6,7 @@ export const defaultConfig: CtxhubConfig = {
     name: 'ctxhub-workspace'
   },
   repositories: [],
+  evidenceSources: [],
   knowledge: {
     include: [
       'README.md',

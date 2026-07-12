@@ -108,3 +108,31 @@ test('indexWorkspace tags source-code chunks with symbol metadata that search re
     assert.equal(results[0].symbolKind, 'function');
   });
 });
+
+test('indexWorkspace indexes a non-git evidence source (ADR-020) alongside git repositories, as unverified evidence', () => {
+  return withWorkspace(async cwd => {
+    const config = await loadConfig(cwd);
+    config.evidenceSources = [{ kind: 'land-registry', name: 'sw1a-sales', postcodeArea: 'SW1A', sinceDate: '2020-01-01' }];
+    await saveConfig(config, cwd);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return { ok: true, status: 200 } as Response;
+      const csv = '"{TXN-1}","360000","2025-06-01 00:00","SW1A 1AA","F","N","L","81","","SALISBURY ROAD","","LONDON","WESTMINSTER","GREATER LONDON","A","A"';
+      return { ok: true, status: 200, text: async () => csv } as Response;
+    }) as typeof globalThis.fetch;
+
+    try {
+      const result = await indexWorkspace(cwd);
+      // +1 for the git fixture's thing.ts, +1 for the one Land Registry transaction.
+      assert.equal(result.indexed, 2);
+
+      const updatedConfig = await loadConfig(cwd);
+      const index = createIndexProvider(updatedConfig.index.provider, updatedConfig.index.path, updatedConfig.index.table, cwd);
+      const results = await index.search('Salisbury Road', 5);
+      assert.ok(results.some(r => r.repo === 'sw1a-sales' && r.trustTier === 'unverified'), 'expected the Land Registry transaction to be indexed as unverified evidence');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
