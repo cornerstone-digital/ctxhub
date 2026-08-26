@@ -47,7 +47,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@inquirer/prompts": "^7.3.2",
+    "@inquirer/prompts": "^8.6.0",
     "@lancedb/lancedb": "^0.31.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@node-saml/node-saml": "^5.1.0",
